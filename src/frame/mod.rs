@@ -7,6 +7,7 @@ pub mod id;
 pub mod set;
 pub mod storage;
 
+pub use set::FrameMerkleSet;
 pub use storage::FrameStorage;
 
 use crate::types::{FrameID, NodeID};
