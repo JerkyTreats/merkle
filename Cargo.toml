@@ -12,7 +12,7 @@ repository = "https://github.com/yourorg/merkle"
 blake3 = "1.5"
 
 # Merkle tree for frame sets
-rs-merkle = "2.0"
+rs_merkle = "1.5"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }

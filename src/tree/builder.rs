@@ -5,7 +5,7 @@ use crate::tree::hasher;
 use crate::tree::node::{DirectoryNode, FileNode, MerkleNode};
 use crate::tree::path;
 use crate::tree::walker::{Entry, Walker};
-use crate::types::{Hash, NodeID};
+use crate::types::NodeID;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 

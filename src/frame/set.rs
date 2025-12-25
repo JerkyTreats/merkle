@@ -19,7 +19,7 @@ impl Default for FrameMerkleSet {
 impl FrameMerkleSet {
     pub fn new() -> Self {
         // TODO: Implement
-        FrameMerkleSet
+        FrameMerkleSet {}
     }
 
     pub fn add_frame(&mut self, _frame_id: FrameID) -> Result<Hash, crate::error::StorageError> {

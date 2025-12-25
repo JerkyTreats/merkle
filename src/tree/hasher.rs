@@ -19,7 +19,8 @@ pub fn compute_file_node_id(
     metadata: &BTreeMap<String, String>,
 ) -> Result<NodeID, StorageError> {
     let canonical_path = path::canonicalize_path(file_path)?;
-    let path_bytes = canonical_path.to_string_lossy().as_bytes();
+    let path_string = canonical_path.to_string_lossy();
+    let path_bytes = path_string.as_bytes();
 
     let mut hasher = Hasher::new();
 
@@ -57,7 +58,8 @@ pub fn compute_directory_node_id(
     metadata: &BTreeMap<String, String>,
 ) -> Result<NodeID, StorageError> {
     let canonical_path = path::canonicalize_path(dir_path)?;
-    let path_bytes = canonical_path.to_string_lossy().as_bytes();
+    let path_string = canonical_path.to_string_lossy();
+    let path_bytes = path_string.as_bytes();
 
     let mut hasher = Hasher::new();
 

@@ -8,7 +8,7 @@ pub mod persistence;
 pub use persistence::SledNodeRecordStore;
 
 use crate::error::StorageError;
-use crate::tree::node::{DirectoryNode, FileNode, MerkleNode};
+use crate::tree::node::MerkleNode;
 use crate::tree::Tree;
 use crate::types::{Hash, NodeID};
 use serde::{Deserialize, Serialize};

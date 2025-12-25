@@ -8,3 +8,5 @@ pub mod hasher;
 pub mod node;
 pub mod path;
 pub mod walker;
+
+pub use builder::Tree;

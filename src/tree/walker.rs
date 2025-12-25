@@ -1,7 +1,7 @@
 //! Filesystem walker for traversing directory structures
 
 use crate::error::StorageError;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use walkdir::{DirEntry, WalkDir};
 
 /// Filesystem entry types
