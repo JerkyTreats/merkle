@@ -7,6 +7,8 @@ pub mod id;
 pub mod set;
 pub mod storage;
 
+pub use storage::FrameStorage;
+
 use crate::types::{FrameID, NodeID};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
