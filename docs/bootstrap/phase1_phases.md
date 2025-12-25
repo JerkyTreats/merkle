@@ -15,10 +15,10 @@
 
 | Task | Status |
 |-----|--------|
-| Filesystem walker | Todo |
-| File hashing | Todo |
-| Directory hashing | Todo |
-| Root computation | Todo |
+| Filesystem walker | ✅ Complete |
+| File hashing | ✅ Complete |
+| Directory hashing | ✅ Complete |
+| Root computation | ✅ Complete |
 
 ### Phase 1C — NodeRecord Store
 

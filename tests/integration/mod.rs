@@ -2,3 +2,5 @@
 
 mod blake3_verification;
 mod hasher_verification;
+mod tree_determinism;
+mod tree_structure;
