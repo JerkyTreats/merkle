@@ -24,9 +24,9 @@
 
 | Task | Status |
 |-----|--------|
-| Schema definition | Todo |
-| Persistence layer | Todo |
-| Fast lookup API | Todo |
+| Schema definition | ✅ Complete |
+| Persistence layer | ✅ Complete |
+| Fast lookup API | ✅ Complete |
 
 ### Phase 1D — Context Frames
 

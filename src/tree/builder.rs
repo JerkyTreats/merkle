@@ -16,6 +16,29 @@ pub struct Tree {
     pub root_id: NodeID,
     /// Map of NodeID to MerkleNode
     pub nodes: HashMap<NodeID, MerkleNode>,
+    /// Map of NodeID to parent NodeID (for fast parent lookups)
+    parent_map: HashMap<NodeID, NodeID>,
+}
+
+impl Tree {
+    /// Find the parent NodeID for a given node
+    ///
+    /// Returns None if the node is the root or not found.
+    pub fn find_parent(&self, node_id: &NodeID) -> Option<NodeID> {
+        self.parent_map.get(node_id).copied()
+    }
+
+    /// Get all children NodeIDs for a given node
+    ///
+    /// Returns an empty vector if the node is a file or not found.
+    pub fn get_children(&self, node_id: &NodeID) -> Vec<NodeID> {
+        match self.nodes.get(node_id) {
+            Some(MerkleNode::Directory(dir)) => {
+                dir.children.iter().map(|(_, child_id)| *child_id).collect()
+            }
+            _ => vec![],
+        }
+    }
 }
 
 /// Tree builder for constructing filesystem Merkle trees
@@ -82,7 +105,20 @@ impl TreeBuilder {
             nodes.insert(node_id, MerkleNode::Directory(dir_node));
         }
 
-        // Step 5: Get root directory NodeID
+        // Step 5: Build parent map for fast parent lookups
+        // For each directory, map all its children to the directory as their parent
+        let mut parent_map: HashMap<NodeID, NodeID> = HashMap::new();
+
+        for (node_id, node) in &nodes {
+            if let MerkleNode::Directory(dir) = node {
+                // All children of this directory have this directory as their parent
+                for (_, child_node_id) in &dir.children {
+                    parent_map.insert(*child_node_id, *node_id);
+                }
+            }
+        }
+
+        // Step 6: Get root directory NodeID
         let canonical_root = path::canonicalize_path(&self.root)?;
         let root_id = node_map
             .get(&canonical_root)
@@ -97,6 +133,7 @@ impl TreeBuilder {
         Ok(Tree {
             root_id,
             nodes,
+            parent_map,
         })
     }
 
