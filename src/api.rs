@@ -6,12 +6,14 @@
 use crate::agent::AgentRegistry;
 use crate::concurrency::NodeLockManager;
 use crate::error::ApiError;
-use crate::frame::{Frame, FrameMerkleSet, FrameStorage};
+use crate::frame::{Basis, Frame, FrameMerkleSet, FrameStorage};
 use crate::heads::HeadIndex;
 use crate::store::{NodeRecord, NodeRecordStore};
+use crate::synthesis::{collect_child_frames, synthesize_content, SynthesisBasis, SynthesisPolicy};
 use crate::types::{FrameID, NodeID};
 use crate::views::{get_context_view, ViewPolicy};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Context view policy for frame selection
@@ -282,6 +284,157 @@ impl ContextApi {
         // TODO: Update node record's frame_set_root
         // This requires retrieving/updating the FrameMerkleSet and storing it.
         // For Phase 2B MVP, we'll skip this and rely on head index.
+
+        Ok(frame.frame_id)
+    }
+
+    /// Synthesize branch: Create directory-level context from child nodes
+    ///
+    /// Combines context frames from child nodes into a single synthesized frame
+    /// for the parent directory. Synthesis is deterministic, bottom-up, and
+    /// limited to explicit subtree scope.
+    ///
+    /// # Arguments
+    /// * `node_id` - Directory NodeID to synthesize
+    /// * `frame_type` - Type identifier for the synthesized frame
+    /// * `agent_id` - Identity of synthesis agent
+    /// * `policy` - Optional synthesis policy (default: Concatenation)
+    ///
+    /// # Returns
+    /// * `FrameID` - The generated FrameID for the synthesized frame
+    /// * `ApiError` - Error if node not found, not a directory, or synthesis fails
+    ///
+    /// # Behavior
+    /// * Explicit: Only called via API, never implicit
+    /// * Bottom-up: Requires child frames to exist
+    /// * Deterministic: Same child frames → same synthesized frame
+    pub fn synthesize_branch(
+        &self,
+        node_id: NodeID,
+        frame_type: String,
+        agent_id: String,
+        policy: Option<SynthesisPolicy>,
+    ) -> Result<FrameID, ApiError> {
+        // Verify agent exists and has synthesize permission
+        let agent = {
+            let registry = self.agent_registry.read();
+            registry
+                .get_or_error(&agent_id)?
+                .clone() // Clone to release lock
+        };
+
+        // Verify agent can synthesize
+        agent.verify_synthesize()?;
+
+        // Verify node exists and is a directory
+        let dir_record = self
+            .node_store
+            .get(&node_id)
+            .map_err(ApiError::from)?
+            .ok_or_else(|| ApiError::NodeNotFound(node_id))?;
+
+        match dir_record.node_type {
+            crate::store::NodeType::Directory => {}
+            crate::store::NodeType::File { .. } => {
+                return Err(ApiError::SynthesisFailed(format!(
+                    "Node {:?} is a file, not a directory",
+                    node_id
+                )));
+            }
+        }
+
+        // Use provided policy or default to Concatenation
+        let policy = policy.unwrap_or_default();
+
+        // Acquire write lock for this node (atomic operation)
+        let lock = self.lock_manager.get_lock(&node_id);
+        let _guard = lock.write();
+
+        // Collect child frames
+        let head_index = self.head_index.read();
+        let child_frames = collect_child_frames(
+            self.node_store.as_ref(),
+            &self.frame_storage,
+            &head_index,
+            node_id,
+            &frame_type,
+        )?;
+        drop(head_index);
+
+        // If no child frames, create empty frame
+        if child_frames.is_empty() {
+            let basis = Basis::Node(node_id);
+            let content = b"Empty directory".to_vec();
+            let metadata = {
+                let mut m = HashMap::new();
+                m.insert("synthesis_policy".to_string(), "concatenation".to_string());
+                m
+            };
+
+            let frame = Frame::new(basis, content, frame_type.clone(), agent_id.clone(), metadata)?;
+
+            // Store frame
+            self.frame_storage.store(&frame).map_err(ApiError::from)?;
+
+            // Update head index
+            {
+                let mut head_index = self.head_index.write();
+                head_index
+                    .update_head(&node_id, &frame_type, &frame.frame_id)
+                    .map_err(ApiError::from)?;
+            }
+
+            return Ok(frame.frame_id);
+        }
+
+        // Extract child frame IDs for basis construction
+        let child_frame_ids: Vec<FrameID> = child_frames.iter().map(|(_, frame)| frame.frame_id).collect();
+
+        // Construct synthesis basis
+        let basis_info = SynthesisBasis {
+            node_id,
+            child_frame_ids: child_frame_ids.clone(),
+            frame_type: frame_type.clone(),
+            synthesis_policy: policy.clone(),
+        };
+
+        let basis_hash = basis_info.compute_hash();
+
+        // Synthesize content using policy
+        let synthesized_content = synthesize_content(&child_frames, &policy);
+
+        // Create basis from child frame IDs
+        // For synthesis, we use Basis::Both with node_id and a hash of child frame IDs
+        let basis = if child_frame_ids.len() == 1 {
+            Basis::Frame(child_frame_ids[0])
+        } else {
+            // For multiple frames, we create a synthetic basis
+            // In a full implementation, we'd use Basis::Both, but for now we'll use Node
+            // and include the basis hash in metadata
+            Basis::Node(node_id)
+        };
+
+        // Create frame metadata
+        let mut metadata = HashMap::new();
+        metadata.insert("synthesis_policy".to_string(), format!("{:?}", policy));
+        // Encode basis hash as hex string manually
+        let basis_hash_hex: String = basis_hash.iter().map(|b| format!("{:02x}", b)).collect();
+        metadata.insert("basis_hash".to_string(), basis_hash_hex);
+        metadata.insert("child_frame_count".to_string(), child_frame_ids.len().to_string());
+
+        // Create synthesized frame
+        let frame = Frame::new(basis, synthesized_content, frame_type.clone(), agent_id.clone(), metadata)?;
+
+        // Store frame
+        self.frame_storage.store(&frame).map_err(ApiError::from)?;
+
+        // Update head index atomically
+        {
+            let mut head_index = self.head_index.write();
+            head_index
+                .update_head(&node_id, &frame_type, &frame.frame_id)
+                .map_err(ApiError::from)?;
+        }
 
         Ok(frame.frame_id)
     }

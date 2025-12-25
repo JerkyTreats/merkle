@@ -10,6 +10,7 @@ pub mod error;
 pub mod frame;
 pub mod heads;
 pub mod store;
+pub mod synthesis;
 pub mod tree;
 pub mod types;
 pub mod views;

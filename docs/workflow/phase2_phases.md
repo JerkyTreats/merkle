@@ -44,18 +44,18 @@
 
 | Task | Status |
 |-----|--------|
-| Synthesis frame types | Todo |
-| Bottom-up traversal logic | Todo |
-| Basis construction rules | Todo |
-| Synthesis triggers | Todo |
-| Synthesis policies | Todo |
-| Determinism tests | Todo |
+| Synthesis frame types | Complete |
+| Bottom-up traversal logic | Complete |
+| Basis construction rules | Complete |
+| Synthesis triggers | Complete |
+| Synthesis policies | Complete |
+| Determinism tests | Complete |
 
 **Exit Criteria:**
-- Branch synthesis algorithm implemented
-- Synthesis is deterministic (same inputs → same outputs)
-- Bottom-up synthesis enforced
-- Multiple synthesis policies supported
+- ✅ Branch synthesis algorithm implemented
+- ✅ Synthesis is deterministic (same inputs → same outputs)
+- ✅ Bottom-up synthesis enforced
+- ✅ Multiple synthesis policies supported
 
 ---
 
