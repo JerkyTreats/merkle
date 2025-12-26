@@ -2,7 +2,6 @@
 
 use merkle::tree::builder::TreeBuilder;
 use merkle::tree::node::MerkleNode;
-use std::collections::HashMap;
 use std::fs;
 use tempfile::TempDir;
 

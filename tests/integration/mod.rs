@@ -1,12 +1,12 @@
 //! Integration tests for the Merkle filesystem state management system
 
+mod agent_authorization;
 mod blake3_verification;
+mod branch_synthesis;
+mod context_api;
 mod hasher_verification;
-mod phase2a_agent_model;
-mod phase2b_api;
-mod phase2c_synthesis;
-mod phase2f_providers;
-mod phase2g_tooling;
+mod model_providers;
 mod store_integration;
+mod tooling_integration;
 mod tree_determinism;
 mod tree_structure;

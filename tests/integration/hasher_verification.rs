@@ -4,7 +4,6 @@
 //! and maintains determinism and correctness properties.
 
 use merkle::tree::hasher;
-use merkle::types::Hash;
 use std::collections::BTreeMap;
 use tempfile::TempDir;
 use std::fs;
@@ -204,4 +203,3 @@ fn test_unicode_content_hashing() {
     // Unicode content should hash deterministically
     assert_eq!(hash1, hash2);
 }
-

@@ -616,6 +616,11 @@ impl ContextApi {
     pub fn basis_index(&self) -> &Arc<parking_lot::RwLock<BasisIndex>> {
         &self.basis_index
     }
+
+    /// Get access to agent registry (for tooling)
+    pub fn agent_registry(&self) -> &Arc<parking_lot::RwLock<AgentRegistry>> {
+        &self.agent_registry
+    }
 }
 
 #[cfg(test)]

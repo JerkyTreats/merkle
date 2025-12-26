@@ -1,4 +1,4 @@
-//! Integration tests for Phase 2C: Branch Synthesis
+//! Integration tests for Branch Synthesis
 //!
 //! Tests cover:
 //! - Synthesis determinism
@@ -7,16 +7,15 @@
 //! - Empty directory handling
 //! - Error handling
 
-use merkle::api::{ContextApi, ContextView};
+use merkle::api::ContextApi;
 use merkle::agent::{AgentIdentity, AgentRegistry, AgentRole};
 use merkle::concurrency::NodeLockManager;
 use merkle::error::ApiError;
 use merkle::frame::{Basis, Frame, FrameStorage};
 use merkle::heads::HeadIndex;
-use merkle::store::{NodeRecord, NodeRecordStore, NodeType, SledNodeRecordStore};
+use merkle::store::{NodeRecord, NodeType, SledNodeRecordStore};
 use merkle::synthesis::SynthesisPolicy;
 use merkle::types::NodeID;
-use merkle::views::OrderingPolicy;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -32,10 +31,12 @@ fn create_test_api() -> (ContextApi, TempDir) {
     let agent_registry = Arc::new(parking_lot::RwLock::new(AgentRegistry::new()));
     let lock_manager = Arc::new(NodeLockManager::new());
 
+    let basis_index = Arc::new(parking_lot::RwLock::new(merkle::regeneration::BasisIndex::new()));
     let api = ContextApi::new(
         node_store,
         frame_storage,
         head_index,
+        basis_index,
         agent_registry,
         lock_manager,
     );
@@ -84,18 +85,18 @@ fn test_synthesize_branch_deterministic() {
     let file2_id: NodeID = [3u8; 32];
 
     // Create and store node records
-    let dir_record = create_test_directory_record("/test/dir", "/test/dir", vec![file1_id, file2_id]);
-    api.node_store.put(&dir_record).unwrap();
+    let dir_record = create_test_directory_record(dir_id, "/test/dir", vec![file1_id, file2_id]);
+    api.node_store().put(&dir_record).unwrap();
 
     let file1_record = create_test_file_record(file1_id, "/test/dir/file1.txt");
-    api.node_store.put(&file1_record).unwrap();
+    api.node_store().put(&file1_record).unwrap();
 
     let file2_record = create_test_file_record(file2_id, "/test/dir/file2.txt");
-    api.node_store.put(&file2_record).unwrap();
+    api.node_store().put(&file2_record).unwrap();
 
     // Register a synthesis agent
     {
-        let mut registry = api.agent_registry.write();
+        let mut registry = api.agent_registry().write();
         let agent = AgentIdentity::new("synthesis-1".to_string(), AgentRole::Synthesis);
         registry.register(agent);
     }
@@ -147,18 +148,18 @@ fn test_synthesize_branch_concatenation_policy() {
     let file1_id: NodeID = [2u8; 32];
     let file2_id: NodeID = [3u8; 32];
 
-    let dir_record = create_test_directory_record("/test/dir", "/test/dir", vec![file1_id, file2_id]);
-    api.node_store.put(&dir_record).unwrap();
+    let dir_record = create_test_directory_record(dir_id, "/test/dir", vec![file1_id, file2_id]);
+    api.node_store().put(&dir_record).unwrap();
 
     let file1_record = create_test_file_record(file1_id, "/test/dir/file1.txt");
-    api.node_store.put(&file1_record).unwrap();
+    api.node_store().put(&file1_record).unwrap();
 
     let file2_record = create_test_file_record(file2_id, "/test/dir/file2.txt");
-    api.node_store.put(&file2_record).unwrap();
+    api.node_store().put(&file2_record).unwrap();
 
     // Register a synthesis agent
     {
-        let mut registry = api.agent_registry.write();
+        let mut registry = api.agent_registry().write();
         let agent = AgentIdentity::new("synthesis-1".to_string(), AgentRole::Synthesis);
         registry.register(agent);
     }
@@ -195,7 +196,7 @@ fn test_synthesize_branch_concatenation_policy() {
 
     // Retrieve synthesized frame
     let synthesized_frame = api
-        .frame_storage
+        .frame_storage()
         .get(&synthesized_frame_id)
         .unwrap()
         .unwrap();
@@ -212,12 +213,12 @@ fn test_synthesize_branch_empty_directory() {
 
     // Create empty directory
     let dir_id: NodeID = [1u8; 32];
-    let dir_record = create_test_directory_record("/test/dir", "/test/dir", vec![]);
-    api.node_store.put(&dir_record).unwrap();
+    let dir_record = create_test_directory_record(dir_id, "/test/dir", vec![]);
+    api.node_store().put(&dir_record).unwrap();
 
     // Register a synthesis agent
     {
-        let mut registry = api.agent_registry.write();
+        let mut registry = api.agent_registry().write();
         let agent = AgentIdentity::new("synthesis-1".to_string(), AgentRole::Synthesis);
         registry.register(agent);
     }
@@ -231,7 +232,7 @@ fn test_synthesize_branch_empty_directory() {
         .unwrap();
 
     // Should create a frame (empty directory frame)
-    let frame = api.frame_storage.get(&frame_id).unwrap().unwrap();
+    let frame = api.frame_storage().get(&frame_id).unwrap().unwrap();
     assert_eq!(frame.frame_type, frame_type);
     let content_str = String::from_utf8_lossy(&frame.content);
     assert!(content_str.contains("Empty"));
@@ -244,11 +245,11 @@ fn test_synthesize_branch_file_not_directory() {
     // Create a file (not a directory)
     let file_id: NodeID = [1u8; 32];
     let file_record = create_test_file_record(file_id, "/test/file.txt");
-    api.node_store.put(&file_record).unwrap();
+    api.node_store().put(&file_record).unwrap();
 
     // Register a synthesis agent
     {
-        let mut registry = api.agent_registry.write();
+        let mut registry = api.agent_registry().write();
         let agent = AgentIdentity::new("synthesis-1".to_string(), AgentRole::Synthesis);
         registry.register(agent);
     }
@@ -275,12 +276,12 @@ fn test_synthesize_branch_unauthorized() {
 
     // Create directory
     let dir_id: NodeID = [1u8; 32];
-    let dir_record = create_test_directory_record("/test/dir", "/test/dir", vec![]);
-    api.node_store.put(&dir_record).unwrap();
+    let dir_record = create_test_directory_record(dir_id, "/test/dir", vec![]);
+    api.node_store().put(&dir_record).unwrap();
 
     // Register a writer agent (cannot synthesize)
     {
-        let mut registry = api.agent_registry.write();
+        let mut registry = api.agent_registry().write();
         let agent = AgentIdentity::new("writer-1".to_string(), AgentRole::Writer);
         registry.register(agent);
     }
@@ -307,18 +308,18 @@ fn test_synthesize_branch_summarization_policy() {
     let file1_id: NodeID = [2u8; 32];
     let file2_id: NodeID = [3u8; 32];
 
-    let dir_record = create_test_directory_record("/test/dir", "/test/dir", vec![file1_id, file2_id]);
-    api.node_store.put(&dir_record).unwrap();
+    let dir_record = create_test_directory_record(dir_id, "/test/dir", vec![file1_id, file2_id]);
+    api.node_store().put(&dir_record).unwrap();
 
     let file1_record = create_test_file_record(file1_id, "/test/dir/file1.txt");
-    api.node_store.put(&file1_record).unwrap();
+    api.node_store().put(&file1_record).unwrap();
 
     let file2_record = create_test_file_record(file2_id, "/test/dir/file2.txt");
-    api.node_store.put(&file2_record).unwrap();
+    api.node_store().put(&file2_record).unwrap();
 
     // Register a synthesis agent
     {
-        let mut registry = api.agent_registry.write();
+        let mut registry = api.agent_registry().write();
         let agent = AgentIdentity::new("synthesis-1".to_string(), AgentRole::Synthesis);
         registry.register(agent);
     }
@@ -355,7 +356,7 @@ fn test_synthesize_branch_summarization_policy() {
 
     // Retrieve synthesized frame
     let synthesized_frame = api
-        .frame_storage
+        .frame_storage()
         .get(&synthesized_frame_id)
         .unwrap()
         .unwrap();
@@ -377,24 +378,24 @@ fn test_synthesize_branch_filtering_policy() {
     let file3_id: NodeID = [4u8; 32];
 
     let dir_record = create_test_directory_record(
-        "/test/dir",
+        dir_id,
         "/test/dir",
         vec![file1_id, file2_id, file3_id],
     );
-    api.node_store.put(&dir_record).unwrap();
+    api.node_store().put(&dir_record).unwrap();
 
     let file1_record = create_test_file_record(file1_id, "/test/dir/file1.txt");
-    api.node_store.put(&file1_record).unwrap();
+    api.node_store().put(&file1_record).unwrap();
 
     let file2_record = create_test_file_record(file2_id, "/test/dir/file2.txt");
-    api.node_store.put(&file2_record).unwrap();
+    api.node_store().put(&file2_record).unwrap();
 
     let file3_record = create_test_file_record(file3_id, "/test/dir/file3.txt");
-    api.node_store.put(&file3_record).unwrap();
+    api.node_store().put(&file3_record).unwrap();
 
     // Register a synthesis agent
     {
-        let mut registry = api.agent_registry.write();
+        let mut registry = api.agent_registry().write();
         let agent = AgentIdentity::new("synthesis-1".to_string(), AgentRole::Synthesis);
         registry.register(agent);
     }
@@ -423,7 +424,7 @@ fn test_synthesize_branch_filtering_policy() {
 
     // Retrieve synthesized frame
     let synthesized_frame = api
-        .frame_storage
+        .frame_storage()
         .get(&synthesized_frame_id)
         .unwrap()
         .unwrap();

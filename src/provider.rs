@@ -204,7 +204,10 @@ pub struct OpenAIClient {
 
 impl OpenAIClient {
     pub fn new(model: String, api_key: String, base_url: Option<String>) -> Result<Self, ApiError> {
-        let client = Client::new();
+        let client = Client::builder()
+            .no_proxy()
+            .build()
+            .map_err(|e| ApiError::ProviderError(format!("Failed to create HTTP client: {}", e)))?;
         let base_url = base_url.unwrap_or_else(|| "https://api.openai.com/v1".to_string());
 
         Ok(Self {
@@ -319,8 +322,12 @@ pub struct AnthropicClient {
 
 impl AnthropicClient {
     pub fn new(model: String, api_key: String) -> Result<Self, ApiError> {
+        let client = Client::builder()
+            .no_proxy()
+            .build()
+            .map_err(|e| ApiError::ProviderError(format!("Failed to create HTTP client: {}", e)))?;
         Ok(Self {
-            client: Client::new(),
+            client,
             model,
             api_key,
         })
@@ -462,9 +469,13 @@ pub struct OllamaClient {
 impl OllamaClient {
     pub fn new(model: String, base_url: Option<String>) -> Result<Self, ApiError> {
         let base_url = base_url.unwrap_or_else(|| "http://localhost:11434".to_string());
+        let client = Client::builder()
+            .no_proxy()
+            .build()
+            .map_err(|e| ApiError::ProviderError(format!("Failed to create HTTP client: {}", e)))?;
 
         Ok(Self {
-            client: Client::new(),
+            client,
             model,
             base_url,
         })
@@ -571,8 +582,12 @@ pub struct CustomLocalClient {
 
 impl CustomLocalClient {
     pub fn new(model: String, endpoint: String, api_key: Option<String>) -> Result<Self, ApiError> {
+        let client = Client::builder()
+            .no_proxy()
+            .build()
+            .map_err(|e| ApiError::ProviderError(format!("Failed to create HTTP client: {}", e)))?;
         Ok(Self {
-            client: Client::new(),
+            client,
             model,
             endpoint,
             api_key,

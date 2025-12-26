@@ -2,9 +2,9 @@
 
 use merkle::frame::{Basis, Frame};
 use merkle::tree::hasher;
-use merkle::types::{FrameID, NodeID};
+use merkle::types::NodeID;
 use proptest::prelude::*;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 /// Test that NodeID computation is deterministic
 #[test]

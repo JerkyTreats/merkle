@@ -1,4 +1,4 @@
-//! Integration tests for Phase 2B: Core Context APIs
+//! Integration tests for Core Context APIs
 //!
 //! Tests cover:
 //! - GetNode API determinism
@@ -13,7 +13,7 @@ use merkle::error::ApiError;
 use merkle::frame::{Basis, Frame, FrameStorage};
 use merkle::heads::HeadIndex;
 use merkle::regeneration::BasisIndex;
-use merkle::store::{NodeRecord, NodeRecordStore, NodeType, SledNodeRecordStore};
+use merkle::store::{NodeRecord, NodeType, SledNodeRecordStore};
 use merkle::types::NodeID;
 use merkle::views::OrderingPolicy;
 use std::collections::HashMap;
@@ -69,11 +69,11 @@ fn test_get_node_deterministic() {
 
     // Create and store node record
     let node_record = create_test_node_record(node_id);
-    api.node_store.put(&node_record).unwrap();
+    api.node_store().put(&node_record).unwrap();
 
     // Register a writer agent
     {
-        let mut registry = api.agent_registry.write();
+        let mut registry = api.agent_registry().write();
         let agent = AgentIdentity::new("writer-1".to_string(), AgentRole::Writer);
         registry.register(agent);
     }
@@ -125,11 +125,11 @@ fn test_put_frame_deterministic() {
 
     // Create and store node record
     let node_record = create_test_node_record(node_id);
-    api.node_store.put(&node_record).unwrap();
+    api.node_store().put(&node_record).unwrap();
 
     // Register a writer agent
     {
-        let mut registry = api.agent_registry.write();
+        let mut registry = api.agent_registry().write();
         let agent = AgentIdentity::new("writer-1".to_string(), AgentRole::Writer);
         registry.register(agent);
     }
@@ -175,11 +175,11 @@ fn test_concurrent_get_node() {
 
     // Create and store node record
     let node_record = create_test_node_record(node_id);
-    api.node_store.put(&node_record).unwrap();
+    api.node_store().put(&node_record).unwrap();
 
     // Register a writer agent
     {
-        let mut registry = api.agent_registry.write();
+        let mut registry = api.agent_registry().write();
         let agent = AgentIdentity::new("writer-1".to_string(), AgentRole::Writer);
         registry.register(agent);
     }
@@ -233,11 +233,11 @@ fn test_concurrent_put_frame() {
 
     // Create and store node record
     let node_record = create_test_node_record(node_id);
-    api.node_store.put(&node_record).unwrap();
+    api.node_store().put(&node_record).unwrap();
 
     // Register multiple writer agents
     {
-        let mut registry = api.agent_registry.write();
+        let mut registry = api.agent_registry().write();
         for i in 0..5 {
             let agent = AgentIdentity::new(
                 format!("writer-{}", i),
@@ -256,16 +256,16 @@ fn test_concurrent_put_frame() {
         let api = api.clone();
         let success_count = success_count.clone();
         let agent_id = format!("writer-{}", i);
+        let frame_type = format!("test-{}", i); // Use different frame types so each becomes a head
         let handle = thread::spawn(move || {
             let basis = Basis::Node(node_id);
             let content = format!("content from {}", agent_id).into_bytes();
-            let frame_type = "test".to_string();
             let metadata = HashMap::new();
 
             let frame = Frame::new(
                 basis,
                 content,
-                frame_type,
+                frame_type.clone(),
                 agent_id.clone(),
                 metadata,
             )
@@ -324,11 +324,11 @@ fn test_error_handling_unauthorized() {
 
     // Create and store node record
     let node_record = create_test_node_record(node_id);
-    api.node_store.put(&node_record).unwrap();
+    api.node_store().put(&node_record).unwrap();
 
     // Register a reader agent (cannot write)
     {
-        let mut registry = api.agent_registry.write();
+        let mut registry = api.agent_registry().write();
         let agent = AgentIdentity::new("reader-1".to_string(), AgentRole::Reader);
         registry.register(agent);
     }
@@ -357,11 +357,11 @@ fn test_error_handling_invalid_frame_basis() {
 
     // Create and store node record
     let node_record = create_test_node_record(node_id);
-    api.node_store.put(&node_record).unwrap();
+    api.node_store().put(&node_record).unwrap();
 
     // Register a writer agent
     {
-        let mut registry = api.agent_registry.write();
+        let mut registry = api.agent_registry().write();
         let agent = AgentIdentity::new("writer-1".to_string(), AgentRole::Writer);
         registry.register(agent);
     }

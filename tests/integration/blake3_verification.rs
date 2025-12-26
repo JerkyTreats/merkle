@@ -126,7 +126,8 @@ fn test_large_input() {
 /// Test that hash output is always 32 bytes (256 bits)
 #[test]
 fn test_hash_output_size() {
-    for input in &[b"", b"a", b"abc", b"Hello, World!"] {
+    let inputs: &[&[u8]] = &[b"", b"a", b"abc", b"Hello, World!"];
+    for input in inputs {
         let mut hasher = Hasher::new();
         hasher.update(input);
         let hash = hasher.finalize();

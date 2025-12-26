@@ -1,4 +1,4 @@
-//! Integration tests for Phase 2A: Agent Interaction Model
+//! Integration tests for Agent Authorization and Access Control
 //!
 //! Tests cover:
 //! - Agent roles and authorization
@@ -111,7 +111,7 @@ fn test_different_agents_produce_different_frame_ids() {
     )
     .unwrap();
 
-    // Different agents should produce different FrameIDs (Phase 2A requirement)
+    // Different agents should produce different FrameIDs (agent identity requirement)
     assert_ne!(frame1.frame_id, frame2.frame_id);
 }
 

@@ -1,11 +1,11 @@
-//! Integration tests for Phase 2G: Tooling & Integrations
+//! Integration tests for Tooling & Integrations
 
 use merkle::api::{ContextApi, ContextView};
 use merkle::frame::{Basis, Frame};
 use merkle::heads::HeadIndex;
 use merkle::regeneration::BasisIndex;
 use merkle::store::persistence::SledNodeRecordStore;
-use merkle::tooling::{AgentAdapter, ContextApiAdapter, CiIntegration, BatchOperation};
+use merkle::tooling::{AgentAdapter, adapter::ContextApiAdapter, CiIntegration, BatchOperation};
 use merkle::types::Hash;
 use merkle::views::OrderingPolicy;
 use std::collections::HashMap;
@@ -16,7 +16,9 @@ fn create_test_api() -> (ContextApi, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let store_path = temp_dir.path().join("store");
     let node_store = Arc::new(SledNodeRecordStore::new(&store_path).unwrap());
-    let frame_storage = Arc::new(merkle::frame::storage::FrameStorage::new());
+    let frame_storage_path = temp_dir.path().join("frames");
+    std::fs::create_dir_all(&frame_storage_path).unwrap();
+    let frame_storage = Arc::new(merkle::frame::storage::FrameStorage::new(&frame_storage_path).unwrap());
     let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
     let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
     let agent_registry = Arc::new(parking_lot::RwLock::new(merkle::agent::AgentRegistry::new()));
@@ -106,6 +108,13 @@ fn test_tool_idempotency_regenerate() {
     // Test that regenerating twice produces the same result
     let (api, _temp_dir) = create_test_api();
     let node_id = Hash::from([6u8; 32]);
+
+    // Register the agent first (regenerate checks for agent existence)
+    {
+        let mut registry = api.agent_registry().write();
+        let agent = merkle::agent::AgentIdentity::new("test-agent".to_string(), merkle::agent::AgentRole::Writer);
+        registry.register(agent);
+    }
 
     // Regenerate twice - should be idempotent
     // (Will fail because node doesn't exist, but tests interface)

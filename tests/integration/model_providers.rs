@@ -1,4 +1,4 @@
-//! Integration tests for Phase 2F: Model Provider Integration
+//! Integration tests for Model Provider Integration
 
 use merkle::agent::{AgentIdentity, AgentRole};
 use merkle::provider::{
