@@ -43,6 +43,24 @@ pub enum ApiError {
     #[error("Regeneration failed: {0}")]
     RegenerationFailed(String),
 
+    #[error("Provider error: {0}")]
+    ProviderError(String),
+
+    #[error("Provider not configured: {0}")]
+    ProviderNotConfigured(String),
+
+    #[error("Provider request failed: {0}")]
+    ProviderRequestFailed(String),
+
+    #[error("Provider authentication failed: {0}")]
+    ProviderAuthFailed(String),
+
+    #[error("Provider rate limit exceeded: {0}")]
+    ProviderRateLimit(String),
+
+    #[error("Provider model not found: {0}")]
+    ProviderModelNotFound(String),
+
     #[error("Storage error: {0}")]
     StorageError(#[from] StorageError),
 }

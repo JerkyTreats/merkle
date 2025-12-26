@@ -100,16 +100,16 @@
 
 | Task | Status |
 |-----|--------|
-| Model provider abstraction trait | Todo |
-| OpenAI provider implementation | Todo |
-| Anthropic provider implementation | Todo |
-| Ollama provider implementation | Todo |
-| Custom local provider support | Todo |
-| Provider error handling | Todo |
-| Agent-provider integration | Todo |
-| Provider configuration | Todo |
-| Streaming support | Todo |
-| Provider tests | Todo |
+| Model provider abstraction trait | Complete |
+| OpenAI provider implementation | Complete |
+| Anthropic provider implementation | Complete |
+| Ollama provider implementation | Complete |
+| Custom local provider support | Complete |
+| Provider error handling | Complete |
+| Agent-provider integration | Complete |
+| Provider configuration | Complete |
+| Streaming support | Complete |
+| Provider tests | Complete |
 
 **Exit Criteria:**
 - Multiple providers supported (OpenAI, Anthropic, Ollama, custom local)

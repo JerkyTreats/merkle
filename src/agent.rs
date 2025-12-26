@@ -5,6 +5,7 @@
 //! operate concurrently while maintaining data integrity.
 
 use crate::error::ApiError;
+use crate::provider::ModelProvider;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -39,6 +40,8 @@ pub struct AgentIdentity {
     pub role: AgentRole,
     /// Additional capabilities (for future extensibility)
     pub capabilities: Vec<Capability>,
+    /// Optional model provider for LLM-powered operations
+    pub provider: Option<ModelProvider>,
 }
 
 impl AgentIdentity {
@@ -54,6 +57,7 @@ impl AgentIdentity {
             agent_id,
             role,
             capabilities,
+            provider: None,
         }
     }
 
@@ -199,5 +203,24 @@ mod tests {
 
         assert!(registry.get_or_error("agent-1").is_ok());
         assert!(registry.get_or_error("agent-3").is_err());
+    }
+
+    #[test]
+    fn test_agent_with_provider() {
+        let mut agent = AgentIdentity::new("agent-with-provider".to_string(), AgentRole::Writer);
+        assert!(agent.provider.is_none());
+
+        agent.provider = Some(ModelProvider::Ollama {
+            model: "llama2".to_string(),
+            base_url: None,
+        });
+
+        assert!(agent.provider.is_some());
+        match agent.provider.as_ref().unwrap() {
+            ModelProvider::Ollama { model, .. } => {
+                assert_eq!(model, "llama2");
+            }
+            _ => panic!("Wrong provider type"),
+        }
     }
 }
