@@ -32,34 +32,36 @@
 
 | Task | Status |
 |-----|--------|
-| Frame schema | Todo |
-| Append workflow | Todo |
-| Blob storage | Todo |
+| Frame schema | ✅ Complete |
+| Append workflow | ✅ Complete |
+| Blob storage | ✅ Complete |
 
 ### Phase 1E — Frame Sets & Heads
 
 | Task | Status |
 |-----|--------|
-| Frame membership tracking | Todo |
-| Merkle set computation | Todo |
-| Head update logic | Todo |
+| Frame membership tracking | ✅ Complete |
+| Merkle set computation | ✅ Complete |
+| Head update logic | ✅ Complete |
 
 ### Phase 1F — Context Views
 
 | Task | Status |
 |-----|--------|
-| View schema | Todo |
-| Selection algorithm | Todo |
-| Determinism tests | Todo |
+| View schema | ✅ Complete |
+| Selection algorithm | ✅ Complete |
+| Determinism tests | ✅ Complete |
 
 ---
 
 ## Phase Exit Criteria
 
-- Deterministic ingestion: Same filesystem → same root hash
-- Stable NodeID / FrameID: Same content → same IDs
-- Zero-scan context retrieval: O(1) or O(log n) access, no full scans
-- Hash-based invalidation: Changes detected only through hash comparison
+- ✅ Deterministic ingestion: Same filesystem → same root hash
+- ✅ Stable NodeID / FrameID: Same content → same IDs
+- ✅ Zero-scan context retrieval: O(1) or O(log n) access, no full scans
+- ✅ Hash-based invalidation: Changes detected only through hash comparison
+- ✅ Bounded context views: Context retrieval is bounded and deterministic
+- ✅ All components operational: All six components implemented and tested
 
 ---
 

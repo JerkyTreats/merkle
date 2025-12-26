@@ -12,6 +12,7 @@ use merkle::concurrency::NodeLockManager;
 use merkle::error::ApiError;
 use merkle::frame::{Basis, Frame, FrameStorage};
 use merkle::heads::HeadIndex;
+use merkle::regeneration::BasisIndex;
 use merkle::store::{NodeRecord, NodeRecordStore, NodeType, SledNodeRecordStore};
 use merkle::types::NodeID;
 use merkle::views::OrderingPolicy;
@@ -28,6 +29,7 @@ fn create_test_api() -> (ContextApi, TempDir) {
     let node_store = Arc::new(SledNodeRecordStore::new(&store_path).unwrap());
     let frame_storage = Arc::new(FrameStorage::new(&frame_storage_path).unwrap());
     let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
+    let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
     let agent_registry = Arc::new(parking_lot::RwLock::new(AgentRegistry::new()));
     let lock_manager = Arc::new(NodeLockManager::new());
 
@@ -35,6 +37,7 @@ fn create_test_api() -> (ContextApi, TempDir) {
         node_store,
         frame_storage,
         head_index,
+        basis_index,
         agent_registry,
         lock_manager,
     );
