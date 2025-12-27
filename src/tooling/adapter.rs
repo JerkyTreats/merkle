@@ -8,6 +8,7 @@ use crate::error::ApiError;
 use crate::frame::{Basis, Frame};
 use crate::provider::{ChatMessage, CompletionOptions, ModelProviderClient, ProviderFactory};
 use crate::types::{FrameID, NodeID};
+use async_trait::async_trait;
 use std::collections::HashMap;
 
 /// Enhance ProviderModelNotFound errors with available models list
@@ -48,6 +49,7 @@ async fn enhance_model_error(
 ///
 /// Provides a simplified interface for agents to read and write context,
 /// synthesize frames, and optionally generate frames using LLM providers.
+#[async_trait]
 pub trait AgentAdapter: Send + Sync {
     /// Read context for a node using a view policy
     fn read_context(
@@ -102,6 +104,7 @@ impl ContextApiAdapter {
     }
 }
 
+#[async_trait]
 impl AgentAdapter for ContextApiAdapter {
     fn read_context(
         &self,

@@ -117,11 +117,35 @@ pub enum Commands {
         #[arg(long)]
         agent_id: Option<String>,
     },
+    /// Start watch mode daemon
+    Watch {
+        /// Debounce window in milliseconds
+        #[arg(long, default_value = "100")]
+        debounce_ms: u64,
+        /// Batch window in milliseconds
+        #[arg(long, default_value = "50")]
+        batch_window_ms: u64,
+        /// Enable recursive regeneration
+        #[arg(long)]
+        recursive: bool,
+        /// Maximum regeneration depth
+        #[arg(long, default_value = "3")]
+        max_depth: usize,
+        /// Agent ID for regeneration
+        #[arg(long, default_value = "watch-daemon")]
+        agent_id: String,
+        /// Ignore pattern (can be specified multiple times)
+        #[arg(long)]
+        ignore: Vec<String>,
+        /// Run in foreground (default: background daemon)
+        #[arg(long)]
+        foreground: bool,
+    },
 }
 
 /// CLI context for managing workspace state
 pub struct CliContext {
-    api: ContextApi,
+    api: Arc<ContextApi>,
     workspace_root: PathBuf,
     config_path: Option<PathBuf>,
 }
@@ -164,7 +188,7 @@ impl CliContext {
         );
 
         Ok(Self {
-            api,
+            api: Arc::new(api),
             workspace_root,
             config_path,
         })
@@ -548,6 +572,38 @@ impl CliContext {
                 }
 
                 Ok(output)
+            }
+            Commands::Watch {
+                debounce_ms,
+                batch_window_ms,
+                recursive,
+                max_depth,
+                agent_id,
+                ignore,
+                foreground: _,
+            } => {
+                use crate::tooling::watch::{WatchConfig, WatchDaemon};
+
+                // Build watch config
+                let mut config = WatchConfig::default();
+                config.workspace_root = self.workspace_root.clone();
+                config.debounce_ms = *debounce_ms;
+                config.batch_window_ms = *batch_window_ms;
+                config.recursive = *recursive;
+                config.max_depth = *max_depth;
+                config.agent_id = agent_id.clone();
+                if !ignore.is_empty() {
+                    config.ignore_patterns.extend(ignore.iter().cloned());
+                }
+
+                // Create watch daemon
+                let daemon = WatchDaemon::new(self.api.clone(), config);
+
+                // Start daemon (this will block)
+                eprintln!("Starting watch mode daemon...");
+                daemon.start()?;
+
+                Ok("Watch daemon stopped".to_string())
             }
         }
     }

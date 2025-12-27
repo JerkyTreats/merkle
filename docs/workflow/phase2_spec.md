@@ -267,6 +267,7 @@ For detailed task breakdown and exit criteria, see **[Development Phases](phase2
 - **[API Specifications](phase2_apis.md)** - Detailed API signatures with examples
 - **[Model Provider Specification](phase2_model_providers.md)** - Model provider abstraction and integration
 - **[Configuration Specification](phase2_configuration.md)** - Runtime configuration system for agents, providers, and system settings
+- **[Watch Mode Workflow](watch_mode_spec.md)** - Watch mode daemon for automatic tree updates and regeneration
 - **[Development Phases](phase2_phases.md)** - Task breakdown and exit criteria
 
 ---
