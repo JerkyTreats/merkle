@@ -4,7 +4,7 @@
 //! localized, and basis-driven—only frames whose basis has changed are regenerated.
 //! Old frames are retained (append-only), ensuring full history preservation.
 
-use crate::error::ApiError;
+use crate::error::{ApiError, StorageError};
 use crate::frame::{Basis, Frame, FrameStorage};
 use crate::frame::id::compute_basis_hash;
 use crate::heads::HeadIndex;
@@ -12,6 +12,10 @@ use crate::store::NodeRecordStore;
 use crate::synthesis::{collect_child_frames, synthesize_content, SynthesisBasis, SynthesisPolicy};
 use crate::types::{FrameID, Hash, NodeID};
 use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+use bincode;
+use serde::{Deserialize, Serialize};
 
 /// Basis index: basis_hash → Vec<FrameID>
 ///
@@ -96,6 +100,240 @@ impl BasisIndex {
     /// Iterate over all basis entries
     pub fn iter(&self) -> impl Iterator<Item = (&Hash, &Vec<FrameID>)> {
         self.index.iter()
+    }
+
+    /// Get the persistence path for a workspace root
+    pub fn persistence_path(workspace_root: &Path) -> PathBuf {
+        workspace_root.join(".merkle").join("basis_index.bin")
+    }
+
+    /// Load basis index from disk
+    ///
+    /// Returns an empty index if the file doesn't exist or is corrupted.
+    pub fn load_from_disk<P: AsRef<Path>>(path: P) -> Result<Self, StorageError> {
+        let path = path.as_ref();
+
+        // Check if file exists
+        if !path.exists() {
+            return Ok(BasisIndex::new());
+        }
+
+        // Read file
+        let bytes = fs::read(path).map_err(|e| {
+            StorageError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to read basis index from {:?}: {}", path, e),
+            ))
+        })?;
+
+        // Deserialize
+        let persistence: BasisIndexPersistence = bincode::deserialize(&bytes).map_err(|e| {
+            StorageError::IoError(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Failed to deserialize basis index from {:?}: {}", path, e),
+            ))
+        })?;
+
+        // Validate version
+        if persistence.version != 1 {
+            return Err(StorageError::IoError(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "Unsupported basis index version: {} (expected 1)",
+                    persistence.version
+                ),
+            )));
+        }
+
+        // Convert entries to HashMap
+        let mut index = HashMap::new();
+        let mut reverse = HashMap::new();
+
+        for entry in persistence.entries {
+            // Validate hash and frame_id are 32 bytes
+            if entry.basis_hash.len() != 32 {
+                return Err(StorageError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Invalid basis_hash length in basis index"),
+                )));
+            }
+
+            let mut basis_hash = [0u8; 32];
+            basis_hash.copy_from_slice(&entry.basis_hash);
+
+            let mut frame_ids = Vec::new();
+            for frame_id_bytes in entry.frame_ids {
+                if frame_id_bytes.len() != 32 {
+                    return Err(StorageError::IoError(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("Invalid frame_id length in basis index"),
+                    )));
+                }
+                let mut frame_id = [0u8; 32];
+                frame_id.copy_from_slice(&frame_id_bytes);
+                frame_ids.push(frame_id);
+                reverse.insert(frame_id, basis_hash);
+            }
+
+            index.insert(basis_hash, frame_ids);
+        }
+
+        Ok(BasisIndex { index, reverse })
+    }
+
+    /// Save basis index to disk atomically
+    ///
+    /// Uses temporary file + rename for atomic writes.
+    pub fn save_to_disk<P: AsRef<Path>>(&self, path: P) -> Result<(), StorageError> {
+        let path = path.as_ref();
+
+        // Create parent directories if needed
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| {
+                StorageError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to create parent directory {:?}: {}", parent, e),
+                ))
+            })?;
+        }
+
+        // Convert HashMap to persistence format
+        let mut entries = Vec::new();
+        for (basis_hash, frame_ids) in &self.index {
+            entries.push(BasisIndexEntry {
+                basis_hash: basis_hash.to_vec(),
+                frame_ids: frame_ids.iter().map(|f| f.to_vec()).collect(),
+            });
+        }
+
+        let persistence = BasisIndexPersistence {
+            version: 1,
+            entries,
+        };
+
+        // Serialize
+        let serialized = bincode::serialize(&persistence).map_err(|e| {
+            StorageError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to serialize basis index: {}", e),
+            ))
+        })?;
+
+        // Write to temporary file (atomic write)
+        let temp_path = path.with_extension("bin.tmp");
+        fs::write(&temp_path, &serialized).map_err(|e| {
+            StorageError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to write basis index to {:?}: {}", temp_path, e),
+            ))
+        })?;
+
+        // Atomically rename temp file to final location
+        fs::rename(&temp_path, path).map_err(|e| {
+            // Clean up temp file on error
+            let _ = fs::remove_file(&temp_path);
+            StorageError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to rename temp file to {:?}: {}", path, e),
+            ))
+        })?;
+
+        Ok(())
+    }
+}
+
+/// Persistence format for basis index
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BasisIndexPersistence {
+    version: u32,
+    entries: Vec<BasisIndexEntry>,
+}
+
+/// Entry in the basis index persistence format
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BasisIndexEntry {
+    basis_hash: Vec<u8>,
+    frame_ids: Vec<Vec<u8>>,
+}
+
+#[cfg(test)]
+mod persistence_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_save_and_load_basis_index() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("basis_index.bin");
+
+        // Create a basis index with some entries
+        let mut index = BasisIndex::new();
+        let basis_hash: Hash = [1u8; 32];
+        let frame_id: FrameID = [2u8; 32];
+        index.add_frame(basis_hash, frame_id);
+
+        // Save to disk
+        index.save_to_disk(&path).unwrap();
+        assert!(path.exists());
+
+        // Load from disk
+        let loaded = BasisIndex::load_from_disk(&path).unwrap();
+        assert_eq!(loaded.index.len(), 1);
+        let frames = loaded.get_frames_by_basis(&basis_hash);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0], frame_id);
+        assert_eq!(loaded.get_basis_for_frame(&frame_id), Some(basis_hash));
+    }
+
+    #[test]
+    fn test_load_nonexistent_basis_index() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("nonexistent.bin");
+
+        // Load from non-existent file should return empty index
+        let loaded = BasisIndex::load_from_disk(&path).unwrap();
+        assert_eq!(loaded.index.len(), 0);
+    }
+
+    #[test]
+    fn test_persistence_path() {
+        let workspace_root = std::path::Path::new("/workspace");
+        let path = BasisIndex::persistence_path(workspace_root);
+        assert!(path.to_string_lossy().ends_with(".merkle/basis_index.bin"));
+    }
+
+    #[test]
+    fn test_save_and_load_multiple_entries() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("basis_index.bin");
+
+        // Create a basis index with multiple entries
+        let mut index = BasisIndex::new();
+        let basis_hash1: Hash = [1u8; 32];
+        let basis_hash2: Hash = [2u8; 32];
+        let frame_id1: FrameID = [10u8; 32];
+        let frame_id2: FrameID = [20u8; 32];
+        let frame_id3: FrameID = [30u8; 32];
+
+        index.add_frame(basis_hash1, frame_id1);
+        index.add_frame(basis_hash1, frame_id2); // Same basis, different frame
+        index.add_frame(basis_hash2, frame_id3);
+
+        // Save to disk
+        index.save_to_disk(&path).unwrap();
+
+        // Load from disk
+        let loaded = BasisIndex::load_from_disk(&path).unwrap();
+        assert_eq!(loaded.index.len(), 2);
+
+        let frames1 = loaded.get_frames_by_basis(&basis_hash1);
+        assert_eq!(frames1.len(), 2);
+        assert!(frames1.contains(&frame_id1));
+        assert!(frames1.contains(&frame_id2));
+
+        let frames2 = loaded.get_frames_by_basis(&basis_hash2);
+        assert_eq!(frames2.len(), 1);
+        assert_eq!(frames2[0], frame_id3);
     }
 }
 

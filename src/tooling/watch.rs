@@ -5,6 +5,8 @@
 
 use crate::api::ContextApi;
 use crate::error::ApiError;
+use crate::heads::HeadIndex;
+use crate::regeneration::BasisIndex;
 use crate::store::{NodeRecord, NodeRecordStore};
 use crate::tree::builder::TreeBuilder;
 use crate::tree::path::canonicalize_path;
@@ -202,6 +204,30 @@ pub struct WatchDaemon {
 impl WatchDaemon {
     /// Create a new watch daemon
     pub fn new(api: Arc<ContextApi>, config: WatchConfig) -> Self {
+        // Load head index on startup if workspace root is configured
+        let head_index_path = HeadIndex::persistence_path(&config.workspace_root);
+        {
+            let mut head_index = api.head_index().write();
+            if let Ok(loaded) = HeadIndex::load_from_disk(&head_index_path) {
+                *head_index = loaded;
+                info!("Loaded head index from disk: {} entries", head_index.heads.len());
+            } else {
+                info!("Starting with empty head index");
+            }
+        }
+
+        // Load basis index on startup if workspace root is configured
+        let basis_index_path = BasisIndex::persistence_path(&config.workspace_root);
+        {
+            let mut basis_index = api.basis_index().write();
+            if let Ok(loaded) = BasisIndex::load_from_disk(&basis_index_path) {
+                *basis_index = loaded;
+                info!("Loaded basis index from disk: {} entries", basis_index.len());
+            } else {
+                info!("Starting with empty basis index");
+            }
+        }
+
         Self {
             api,
             config,

@@ -190,18 +190,36 @@ impl CliContext {
             crate::frame::storage::FrameStorage::new(&frame_storage_path)
                 .map_err(|e| ApiError::StorageError(e))?
         );
-        let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
-        let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
+        // Load head index from disk, or create empty if not found
+        let head_index_path = HeadIndex::persistence_path(&workspace_root);
+        let head_index = Arc::new(parking_lot::RwLock::new(
+            HeadIndex::load_from_disk(&head_index_path)
+                .unwrap_or_else(|e| {
+                    tracing::warn!("Failed to load head index from disk: {}, starting with empty index", e);
+                    HeadIndex::new()
+                })
+        ));
+
+        // Load basis index from disk, or create empty if not found
+        let basis_index_path = BasisIndex::persistence_path(&workspace_root);
+        let basis_index = Arc::new(parking_lot::RwLock::new(
+            BasisIndex::load_from_disk(&basis_index_path)
+                .unwrap_or_else(|e| {
+                    tracing::warn!("Failed to load basis index from disk: {}, starting with empty index", e);
+                    BasisIndex::new()
+                })
+        ));
         let agent_registry = Arc::new(parking_lot::RwLock::new(crate::agent::AgentRegistry::new()));
         let lock_manager = Arc::new(crate::concurrency::NodeLockManager::new());
 
-        let api = ContextApi::new(
+        let api = ContextApi::with_workspace_root(
             node_store,
             frame_storage,
             head_index,
             basis_index,
             agent_registry,
             lock_manager,
+            workspace_root.clone(),
         );
 
         Ok(Self {

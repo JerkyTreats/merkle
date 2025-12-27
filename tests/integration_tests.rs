@@ -5,3 +5,4 @@
 //! approach allows organizing tests in subdirectories while maintaining discoverability.
 
 mod integration;
+

@@ -17,6 +17,7 @@ use crate::types::{FrameID, NodeID};
 use crate::views::{get_context_view, ViewPolicy};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info, instrument, warn};
@@ -89,6 +90,8 @@ pub struct ContextApi {
     agent_registry: Arc<parking_lot::RwLock<AgentRegistry>>,
     /// Lock manager for concurrent access safety
     lock_manager: Arc<NodeLockManager>,
+    /// Workspace root for persistence (optional)
+    workspace_root: Option<PathBuf>,
 }
 
 impl ContextApi {
@@ -108,7 +111,53 @@ impl ContextApi {
             basis_index,
             agent_registry,
             lock_manager,
+            workspace_root: None,
         }
+    }
+
+    /// Create a new Context API service with workspace root for persistence
+    pub fn with_workspace_root(
+        node_store: Arc<dyn NodeRecordStore + Send + Sync>,
+        frame_storage: Arc<FrameStorage>,
+        head_index: Arc<parking_lot::RwLock<HeadIndex>>,
+        basis_index: Arc<parking_lot::RwLock<BasisIndex>>,
+        agent_registry: Arc<parking_lot::RwLock<AgentRegistry>>,
+        lock_manager: Arc<NodeLockManager>,
+        workspace_root: PathBuf,
+    ) -> Self {
+        Self {
+            node_store,
+            frame_storage,
+            head_index,
+            basis_index,
+            agent_registry,
+            lock_manager,
+            workspace_root: Some(workspace_root),
+        }
+    }
+
+    /// Persist indices to disk if workspace root is configured
+    fn persist_indices(&self) -> Result<(), ApiError> {
+        if let Some(ref workspace_root) = self.workspace_root {
+            // Persist head index
+            {
+                let head_index = self.head_index.read();
+                let path = HeadIndex::persistence_path(workspace_root);
+                head_index.save_to_disk(&path).map_err(|e| {
+                    ApiError::StorageError(e)
+                })?;
+            }
+
+            // Persist basis index
+            {
+                let basis_index = self.basis_index.read();
+                let path = BasisIndex::persistence_path(workspace_root);
+                basis_index.save_to_disk(&path).map_err(|e| {
+                    ApiError::StorageError(e)
+                })?;
+            }
+        }
+        Ok(())
     }
 
     /// Get node context using policy-driven view
@@ -317,6 +366,9 @@ impl ContextApi {
             basis_index.add_frame(basis_hash, frame.frame_id);
         }
 
+        // Persist indices to disk
+        self.persist_indices()?;
+
         // TODO: Update node record's frame_set_root
         // This requires retrieving/updating the FrameMerkleSet and storing it.
         // For Phase 2B MVP, we'll skip this and rely on head index.
@@ -440,6 +492,9 @@ impl ContextApi {
                 basis_index.add_frame(basis_hash, frame.frame_id);
             }
 
+            // Persist indices to disk
+            self.persist_indices()?;
+
             return Ok(frame.frame_id);
         }
 
@@ -498,6 +553,9 @@ impl ContextApi {
             let mut basis_index = self.basis_index.write();
             basis_index.add_frame(basis_hash, frame.frame_id);
         }
+
+        // Persist indices to disk
+        self.persist_indices()?;
 
         let duration = start.elapsed();
         info!(
