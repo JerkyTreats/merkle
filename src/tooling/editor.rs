@@ -9,6 +9,7 @@ use crate::types::NodeID;
 use notify::{RecommendedWatcher, Watcher, RecursiveMode, Event, EventKind};
 use std::path::PathBuf;
 use std::sync::mpsc;
+use tracing::error;
 
 /// Editor integration hooks
 pub struct EditorHooks {
@@ -35,7 +36,7 @@ impl EditorHooks {
 
         let mut watcher = notify::recommended_watcher(move |res| {
             if let Err(e) = tx.send(res) {
-                eprintln!("Error sending watch event: {}", e);
+                error!("Error sending watch event: {}", e);
             }
         }).map_err(|e| {
             ApiError::StorageError(crate::error::StorageError::IoError(

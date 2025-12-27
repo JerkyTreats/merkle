@@ -18,6 +18,9 @@ use crate::views::{get_context_view, ViewPolicy};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
+use tracing::{debug, info, instrument, warn};
+use hex;
 
 /// Context view policy for frame selection
 ///
@@ -125,13 +128,20 @@ impl ContextApi {
     /// * Deterministic: Same inputs → same outputs
     /// * Read-only: Never triggers writes or synthesis
     /// * Bounded: Frame count limited by view policy
+    #[instrument(skip(self), fields(node_id = %hex::encode(node_id)))]
     pub fn get_node(&self, node_id: NodeID, view: ContextView) -> Result<NodeContext, ApiError> {
+        let start = Instant::now();
+        debug!("Retrieving node context");
+
         // Verify node exists
         let node_record = self
             .node_store
             .get(&node_id)
             .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError::NodeNotFound(node_id))?;
+            .ok_or_else(|| {
+                warn!("Node not found");
+                ApiError::NodeNotFound(node_id)
+            })?;
 
         // Note: frame_set_root from node_record is not used in Phase 2B MVP
         // In a full implementation, we would use it to retrieve the FrameMerkleSet from storage
@@ -179,6 +189,14 @@ impl ContextApi {
         // For now, use the frame_set length
         let total_frame_count = frame_set.len();
 
+        let duration = start.elapsed();
+        debug!(
+            frame_count = frames.len(),
+            total_frames = total_frame_count,
+            duration_ms = duration.as_millis(),
+            "Node context retrieved"
+        );
+
         Ok(NodeContext {
             node_id,
             node_record,
@@ -205,12 +223,16 @@ impl ContextApi {
     /// * Append-only: Creates new frame, never mutates existing
     /// * Atomic: Frame creation and head update are transactional
     /// * Deterministic: Same inputs → same FrameID
+    #[instrument(skip(self), fields(node_id = %hex::encode(node_id), agent_id = %agent_id, frame_type = %frame.frame_type))]
     pub fn put_frame(
         &self,
         node_id: NodeID,
         frame: Frame,
         agent_id: String,
     ) -> Result<FrameID, ApiError> {
+        let start = Instant::now();
+        debug!("Creating frame");
+
         // Verify agent exists and has write permission
         let agent = {
             let registry = self.agent_registry.read();
@@ -299,6 +321,13 @@ impl ContextApi {
         // This requires retrieving/updating the FrameMerkleSet and storing it.
         // For Phase 2B MVP, we'll skip this and rely on head index.
 
+        let duration = start.elapsed();
+        info!(
+            frame_id = %hex::encode(frame.frame_id),
+            duration_ms = duration.as_millis(),
+            "Frame created"
+        );
+
         Ok(frame.frame_id)
     }
 
@@ -322,6 +351,7 @@ impl ContextApi {
     /// * Explicit: Only called via API, never implicit
     /// * Bottom-up: Requires child frames to exist
     /// * Deterministic: Same child frames → same synthesized frame
+    #[instrument(skip(self), fields(node_id = %hex::encode(node_id), frame_type = %frame_type, agent_id = %agent_id))]
     pub fn synthesize_branch(
         &self,
         node_id: NodeID,
@@ -329,6 +359,9 @@ impl ContextApi {
         agent_id: String,
         policy: Option<SynthesisPolicy>,
     ) -> Result<FrameID, ApiError> {
+        let start = Instant::now();
+        info!("Starting branch synthesis");
+
         // Verify agent exists and has synthesize permission
         let agent = {
             let registry = self.agent_registry.read();
@@ -375,8 +408,11 @@ impl ContextApi {
         )?;
         drop(head_index);
 
+        debug!(child_frame_count = child_frames.len(), "Collected child frames");
+
         // If no child frames, create empty frame
         if child_frames.is_empty() {
+            warn!("No child frames found, creating empty frame");
             let basis = Basis::Node(node_id);
             let content = b"Empty directory".to_vec();
             let metadata = {
@@ -463,6 +499,14 @@ impl ContextApi {
             basis_index.add_frame(basis_hash, frame.frame_id);
         }
 
+        let duration = start.elapsed();
+        info!(
+            frame_id = %hex::encode(frame.frame_id),
+            child_frame_count = child_frames.len(),
+            duration_ms = duration.as_millis(),
+            "Branch synthesis completed"
+        );
+
         Ok(frame.frame_id)
     }
 
@@ -485,12 +529,16 @@ impl ContextApi {
     /// * Idempotent: Re-running produces same result
     /// * Atomic: Regeneration is transactional
     /// * Append-only: Old frames preserved
+    #[instrument(skip(self), fields(node_id = %hex::encode(node_id), recursive = recursive, agent_id = %agent_id))]
     pub fn regenerate(
         &self,
         node_id: NodeID,
         recursive: bool,
         agent_id: String,
     ) -> Result<RegenerationReport, ApiError> {
+        let start = Instant::now();
+        info!("Starting regeneration");
+
         // Verify agent exists
         let _agent = {
             let registry = self.agent_registry.read();
@@ -504,7 +552,10 @@ impl ContextApi {
             .node_store
             .get(&node_id)
             .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError::NodeNotFound(node_id))?;
+            .ok_or_else(|| {
+                warn!("Node not found");
+                ApiError::NodeNotFound(node_id)
+            })?;
 
         // Acquire write lock for this node (atomic operation)
         let lock = self.lock_manager.get_lock(&node_id);
@@ -523,6 +574,14 @@ impl ContextApi {
             self.node_store.as_ref(),
             agent_id,
         )?;
+
+        let duration = start.elapsed();
+        info!(
+            frame_count = report.regenerated_count,
+            duration_ms = duration.as_millis(),
+            recursive = recursive,
+            "Regeneration completed"
+        );
 
         Ok(report)
     }

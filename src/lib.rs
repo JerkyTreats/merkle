@@ -11,6 +11,7 @@ pub mod concurrency;
 pub mod error;
 pub mod frame;
 pub mod heads;
+pub mod logging;
 pub mod provider;
 pub mod regeneration;
 pub mod store;

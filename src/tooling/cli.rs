@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tracing::info;
 
 use hex;
 
@@ -38,6 +39,22 @@ pub struct Cli {
     /// Configuration file path (overrides default config loading)
     #[arg(long)]
     pub config: Option<PathBuf>,
+
+    /// Log level (trace, debug, info, warn, error, off)
+    #[arg(long)]
+    pub log_level: Option<String>,
+
+    /// Log format (json, text)
+    #[arg(long)]
+    pub log_format: Option<String>,
+
+    /// Log output (stdout, stderr, file, both)
+    #[arg(long)]
+    pub log_output: Option<String>,
+
+    /// Log file path (if output includes "file")
+    #[arg(long)]
+    pub log_file: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -605,7 +622,7 @@ impl CliContext {
                 let daemon = WatchDaemon::new(self.api.clone(), config);
 
                 // Start daemon (this will block)
-                eprintln!("Starting watch mode daemon...");
+                info!("Starting watch mode daemon");
                 daemon.start()?;
 
                 Ok("Watch daemon stopped".to_string())

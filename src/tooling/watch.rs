@@ -16,6 +16,7 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use parking_lot::RwLock;
+use tracing::{error, info, warn};
 
 /// Watch mode configuration
 #[derive(Debug, Clone)]
@@ -212,15 +213,15 @@ impl WatchDaemon {
         *self.running.write() = true;
 
         // Build initial tree
-        eprintln!("Building initial tree...");
+        info!("Building initial tree");
         self.build_initial_tree()?;
-        eprintln!("Initial tree built successfully");
+        info!("Initial tree built successfully");
 
         // Create file watcher
         let (tx, rx) = mpsc::channel();
         let mut watcher = notify::recommended_watcher(move |res| {
             if let Err(e) = tx.send(res) {
-                eprintln!("Error sending watch event: {}", e);
+                error!("Error sending watch event: {}", e);
             }
         }).map_err(|e| {
             ApiError::StorageError(crate::error::StorageError::IoError(
@@ -234,7 +235,7 @@ impl WatchDaemon {
             ))
         })?;
 
-        eprintln!("Watching workspace: {:?}", self.config.workspace_root);
+        info!(workspace = ?self.config.workspace_root, "Watching workspace");
 
         // Create batcher with config
         let mut batcher = EventBatcher::new(self.config.clone());
@@ -265,7 +266,7 @@ impl WatchDaemon {
                     }
                 }
                 Ok(Err(e)) => {
-                    eprintln!("Watch error: {}", e);
+                    warn!("Watch error: {}", e);
                     // Continue watching despite errors
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -276,7 +277,7 @@ impl WatchDaemon {
                     }
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    eprintln!("Watcher channel disconnected");
+                    error!("Watcher channel disconnected");
                     break;
                 }
             }
@@ -346,7 +347,7 @@ impl WatchDaemon {
             return Ok(());
         }
 
-        eprintln!("Processing {} change event(s)...", events.len());
+        info!(event_count = events.len(), "Processing change events");
 
         // Collect all affected paths
         let mut affected_paths = HashSet::new();
@@ -377,7 +378,11 @@ impl WatchDaemon {
             }
         }
 
-        eprintln!("Processed {} change event(s), updated {} node(s)", events.len(), affected_nodes.len());
+        info!(
+            event_count = events.len(),
+            affected_nodes = affected_nodes.len(),
+            "Processed change events"
+        );
 
         Ok(())
     }

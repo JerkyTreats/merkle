@@ -8,6 +8,9 @@ use crate::tree::walker::{Entry, Walker};
 use crate::types::NodeID;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
+use tracing::{debug, error, info, instrument, trace, warn};
+use hex;
 
 /// Complete Merkle tree structure
 #[derive(Debug, Clone)]
@@ -56,10 +59,23 @@ impl TreeBuilder {
     ///
     /// This processes files and directories bottom-up to compute NodeIDs,
     /// ensuring that directory NodeIDs depend on their children's NodeIDs.
+    #[instrument(skip(self), fields(workspace = %self.root.display()))]
     pub fn build(&self) -> Result<Tree, StorageError> {
+        let start = Instant::now();
+        info!("Starting tree build");
+
         // Step 1: Walk filesystem and collect entries
         let walker = Walker::new(self.root.clone());
-        let entries = walker.walk()?;
+        let entries = match walker.walk() {
+            Ok(e) => {
+                debug!(entry_count = e.len(), "Walked filesystem");
+                e
+            }
+            Err(e) => {
+                error!("Filesystem walk failed: {}", e);
+                return Err(e);
+            }
+        };
 
         // Step 2: Separate files and directories
         let mut files = Vec::new();
@@ -124,11 +140,20 @@ impl TreeBuilder {
             .get(&canonical_root)
             .copied()
             .ok_or_else(|| {
+                error!("Root directory not found in node map: {:?}", canonical_root);
                 StorageError::InvalidPath(format!(
                     "Root directory not found in node map: {:?}",
                     canonical_root
                 ))
             })?;
+
+        let duration = start.elapsed();
+        info!(
+            node_count = nodes.len(),
+            root_id = %hex::encode(root_id),
+            duration_ms = duration.as_millis(),
+            "Tree build completed"
+        );
 
         Ok(Tree {
             root_id,
@@ -146,9 +171,12 @@ impl TreeBuilder {
     }
 
     /// Hash a file and compute its NodeID
+    #[instrument(skip(self), fields(path = %file_path.display()))]
     fn hash_file(&self, file_path: &Path, size: u64) -> Result<(NodeID, FileNode), StorageError> {
+        trace!("Hashing file");
         // Read file content
         let content = std::fs::read(file_path).map_err(|e| {
+            error!("Failed to read file: {}", e);
             StorageError::IoError(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 format!("Failed to read file {:?}: {}", file_path, e),
@@ -157,6 +185,7 @@ impl TreeBuilder {
 
         // Compute content hash
         let content_hash = hasher::compute_content_hash(&content);
+        trace!(content_hash = %hex::encode(content_hash), "Computed content hash");
 
         // Extract metadata (currently empty, can be extended)
         let metadata = BTreeMap::new();

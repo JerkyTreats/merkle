@@ -6,6 +6,7 @@
 
 use crate::agent::AgentRole;
 use crate::error::ApiError;
+use crate::logging::LoggingConfig;
 use crate::provider::{CompletionOptions, ModelProvider};
 use config::{Config, ConfigError, Environment, File};
 use serde::{Deserialize, Serialize};
@@ -30,6 +31,10 @@ pub struct MerkleConfig {
     /// System-wide settings
     #[serde(default)]
     pub system: SystemConfig,
+
+    /// Logging configuration
+    #[serde(default)]
+    pub logging: LoggingConfig,
 }
 
 /// Model provider configuration
@@ -159,6 +164,7 @@ impl Default for MerkleConfig {
             providers: HashMap::new(),
             agents: HashMap::new(),
             system: SystemConfig::default(),
+            logging: LoggingConfig::default(),
         }
     }
 }
