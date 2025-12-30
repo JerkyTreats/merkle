@@ -198,18 +198,47 @@ fn test_store_persistence() {
     let store_path = store_dir.path().join("store.db");
 
     // First session: populate store
-    {
+    let store = {
         let store = SledNodeRecordStore::new(&store_path).unwrap();
         NodeRecord::populate_store_from_tree(&store, &tree).unwrap();
         store.flush().unwrap();
-    }
+        store
+    };
+    // Explicitly drop the store to ensure database is fully closed
+    std::mem::drop(store);
 
     // Second session: verify data persisted
-    {
-        let store = SledNodeRecordStore::new(&store_path).unwrap();
-        for (node_id, _) in &tree.nodes {
-            let record = store.get(node_id).unwrap();
-            assert!(record.is_some(), "Node should persist across restarts");
+    // Retry opening the database in case it's still closing
+    let store = retry_open_store(&store_path, 10).unwrap();
+    for (node_id, _) in &tree.nodes {
+        let record = store.get(node_id).unwrap();
+        assert!(record.is_some(), "Node should persist across restarts");
+    }
+}
+
+/// Helper function to retry opening a sled database
+/// This handles race conditions where the database might still be closing
+fn retry_open_store(
+    path: &std::path::Path,
+    max_retries: u32,
+) -> Result<SledNodeRecordStore, merkle::error::StorageError> {
+    use std::time::Duration;
+    
+    for attempt in 0..max_retries {
+        match SledNodeRecordStore::new(path) {
+            Ok(store) => return Ok(store),
+            Err(e) => {
+                if attempt < max_retries - 1 {
+                    // Exponential backoff: 1ms, 2ms, 4ms, 8ms, 16ms (capped)
+                    // This handles race conditions where the database is still closing
+                    let delay_ms = std::cmp::min(1 << attempt, 16);
+                    let delay = Duration::from_millis(delay_ms);
+                    std::thread::sleep(delay);
+                } else {
+                    return Err(e);
+                }
+            }
         }
     }
+    unreachable!()
 }
