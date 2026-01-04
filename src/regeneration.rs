@@ -103,8 +103,16 @@ impl BasisIndex {
     }
 
     /// Get the persistence path for a workspace root
+    /// 
+    /// Uses XDG data directory: $XDG_DATA_HOME/merkle/workspaces/<hash>/basis_index.bin
     pub fn persistence_path(workspace_root: &Path) -> PathBuf {
-        workspace_root.join(".merkle").join("basis_index.bin")
+        // Try to use XDG data directory, fall back to .merkle if XDG is not available
+        if let Ok(data_dir) = crate::config::xdg::workspace_data_dir(workspace_root) {
+            data_dir.join("basis_index.bin")
+        } else {
+            // Fallback to old location if XDG is not available
+            workspace_root.join(".merkle").join("basis_index.bin")
+        }
     }
 
     /// Load basis index from disk

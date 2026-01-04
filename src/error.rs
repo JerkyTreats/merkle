@@ -70,3 +70,9 @@ pub enum ApiError {
     #[error("Generation failed: {0}")]
     GenerationFailed(String),
 }
+
+impl From<config::ConfigError> for ApiError {
+    fn from(err: config::ConfigError) -> Self {
+        ApiError::ConfigError(err.to_string())
+    }
+}

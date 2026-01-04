@@ -193,13 +193,30 @@ pub struct CliContext {
     api: Arc<ContextApi>,
     workspace_root: PathBuf,
     config_path: Option<PathBuf>,
+    #[allow(dead_code)] // May be used for debugging or future features
+    store_path: PathBuf,
+    frame_storage_path: PathBuf,
 }
 
 impl CliContext {
+    /// Get a reference to the underlying API
+    pub fn api(&self) -> &ContextApi {
+        &self.api
+    }
+
     /// Create a new CLI context
     pub fn new(workspace_root: PathBuf, config_path: Option<PathBuf>) -> Result<Self, ApiError> {
+        // Load config to get storage paths
+        let config = if let Some(cfg_path) = &config_path {
+            crate::config::ConfigLoader::load_from_file(cfg_path)?
+        } else {
+            crate::config::ConfigLoader::load(&workspace_root)?
+        };
+        
+        // Resolve storage paths (will use XDG directories for default paths)
+        let (store_path, frame_storage_path) = config.system.storage.resolve_paths(&workspace_root)?;
+        
         // Initialize storage
-        let store_path = workspace_root.join(".merkle").join("store");
         std::fs::create_dir_all(&store_path).map_err(|e| {
             ApiError::StorageError(crate::error::StorageError::IoError(e))
         })?;
@@ -210,7 +227,7 @@ impl CliContext {
                     std::io::Error::new(std::io::ErrorKind::Other, format!("{}", e))
                 )))?
         );
-        let frame_storage_path = workspace_root.join(".merkle").join("frames");
+        
         std::fs::create_dir_all(&frame_storage_path).map_err(|e| {
             ApiError::StorageError(crate::error::StorageError::IoError(e))
         })?;
@@ -250,10 +267,15 @@ impl CliContext {
             workspace_root.clone(),
         );
 
+        // Store resolved storage paths for later use
+        let (store_path, frame_storage_path) = config.system.storage.resolve_paths(&workspace_root)?;
+
         Ok(Self {
             api: Arc::new(api),
             workspace_root,
             config_path,
+            store_path,
+            frame_storage_path,
         })
     }
 
@@ -446,10 +468,9 @@ impl CliContext {
                 };
 
                 // Count frames by counting .frame files
-                let frame_storage_path = self.workspace_root.join(".merkle").join("frames");
                 let mut frame_count = 0;
-                if frame_storage_path.exists() {
-                    frame_count = count_frame_files(&frame_storage_path)?;
+                if self.frame_storage_path.exists() {
+                    frame_count = count_frame_files(&self.frame_storage_path)?;
                 }
 
                 // Count head entries (unique (node, frame_type) pairs)
@@ -534,9 +555,8 @@ impl CliContext {
                 drop(basis_index);
 
                 // 5. Count frames and verify they're valid
-                let frame_storage_path = self.workspace_root.join(".merkle").join("frames");
-                let frame_count = if frame_storage_path.exists() {
-                    count_frame_files(&frame_storage_path)?
+                let frame_count = if self.frame_storage_path.exists() {
+                    count_frame_files(&self.frame_storage_path)?
                 } else {
                     0
                 };

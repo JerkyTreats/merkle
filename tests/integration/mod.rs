@@ -12,3 +12,4 @@ mod store_integration;
 mod tooling_integration;
 mod tree_determinism;
 mod tree_structure;
+mod workspace_isolation;

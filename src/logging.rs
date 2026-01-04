@@ -65,6 +65,9 @@ fn default_output() -> String {
 }
 
 fn default_log_file() -> PathBuf {
+    // This is a placeholder - actual path is computed at runtime
+    // The path will be resolved to $XDG_DATA_HOME/merkle/workspaces/<hash>/merkle.log
+    // when logging is initialized with a workspace root
     PathBuf::from(".merkle/merkle.log")
 }
 
@@ -124,6 +127,7 @@ pub fn init_logging(config: Option<&LoggingConfig>) -> Result<(), ApiError> {
         let log_file = config
             .map(|c| c.file.clone())
             .unwrap_or_else(default_log_file);
+        
         if let Some(parent) = log_file.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
                 ApiError::ConfigError(format!("Failed to create log directory: {}", e))

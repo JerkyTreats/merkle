@@ -58,7 +58,7 @@ fn build_logging_config(cli: &Cli) -> LoggingConfig {
             .map(|c| c.logging)
             .unwrap_or_default()
     } else {
-        ConfigLoader::load(&PathBuf::from("."))
+        ConfigLoader::load(&cli.workspace)
             .ok()
             .map(|c| c.logging)
             .unwrap_or_default()
@@ -76,6 +76,11 @@ fn build_logging_config(cli: &Cli) -> LoggingConfig {
     }
     if let Some(ref file) = cli.log_file {
         config.file = file.clone();
+    } else if config.file == PathBuf::from(".merkle/merkle.log") {
+        // Resolve default log file path to XDG data directory
+        if let Ok(data_dir) = merkle::config::xdg::workspace_data_dir(&cli.workspace) {
+            config.file = data_dir.join("merkle.log");
+        }
     }
 
     config

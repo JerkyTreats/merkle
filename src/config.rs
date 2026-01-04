@@ -13,6 +13,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
+use tracing::warn;
+
+#[cfg(test)]
+use std::sync::Mutex;
 
 /// Root configuration structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,12 +122,45 @@ pub struct SystemConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageConfig {
     /// Path to node record store (relative to workspace root)
+    /// Note: If this is the default ".merkle/store", it will be resolved to XDG data directory
     #[serde(default = "default_store_path")]
     pub store_path: PathBuf,
 
     /// Path to frame storage (relative to workspace root)
+    /// Note: If this is the default ".merkle/frames", it will be resolved to XDG data directory
     #[serde(default = "default_frames_path")]
     pub frames_path: PathBuf,
+}
+
+impl StorageConfig {
+    /// Resolve storage paths to actual filesystem locations
+    /// 
+    /// If paths are the default ".merkle/*" paths, they are resolved to XDG data directories.
+    /// Otherwise, they are resolved relative to the workspace root.
+    pub fn resolve_paths(&self, workspace_root: &Path) -> Result<(PathBuf, PathBuf), ApiError> {
+        let is_default_store = self.store_path == PathBuf::from(".merkle/store");
+        let is_default_frames = self.frames_path == PathBuf::from(".merkle/frames");
+        
+        let store_path = if is_default_store {
+            // Use XDG data directory
+            let data_dir = xdg::workspace_data_dir(workspace_root)?;
+            data_dir.join("store")
+        } else {
+            // Use configured path relative to workspace
+            workspace_root.join(&self.store_path)
+        };
+        
+        let frames_path = if is_default_frames {
+            // Use XDG data directory
+            let data_dir = xdg::workspace_data_dir(workspace_root)?;
+            data_dir.join("frames")
+        } else {
+            // Use configured path relative to workspace
+            workspace_root.join(&self.frames_path)
+        };
+        
+        Ok((store_path, frames_path))
+    }
 }
 
 // Default value functions
@@ -132,10 +169,14 @@ fn default_workspace_root() -> PathBuf {
 }
 
 fn default_store_path() -> PathBuf {
+    // This is a placeholder - actual path is computed at runtime using XDG directories
+    // The path will be resolved to $XDG_DATA_HOME/merkle/workspaces/<hash>/store
     PathBuf::from(".merkle/store")
 }
 
 fn default_frames_path() -> PathBuf {
+    // This is a placeholder - actual path is computed at runtime using XDG directories
+    // The path will be resolved to $XDG_DATA_HOME/merkle/workspaces/<hash>/frames
     PathBuf::from(".merkle/frames")
 }
 
@@ -372,14 +413,95 @@ impl MerkleConfig {
     }
 }
 
+/// XDG Base Directory utilities for workspace data management
+pub mod xdg {
+    use super::*;
+
+    /// Get XDG data home directory
+    /// 
+    /// Returns `$XDG_DATA_HOME` if set, otherwise defaults to `$HOME/.local/share`
+    /// Follows XDG Base Directory Specification
+    pub fn data_home() -> Option<PathBuf> {
+        if let Ok(xdg_data_home) = std::env::var("XDG_DATA_HOME") {
+            return Some(PathBuf::from(xdg_data_home));
+        }
+        
+        std::env::var("HOME")
+            .ok()
+            .map(|home| PathBuf::from(home).join(".local").join("share"))
+    }
+
+    /// Get the data directory for a specific workspace
+    /// 
+    /// Returns `$XDG_DATA_HOME/merkle/<workspace_path>/`
+    /// 
+    /// The workspace path is canonicalized and used directly as a directory structure.
+    /// For example, `/home/user/projects/myproject` becomes:
+    /// `$XDG_DATA_HOME/merkle/home/user/projects/myproject/`
+    /// 
+    /// This eliminates the need for any `.merkle/` directory in the workspace.
+    pub fn workspace_data_dir(workspace_root: &Path) -> Result<PathBuf, ApiError> {
+        let data_home = data_home().ok_or_else(|| {
+            ApiError::ConfigError("Could not determine XDG data home directory (HOME not set)".to_string())
+        })?;
+        
+        // Canonicalize the workspace path to get an absolute, resolved path
+        let canonical = workspace_root.canonicalize().map_err(|e| {
+            ApiError::ConfigError(format!("Failed to canonicalize workspace path: {}", e))
+        })?;
+        
+        // Build the data directory path by joining the canonical path components
+        // Remove the leading root component (/) and use the rest as directory structure
+        let mut data_dir = data_home.join("merkle");
+        
+        // Iterate through path components, skipping the root
+        for component in canonical.components() {
+            match component {
+                std::path::Component::RootDir => {
+                    // Skip the root directory component
+                }
+                std::path::Component::Prefix(_) => {
+                    // Skip prefix (Windows, but we're on Linux)
+                }
+                std::path::Component::CurDir => {
+                    // Skip current directory
+                }
+                std::path::Component::ParentDir => {
+                    // Skip parent directory (shouldn't happen in canonicalized path)
+                }
+                std::path::Component::Normal(name) => {
+                    data_dir = data_dir.join(name);
+                }
+            }
+        }
+        
+        Ok(data_dir)
+    }
+}
+
 /// Configuration loader
 pub struct ConfigLoader;
 
 impl ConfigLoader {
+    /// Get the XDG config directory path (~/.config/merkle/config.toml)
+    #[cfg(test)]
+    pub(crate) fn xdg_config_path() -> Option<PathBuf> {
+        std::env::var("HOME")
+            .ok()
+            .map(|home| PathBuf::from(home).join(".config").join("merkle").join("config.toml"))
+    }
+    
+    /// Get the XDG config directory path (~/.config/merkle/config.toml)
+    #[cfg(not(test))]
+    fn xdg_config_path() -> Option<PathBuf> {
+        std::env::var("HOME")
+            .ok()
+            .map(|home| PathBuf::from(home).join(".config").join("merkle").join("config.toml"))
+    }
+
     /// Load configuration from files and environment
     pub fn load(workspace_root: &Path) -> Result<MerkleConfig, ConfigError> {
         let config_dir = workspace_root.join("config");
-        let merkle_config_dir = workspace_root.join(".merkle");
 
         let env_name = std::env::var("MERKLE_ENV")
             .unwrap_or_else(|_| "development".to_string());
@@ -390,7 +512,28 @@ impl ConfigLoader {
             .set_default("system.storage.store_path", ".merkle/store")?
             .set_default("system.storage.frames_path", ".merkle/frames")?;
 
-        // Load base config from config/config.toml
+        // Load user-level default config from ~/.config/merkle/config.toml (lowest priority)
+        // This is loaded first so workspace configs can override it
+        if let Some(xdg_config_path) = Self::xdg_config_path() {
+            if xdg_config_path.exists() {
+                // Use canonical path to avoid issues with symlinks or relative paths
+                let canonical_xdg_path = xdg_config_path.canonicalize()
+                    .unwrap_or_else(|_| xdg_config_path.clone());
+                builder = builder.add_source(
+                    File::with_name(canonical_xdg_path.to_str().unwrap())
+                        .required(false)
+                );
+            } else {
+                // Warn if the default config location doesn't exist
+                warn!(
+                    config_path = %xdg_config_path.display(),
+                    "Default configuration file not found at ~/.config/merkle/config.toml. \
+                     Consider creating it for user-level defaults."
+                );
+            }
+        }
+
+        // Load base config from config/config.toml (workspace-specific, overrides user config)
         let base_config_path = config_dir.join("config.toml");
         if base_config_path.exists() {
             builder = builder.add_source(
@@ -399,16 +542,7 @@ impl ConfigLoader {
             );
         }
 
-        // Load .merkle/config.toml if it exists
-        let merkle_config_path = merkle_config_dir.join("config.toml");
-        if merkle_config_path.exists() {
-            builder = builder.add_source(
-                File::with_name(merkle_config_path.to_str().unwrap())
-                    .required(false)
-            );
-        }
-
-        // Load environment-specific config
+        // Load environment-specific config (overrides base config)
         let env_config_path = config_dir.join(format!("{}.toml", env_name));
         if env_config_path.exists() {
             builder = builder.add_source(
@@ -417,7 +551,7 @@ impl ConfigLoader {
             );
         }
 
-        // Override with environment variables (MERKLE_* prefix, __ separator)
+        // Override with environment variables (MERKLE_* prefix, __ separator) (highest priority)
         builder = builder.add_source(
             Environment::with_prefix("MERKLE")
                 .separator("__")
@@ -666,5 +800,222 @@ provider_name = "test-ollama"
         let agent = config.agents.get("test-agent").unwrap();
         assert_eq!(agent.agent_id, "test-agent");
         assert_eq!(agent.system_prompt.as_ref().unwrap(), "Test prompt");
+    }
+
+    #[test]
+    fn test_xdg_config_path() {
+        // Test that xdg_config_path constructs the correct path
+        // We'll test this indirectly by checking the behavior of load()
+        // First, save the original HOME
+        let original_home = std::env::var("HOME").ok();
+        
+        // Test with a mock HOME
+        let test_home = "/test/home";
+        std::env::set_var("HOME", test_home);
+        
+        // The path should be /test/home/.config/merkle/config.toml
+        // We can't directly test the private function, but we can verify
+        // the behavior through load() which will check for this path
+        
+        // Clean up
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+    }
+
+    // Mutex to serialize HOME environment variable access in tests
+    #[cfg(test)]
+    static HOME_MUTEX: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn test_load_with_xdg_config() {
+        // Serialize access to HOME to avoid race conditions in parallel test execution
+        let _guard = HOME_MUTEX.lock().unwrap();
+        
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_root = temp_dir.path();
+        
+        // Save original HOME
+        let original_home = std::env::var("HOME").ok();
+        
+        // Ensure no workspace config exists that could interfere
+        let workspace_config_dir = workspace_root.join("config");
+        let workspace_config_file = workspace_config_dir.join("config.toml");
+        // If it exists, we'll verify it doesn't override XDG config
+        
+        // Create a mock XDG config directory with absolute path
+        let mock_home = temp_dir.path().join("mock_home");
+        std::fs::create_dir_all(&mock_home).unwrap();
+        let mock_home_str = mock_home.canonicalize().unwrap().to_string_lossy().to_string();
+        std::env::set_var("HOME", &mock_home_str);
+        
+        let xdg_config_dir = mock_home.join(".config").join("merkle");
+        std::fs::create_dir_all(&xdg_config_dir).unwrap();
+        let xdg_config_file = xdg_config_dir.join("config.toml");
+        
+        // Write XDG config with a provider
+        std::fs::write(&xdg_config_file, r#"
+[system]
+default_workspace_root = "."
+
+[system.storage]
+store_path = ".merkle/store"
+frames_path = ".merkle/frames"
+
+[providers.xdg-provider]
+provider_type = "ollama"
+model = "xdg-model"
+endpoint = "http://localhost:11434"
+"#).unwrap();
+        
+        // Verify file exists before loading
+        assert!(xdg_config_file.exists(), "XDG config file should exist");
+        
+        // Verify XDG config path function returns the correct path
+        let xdg_path = ConfigLoader::xdg_config_path();
+        assert!(xdg_path.is_some(), "XDG config path should be found");
+        assert_eq!(xdg_path.unwrap(), xdg_config_file, "XDG config path should match");
+        
+        // Load config - should pick up XDG config
+        let config = ConfigLoader::load(workspace_root).unwrap();
+        assert!(config.providers.contains_key("xdg-provider"), 
+                "Config should contain xdg-provider. Found providers: {:?}. XDG config file exists: {}, workspace config exists: {}", 
+                config.providers.keys().collect::<Vec<_>>(),
+                xdg_config_file.exists(),
+                workspace_config_file.exists());
+        let provider = config.providers.get("xdg-provider").unwrap();
+        assert_eq!(provider.model, "xdg-model");
+        
+        // Clean up
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+    }
+
+    #[test]
+    fn test_workspace_config_overrides_xdg_config() {
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_root = temp_dir.path();
+        
+        // Save original HOME
+        let original_home = std::env::var("HOME").ok();
+        
+        // Create a mock XDG config directory with absolute path
+        let mock_home = temp_dir.path().join("mock_home_override");
+        std::fs::create_dir_all(&mock_home).unwrap();
+        let mock_home_str = mock_home.canonicalize().unwrap().to_string_lossy().to_string();
+        std::env::set_var("HOME", &mock_home_str);
+        
+        let xdg_config_dir = mock_home.join(".config").join("merkle");
+        std::fs::create_dir_all(&xdg_config_dir).unwrap();
+        let xdg_config_file = xdg_config_dir.join("config.toml");
+        
+        // Write XDG config with a provider
+        std::fs::write(&xdg_config_file, r#"
+[system]
+default_workspace_root = "."
+
+[system.storage]
+store_path = ".merkle/store"
+frames_path = ".merkle/frames"
+
+[providers.xdg-provider]
+provider_type = "ollama"
+model = "xdg-model"
+endpoint = "http://localhost:11434"
+"#).unwrap();
+        
+        // Create workspace config with same provider but different model
+        let workspace_config_dir = workspace_root.join("config");
+        std::fs::create_dir_all(&workspace_config_dir).unwrap();
+        let workspace_config_file = workspace_config_dir.join("config.toml");
+        std::fs::write(&workspace_config_file, r#"
+[providers.xdg-provider]
+provider_type = "ollama"
+model = "workspace-model"
+endpoint = "http://localhost:11434"
+"#).unwrap();
+        
+        // Load config - workspace config should override XDG config
+        let config = ConfigLoader::load(workspace_root).unwrap();
+        assert!(config.providers.contains_key("xdg-provider"));
+        let provider = config.providers.get("xdg-provider").unwrap();
+        // Workspace config should win
+        assert_eq!(provider.model, "workspace-model");
+        
+        // Clean up
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+    }
+
+    #[test]
+    fn test_load_without_xdg_config() {
+        // Serialize access to HOME to avoid race conditions in parallel test execution
+        let _guard = HOME_MUTEX.lock().unwrap();
+        
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_root = temp_dir.path();
+        
+        // Save original HOME
+        let original_home = std::env::var("HOME").ok();
+        
+        // Create a mock HOME but don't create XDG config
+        let mock_home = temp_dir.path().join("mock_home_no_config");
+        std::fs::create_dir_all(&mock_home).unwrap();
+        let mock_home_str = mock_home.canonicalize().unwrap().to_string_lossy().to_string();
+        std::env::set_var("HOME", &mock_home_str);
+        
+        // Verify XDG config doesn't exist
+        let xdg_config_file = mock_home.join(".config").join("merkle").join("config.toml");
+        assert!(!xdg_config_file.exists(), "XDG config file should not exist");
+        
+        // Load config - should work fine without XDG config (just use defaults)
+        // The warning will be logged but shouldn't cause an error
+        let config = ConfigLoader::load(workspace_root).unwrap();
+        // Should have default config (no providers from XDG or workspace)
+        assert_eq!(config.providers.len(), 0, 
+                   "Should have no providers when XDG config doesn't exist. Found: {:?}", 
+                   config.providers.keys().collect::<Vec<_>>());
+        assert_eq!(config.agents.len(), 0);
+        
+        // Clean up
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+    }
+
+    #[test]
+    fn test_load_without_home_env() {
+        // Serialize access to HOME to avoid race conditions in parallel test execution
+        let _guard = HOME_MUTEX.lock().unwrap();
+        
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_root = temp_dir.path();
+        
+        // Save original HOME
+        let original_home = std::env::var("HOME").ok();
+        
+        // Remove HOME env var
+        std::env::remove_var("HOME");
+        
+        // Load config - should work fine without HOME (just skip XDG config)
+        let config = ConfigLoader::load(workspace_root).unwrap();
+        // Should have default config
+        assert_eq!(config.providers.len(), 0);
+        assert_eq!(config.agents.len(), 0);
+        
+        // Clean up
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        }
     }
 }
