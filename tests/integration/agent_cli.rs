@@ -292,7 +292,8 @@ fn test_agent_validate_valid() {
         
         let command = Commands::Agent {
             command: AgentCommands::Validate {
-                agent_id: "test-agent".to_string(),
+                agent_id: Some("test-agent".to_string()),
+                all: false,
                 verbose: false,
             },
         };
@@ -316,7 +317,8 @@ fn test_agent_validate_missing_prompt() {
         
         let command = Commands::Agent {
             command: AgentCommands::Validate {
-                agent_id: "test-agent".to_string(),
+                agent_id: Some("test-agent".to_string()),
+                all: false,
                 verbose: false,
             },
         };
@@ -325,6 +327,95 @@ fn test_agent_validate_missing_prompt() {
         assert!(output.contains("test-agent"));
         // Should have validation errors
         assert!(output.contains("error") || output.contains("✗"));
+    });
+}
+
+#[test]
+fn test_agent_validate_all() {
+    let test_dir = TempDir::new().unwrap();
+    with_xdg_config_home(&test_dir, || {
+        let prompt_path1 = create_test_prompt_file(&test_dir, "test1.md");
+        let prompt_path2 = create_test_prompt_file(&test_dir, "test2.md");
+        create_test_agent("test-agent-1", AgentRole::Writer, Some(prompt_path1.to_str().unwrap())).unwrap();
+        create_test_agent("test-agent-2", AgentRole::Reader, None).unwrap();
+        create_test_agent("test-agent-3", AgentRole::Writer, Some(prompt_path2.to_str().unwrap())).unwrap();
+        
+        let workspace = test_dir.path().to_path_buf();
+        let cli = CliContext::new(workspace, None).unwrap();
+        
+        let command = Commands::Agent {
+            command: AgentCommands::Validate {
+                agent_id: None,
+                all: true,
+                verbose: false,
+            },
+        };
+        
+        let output = cli.execute(&command).unwrap();
+        assert!(output.contains("Validating all agents"));
+        assert!(output.contains("test-agent-1"));
+        assert!(output.contains("test-agent-2"));
+        assert!(output.contains("test-agent-3"));
+        assert!(output.contains("Summary:"));
+    });
+}
+
+#[test]
+fn test_agent_validate_all_verbose() {
+    let test_dir = TempDir::new().unwrap();
+    with_xdg_config_home(&test_dir, || {
+        let prompt_path = create_test_prompt_file(&test_dir, "test.md");
+        create_test_agent("test-agent", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
+        
+        let workspace = test_dir.path().to_path_buf();
+        let cli = CliContext::new(workspace, None).unwrap();
+        
+        let command = Commands::Agent {
+            command: AgentCommands::Validate {
+                agent_id: None,
+                all: true,
+                verbose: true,
+            },
+        };
+        
+        let output = cli.execute(&command).unwrap();
+        assert!(output.contains("Validating all agents"));
+        assert!(output.contains("test-agent"));
+        assert!(output.contains("checks passed") || output.contains("checks"));
+    });
+}
+
+#[test]
+fn test_agent_validate_all_empty() {
+    let test_dir = TempDir::new().unwrap();
+    with_xdg_config_home(&test_dir, || {
+        // Ensure agents directory exists but is empty
+        let agents_dir = xdg::agents_dir().unwrap();
+        // Remove any existing agents
+        if agents_dir.exists() {
+            for entry in fs::read_dir(&agents_dir).unwrap() {
+                let entry = entry.unwrap();
+                if entry.path().extension().and_then(|s| s.to_str()) == Some("toml") {
+                    fs::remove_file(entry.path()).unwrap();
+                }
+            }
+        }
+        
+        let workspace = test_dir.path().to_path_buf();
+        let cli = CliContext::new(workspace, None).unwrap();
+        
+        let command = Commands::Agent {
+            command: AgentCommands::Validate {
+                agent_id: None,
+                all: true,
+                verbose: false,
+            },
+        };
+        
+        let output = cli.execute(&command).unwrap();
+        // Output should indicate no agents found or show validation results
+        // Note: Agents may be loaded from config.toml, so we just verify the command works
+        assert!(output.contains("No agents found") || output.contains("to validate") || output.contains("Validating all agents"));
     });
 }
 

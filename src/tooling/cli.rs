@@ -217,8 +217,12 @@ pub enum AgentCommands {
     },
     /// Validate agent configuration
     Validate {
-        /// Agent ID
-        agent_id: String,
+        /// Agent ID (required unless --all is used)
+        #[arg(required_unless_present = "all")]
+        agent_id: Option<String>,
+        /// Validate all agents
+        #[arg(long, conflicts_with = "agent_id")]
+        all: bool,
         /// Show detailed validation results
         #[arg(long)]
         verbose: bool,
@@ -848,8 +852,8 @@ impl CliContext {
             AgentCommands::Show { agent_id, format, include_prompt } => {
                 self.handle_agent_show(agent_id, format.clone(), *include_prompt)
             }
-            AgentCommands::Validate { agent_id, verbose } => {
-                self.handle_agent_validate(agent_id, *verbose)
+            AgentCommands::Validate { agent_id, all, verbose } => {
+                self.handle_agent_validate(agent_id.as_deref(), *all, *verbose)
             }
             AgentCommands::Create { agent_id, role, prompt_path, interactive, non_interactive } => {
                 self.handle_agent_create(agent_id, role.as_deref(), prompt_path.as_deref(), *interactive, *non_interactive)
@@ -912,10 +916,38 @@ impl CliContext {
     }
 
     /// Handle agent validate command
-    fn handle_agent_validate(&self, agent_id: &str, verbose: bool) -> Result<String, ApiError> {
+    fn handle_agent_validate(&self, agent_id: Option<&str>, all: bool, verbose: bool) -> Result<String, ApiError> {
         let registry = self.api.agent_registry().read();
-        let result = registry.validate_agent(agent_id)?;
-        Ok(format_validation_result(&result, verbose))
+        
+        if all {
+            // Validate all agents
+            let agents = registry.list_all();
+            if agents.is_empty() {
+                return Ok("No agents found to validate.".to_string());
+            }
+            
+            let mut results: Vec<(String, crate::agent::ValidationResult)> = Vec::new();
+            for agent in agents {
+                match registry.validate_agent(&agent.agent_id) {
+                    Ok(result) => results.push((agent.agent_id.clone(), result)),
+                    Err(e) => {
+                        // Create a validation result with error
+                        let mut error_result = crate::agent::ValidationResult::new(agent.agent_id.clone());
+                        error_result.add_error(format!("Failed to validate: {}", e));
+                        results.push((agent.agent_id.clone(), error_result));
+                    }
+                }
+            }
+            
+            Ok(format_validation_results_all(&results, verbose))
+        } else {
+            // Validate single agent
+            let agent_id = agent_id.ok_or_else(|| {
+                ApiError::ConfigError("Agent ID required unless --all is specified".to_string())
+            })?;
+            let result = registry.validate_agent(agent_id)?;
+            Ok(format_validation_result(&result, verbose))
+        }
     }
 
     /// Handle agent create command
@@ -1370,6 +1402,45 @@ fn format_validation_result(result: &crate::agent::ValidationResult, verbose: bo
         }
     }
 
+    output
+}
+
+/// Format multiple validation results (for --all)
+fn format_validation_results_all(results: &[(String, crate::agent::ValidationResult)], verbose: bool) -> String {
+    let mut output = String::from("Validating all agents:\n\n");
+    
+    let mut valid_count = 0;
+    let mut invalid_count = 0;
+    
+    for (agent_id, result) in results {
+        if result.is_valid() {
+            valid_count += 1;
+            if verbose {
+                output.push_str(&format!("✓ {}: All checks passed ({}/{} checks)\n", 
+                    agent_id, result.passed_checks(), result.total_checks()));
+            } else {
+                output.push_str(&format!("✓ {}: Valid\n", agent_id));
+            }
+        } else {
+            invalid_count += 1;
+            output.push_str(&format!("✗ {}: Validation failed\n", agent_id));
+            if verbose {
+                // Show details for invalid agents
+                for (description, passed) in &result.checks {
+                    if !passed {
+                        output.push_str(&format!("  ✗ {}\n", description));
+                    }
+                }
+                for error in &result.errors {
+                    output.push_str(&format!("  ✗ {}\n", error));
+                }
+            }
+        }
+    }
+    
+    output.push_str(&format!("\nSummary: {} valid, {} invalid (out of {} total)\n", 
+        valid_count, invalid_count, results.len()));
+    
     output
 }
 

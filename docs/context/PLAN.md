@@ -196,6 +196,51 @@ The implementation follows a logical progression: first decoupling providers fro
 
 ---
 
+### Phase 3.5 — Initialization Command and Default Agents
+
+**Goal**: Implement `merkle init` command to initialize default required agents with their prompts.
+
+**Status**: ⏳ **PENDING**
+
+| Task | Status |
+|------|--------|
+| Design default agents requirements and specifications | Pending |
+| Determine prompt storage mechanism (binary embedding vs. external files) | Pending |
+| Implement `merkle init` command structure | Pending |
+| Create default agent configurations | Pending |
+| Implement prompt file creation/copying logic | Pending |
+| Add initialization validation and idempotency checks | Pending |
+| Create initialization tests | Pending |
+
+**Exit Criteria:**
+- ✅ `merkle init` command creates default required agents
+- ✅ Default agent prompts are stored and accessible (binary or external)
+- ✅ Agents are initialized to correct XDG location
+- ✅ Command is idempotent (safe to run multiple times)
+- ✅ Clear feedback on what was created/updated
+- ✅ Validation that agents were created successfully
+
+**Key Commands:**
+- `merkle init` - Initialize default agents and prompts
+- `merkle init --force` - Force re-initialization (overwrite existing)
+- `merkle init --list` - List what would be initialized without creating
+
+**Key Considerations:**
+- **Prompt Storage**: Decide between embedding prompts in binary vs. storing as external files
+- **Default Agents**: Define required default agents and their roles (Reader, Writer, Synthesis)
+- **Idempotency**: Ensure safe re-running without duplicating agents
+- **User Customization**: Allow users to customize default agents after initialization
+- **Location**: Initialize to `$XDG_CONFIG_HOME/merkle/agents/` directory
+
+**Dependencies:**
+- Phase 3 (Agent Management CLI) - Agent creation and management infrastructure must exist
+
+**Documentation:**
+- [Default Agents Requirements](agents/default_agents_requirements.md) - Specification for default required agents and their prompts
+- [Initialization Command Specification](init_command_spec.md) - Complete `merkle init` command specification
+
+---
+
 ### Phase 4 — Provider Management CLI Commands
 
 **Goal**: Implement CLI commands for managing providers stored in XDG directories.
