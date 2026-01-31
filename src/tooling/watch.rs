@@ -9,7 +9,6 @@ use crate::frame::{FrameGenerationQueue, GenerationConfig};
 use crate::heads::HeadIndex;
 use crate::regeneration::BasisIndex;
 use crate::store::{NodeRecord, NodeRecordStore};
-use crate::tooling::adapter::ContextApiAdapter;
 use crate::tree::builder::TreeBuilder;
 use crate::tree::path::canonicalize_path;
 use crate::types::NodeID;
@@ -240,10 +239,8 @@ impl WatchDaemon {
         // Create generation queue if auto_generate_frames is enabled
         let generation_queue = if config.auto_generate_frames {
             let gen_config = config.generation_config.clone().unwrap_or_default();
-            let adapter = Arc::new(ContextApiAdapter::from_arc(Arc::clone(&api)));
             let queue = Arc::new(FrameGenerationQueue::new(
                 Arc::clone(&api),
-                adapter,
                 gen_config,
             ));
             // Start the queue workers

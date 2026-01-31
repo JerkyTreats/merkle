@@ -953,8 +953,13 @@ impl ContextApi {
                         let agent_id = agent_id.clone();
                         let frame_type = Some(frame_type);
                         handle.spawn(async move {
-                            if let Err(e) = queue.enqueue(node_id, agent_id, frame_type, priority).await {
-                                error!(error = %e, "Failed to enqueue generation request");
+                            match queue.enqueue(node_id, agent_id, frame_type, priority).await {
+                                Ok(_request_id) => {
+                                    debug!("Generation request enqueued successfully");
+                                }
+                                Err(e) => {
+                                    error!(error = %e, "Failed to enqueue generation request");
+                                }
                             }
                         });
                         return Ok(None); // Frame will be created asynchronously

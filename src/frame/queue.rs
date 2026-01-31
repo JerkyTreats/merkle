@@ -3,17 +3,18 @@
 //! Batch queue system for automatically generating context frames using LLM providers.
 //! Handles large-scale operations efficiently through batching, rate limiting, and concurrent processing.
 
-use crate::api::ContextApi;
+use crate::api::{ContextApi, ContextView};
 use crate::error::ApiError;
+use crate::frame::{Basis, Frame};
+use crate::provider::{ChatMessage, CompletionOptions, ProviderFactory};
 use crate::store::NodeRecord;
-use crate::tooling::adapter::{AgentAdapter, ContextApiAdapter};
 use crate::types::{FrameID, NodeID};
 use hex;
 use parking_lot::RwLock;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, Notify, Semaphore};
+use tokio::sync::{oneshot, Mutex, Notify, Semaphore};
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
@@ -26,9 +27,24 @@ pub enum Priority {
     Urgent = 3,   // User-initiated requests
 }
 
+/// Request ID for tracking completion
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RequestId(u64);
+
+impl RequestId {
+    /// Generate the next request ID (for internal use and testing)
+    pub fn next() -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(1);
+        RequestId(COUNTER.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
 /// Generation request
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct GenerationRequest {
+    /// Request ID for tracking completion
+    pub request_id: RequestId,
     /// NodeID to generate frame for
     pub node_id: NodeID,
     /// Agent ID that will generate the frame
@@ -41,14 +57,28 @@ pub struct GenerationRequest {
     pub retry_count: usize,
     /// Timestamp when request was created
     pub created_at: Instant,
+    /// Optional completion channel for sync requests (not cloneable)
+    pub completion_tx: Option<oneshot::Sender<Result<FrameID, ApiError>>>,
+}
+
+impl Clone for GenerationRequest {
+    fn clone(&self) -> Self {
+        Self {
+            request_id: self.request_id,
+            node_id: self.node_id,
+            agent_id: self.agent_id.clone(),
+            frame_type: self.frame_type.clone(),
+            priority: self.priority,
+            retry_count: self.retry_count,
+            created_at: self.created_at,
+            completion_tx: None, // Don't clone completion channel
+        }
+    }
 }
 
 impl PartialEq for GenerationRequest {
     fn eq(&self, other: &Self) -> bool {
-        self.priority == other.priority
-            && self.created_at == other.created_at
-            && self.node_id == other.node_id
-            && self.agent_id == other.agent_id
+        self.request_id == other.request_id
     }
 }
 
@@ -187,8 +217,6 @@ pub struct FrameGenerationQueue {
     config: GenerationConfig,
     /// API for frame operations
     api: Arc<ContextApi>,
-    /// Adapter for LLM generation
-    adapter: Arc<ContextApiAdapter>,
     /// Rate limiters per agent
     rate_limiters: Arc<RwLock<HashMap<String, AgentRateLimiter>>>,
     /// Running state
@@ -201,7 +229,6 @@ impl FrameGenerationQueue {
     /// Create a new generation queue
     pub fn new(
         api: Arc<ContextApi>,
-        adapter: Arc<ContextApiAdapter>,
         config: GenerationConfig,
     ) -> Self {
         Self {
@@ -210,21 +237,21 @@ impl FrameGenerationQueue {
             workers: Arc::new(RwLock::new(Vec::new())),
             config,
             api,
-            adapter,
             rate_limiters: Arc::new(RwLock::new(HashMap::new())),
             running: Arc::new(RwLock::new(false)),
             stats: Arc::new(RwLock::new(QueueStats::default())),
         }
     }
 
-    /// Enqueue a generation request
+    /// Enqueue a generation request (async - returns immediately)
     pub async fn enqueue(
         &self,
         node_id: NodeID,
         agent_id: String,
         frame_type: Option<String>,
         priority: Priority,
-    ) -> Result<(), ApiError> {
+    ) -> Result<RequestId, ApiError> {
+        let request_id = RequestId::next();
         let mut queue = self.queue.lock().await;
 
         // Check queue size limit
@@ -243,12 +270,14 @@ impl FrameGenerationQueue {
         let frame_type = frame_type.unwrap_or_else(|| format!("context-{}", agent_id));
 
         let request = GenerationRequest {
+            request_id,
             node_id,
             agent_id: agent_id.clone(),
             frame_type,
             priority,
             retry_count: 0,
             created_at: Instant::now(),
+            completion_tx: None,
         };
 
         // Push to priority queue (BinaryHeap maintains max-heap property)
@@ -264,6 +293,7 @@ impl FrameGenerationQueue {
         self.notify.notify_one();
 
         debug!(
+            request_id = ?request_id,
             node_id = %hex::encode(node_id),
             agent_id = %agent_id,
             priority = ?priority,
@@ -271,16 +301,92 @@ impl FrameGenerationQueue {
             "Enqueued generation request"
         );
 
-        Ok(())
+        Ok(request_id)
+    }
+
+    /// Enqueue a generation request and wait for completion (sync)
+    pub async fn enqueue_and_wait(
+        &self,
+        node_id: NodeID,
+        agent_id: String,
+        frame_type: Option<String>,
+        priority: Priority,
+        timeout: Option<Duration>,
+    ) -> Result<FrameID, ApiError> {
+        let request_id = RequestId::next();
+        let (tx, rx) = oneshot::channel();
+        
+        let mut queue = self.queue.lock().await;
+
+        // Check queue size limit
+        if queue.len() >= self.config.max_queue_size {
+            warn!(
+                queue_size = queue.len(),
+                max_size = self.config.max_queue_size,
+                "Generation queue is full, dropping request"
+            );
+            return Err(ApiError::ConfigError(
+                "Generation queue is full".to_string(),
+            ));
+        }
+
+        // Use provided frame_type or default to "context-{agent_id}"
+        let frame_type = frame_type.unwrap_or_else(|| format!("context-{}", agent_id));
+
+        let request = GenerationRequest {
+            request_id,
+            node_id,
+            agent_id: agent_id.clone(),
+            frame_type,
+            priority,
+            retry_count: 0,
+            created_at: Instant::now(),
+            completion_tx: Some(tx),
+        };
+
+        // Push to priority queue (BinaryHeap maintains max-heap property)
+        queue.push(request);
+
+        // Update stats
+        {
+            let mut stats = self.stats.write();
+            stats.pending += 1;
+        }
+
+        // Notify workers that a new item is available
+        self.notify.notify_one();
+        drop(queue);
+
+        debug!(
+            request_id = ?request_id,
+            node_id = %hex::encode(node_id),
+            agent_id = %agent_id,
+            priority = ?priority,
+            "Enqueued sync generation request"
+        );
+
+        // Wait for completion
+        match timeout {
+            Some(timeout) => {
+                tokio::time::timeout(timeout, rx)
+                    .await
+                    .map_err(|_| ApiError::ConfigError("Timeout waiting for generation".to_string()))?
+                    .map_err(|_| ApiError::ConfigError("Completion channel closed".to_string()))?
+            }
+            None => rx
+                .await
+                .map_err(|_| ApiError::ConfigError("Completion channel closed".to_string()))?,
+        }
     }
 
     /// Enqueue multiple requests (batch enqueue)
     pub async fn enqueue_batch(
         &self,
         requests: Vec<(NodeID, String, Option<String>, Priority)>,
-    ) -> Result<(), ApiError> {
+    ) -> Result<Vec<RequestId>, ApiError> {
         let batch_size = requests.len();
         let mut queue = self.queue.lock().await;
+        let mut request_ids = Vec::new();
 
         // Check if batch would exceed queue size
         if queue.len() + batch_size > self.config.max_queue_size {
@@ -297,15 +403,19 @@ impl FrameGenerationQueue {
 
         // Use provided frame_type or default to "context-{agent_id}"
         for (node_id, agent_id, frame_type, priority) in requests {
+            let request_id = RequestId::next();
             let frame_type = frame_type.unwrap_or_else(|| format!("context-{}", agent_id));
             let request = GenerationRequest {
+                request_id,
                 node_id,
                 agent_id: agent_id.clone(),
                 frame_type,
                 priority,
                 retry_count: 0,
                 created_at: Instant::now(),
+                completion_tx: None,
             };
+            request_ids.push(request_id);
             queue.push(request);
         }
 
@@ -328,7 +438,7 @@ impl FrameGenerationQueue {
             "Enqueued batch of generation requests"
         );
 
-        Ok(())
+        Ok(request_ids)
     }
 
     /// Start background workers
@@ -348,7 +458,6 @@ impl FrameGenerationQueue {
         for i in 0..worker_count {
             let queue = Arc::clone(&self.queue);
             let notify = Arc::clone(&self.notify);
-            let adapter = Arc::clone(&self.adapter);
             let api = Arc::clone(&self.api);
             let config = self.config.clone();
             let rate_limiters = Arc::clone(&self.rate_limiters);
@@ -360,7 +469,6 @@ impl FrameGenerationQueue {
                     i,
                     queue,
                     notify,
-                    adapter,
                     api,
                     config,
                     rate_limiters,
@@ -434,7 +542,6 @@ impl FrameGenerationQueue {
         worker_id: usize,
         queue: Arc<Mutex<BinaryHeap<GenerationRequest>>>,
         notify: Arc<Notify>,
-        adapter: Arc<ContextApiAdapter>,
         api: Arc<ContextApi>,
         config: GenerationConfig,
         rate_limiters: Arc<RwLock<HashMap<String, AgentRateLimiter>>>,
@@ -496,6 +603,9 @@ impl FrameGenerationQueue {
                 min_delay,
             };
 
+            // Extract completion channel before processing (oneshot::Sender doesn't implement Clone)
+            let completion_tx = request.completion_tx.take();
+
             // Acquire rate limiter permit
             let _permit = match rate_limiter.acquire(&request.agent_id).await {
                 Ok(permit) => permit,
@@ -507,8 +617,11 @@ impl FrameGenerationQueue {
                         "Failed to acquire rate limiter permit"
                     );
                     // Re-queue request (maintains priority order automatically)
+                    // Restore completion_tx if it was present
+                    let mut req = request.clone();
+                    req.completion_tx = completion_tx;
                     let mut queue_guard = queue.lock().await;
-                    queue_guard.push(request);
+                    queue_guard.push(req);
                     {
                         let mut stats = stats.write();
                         stats.processing = stats.processing.saturating_sub(1);
@@ -521,12 +634,11 @@ impl FrameGenerationQueue {
             // Process request
             let result = Self::process_request(
                 &request,
-                &adapter,
                 &api,
                 &config,
             ).await;
 
-            // Update stats (drop guard before await)
+            // Determine if we should retry (before sending result to completion channel)
             let should_retry = {
                 let mut stats_guard = stats.write();
                 stats_guard.processing = stats_guard.processing.saturating_sub(1);
@@ -555,6 +667,14 @@ impl FrameGenerationQueue {
                     }
                 }
             };
+
+            // Notify completion channel if present (for sync requests)
+            // Only send if not retrying (retries don't preserve completion channel)
+            if !should_retry {
+                if let Some(tx) = completion_tx {
+                    let _ = tx.send(result);
+                }
+            }
             
             // Re-queue if needed (after dropping stats guard)
             if should_retry {
@@ -562,8 +682,12 @@ impl FrameGenerationQueue {
                 // Add retry delay before re-queuing
                 sleep(Duration::from_millis(config.retry_delay_ms)).await;
                 
+                // Clone request for re-queuing (completion_tx already extracted above)
+                let mut retry_request = request.clone();
+                retry_request.completion_tx = None; // Don't retry sync requests - they should fail
+                
                 let mut queue_guard = queue.lock().await;
-                queue_guard.push(request);
+                queue_guard.push(retry_request);
                 drop(queue_guard);
                 
                 // Notify workers that a retry is available
@@ -579,13 +703,14 @@ impl FrameGenerationQueue {
     }
 
     /// Process a single generation request
+    /// This is the ONLY place where providers are called
     async fn process_request(
         request: &GenerationRequest,
-        adapter: &ContextApiAdapter,
         api: &ContextApi,
         _config: &GenerationConfig,
     ) -> Result<FrameID, ApiError> {
         debug!(
+            request_id = ?request.request_id,
             node_id = %hex::encode(request.node_id),
             agent_id = %request.agent_id,
             attempt = request.retry_count + 1,
@@ -594,6 +719,10 @@ impl FrameGenerationQueue {
 
         // Get agent
         let agent = api.get_agent(&request.agent_id)?;
+
+        // Check if agent has provider configured
+        let provider = agent.provider.as_ref()
+            .ok_or_else(|| ApiError::ProviderNotConfigured(request.agent_id.clone()))?;
 
         // Get node record
         let node_record = api
@@ -618,22 +747,100 @@ impl FrameGenerationQueue {
             )));
         }
 
-        // Generate prompts (system_prompt is validated but adapter gets it from agent metadata)
-        let (_system_prompt, user_prompt) = Self::generate_prompts(&agent, &node_record)?;
+        // Generate prompts
+        let (system_prompt, user_prompt) = Self::generate_prompts(&agent, &node_record)?;
 
-        // Generate frame using adapter
+        // Create provider client
+        let client = ProviderFactory::create_client(provider)?;
+
+        // Get node context to build prompt
+        let view = ContextView {
+            max_frames: 10,
+            ordering: crate::views::OrderingPolicy::Recency,
+            filters: vec![],
+        };
+        let context = api.get_node(request.node_id, view)?;
+
+        // Build messages for LLM
+        let mut messages = vec![
+            ChatMessage {
+                role: crate::provider::MessageRole::System,
+                content: system_prompt,
+            },
+        ];
+
+        // Add context from existing frames
+        if !context.frames.is_empty() {
+            let context_text: String = context.frames.iter()
+                .map(|f| String::from_utf8_lossy(&f.content))
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            messages.push(ChatMessage {
+                role: crate::provider::MessageRole::User,
+                content: format!("Context:\n{}\n\nTask: {}", context_text, user_prompt),
+            });
+        } else {
+            messages.push(ChatMessage {
+                role: crate::provider::MessageRole::User,
+                content: user_prompt.clone(),
+            });
+        }
+
+        // Generate completion - THIS IS THE ONLY PLACE PROVIDERS ARE CALLED
         let start = Instant::now();
-        let frame_id = adapter
-            .generate_frame(
-                request.node_id,
-                user_prompt,
-                request.frame_type.clone(),
-                request.agent_id.clone(),
-            )
-            .await?;
+        let response = match client.complete(
+            messages,
+            CompletionOptions {
+                temperature: Some(0.7),
+                max_tokens: Some(2000),
+                ..Default::default()
+            },
+        ).await {
+            Ok(r) => Ok(r),
+            Err(e) => {
+                // Enhance error with available models if model not found
+                if let ApiError::ProviderModelNotFound(_) = e {
+                    match client.list_models().await {
+                        Ok(available_models) => {
+                            if available_models.is_empty() {
+                                Err(ApiError::ProviderModelNotFound(format!(
+                                    "Model '{}' not found. Unable to retrieve available models list.",
+                                    client.model_name()
+                                )))
+                            } else {
+                                Err(ApiError::ProviderModelNotFound(format!(
+                                    "Model '{}' not found. Available models: {}",
+                                    client.model_name(),
+                                    available_models.join(", ")
+                                )))
+                            }
+                        }
+                        Err(_) => Err(e),
+                    }
+                } else {
+                    Err(e)
+                }
+            }
+        }?;
 
         let duration = start.elapsed();
+
+        // Create frame with generated content
+        let basis = Basis::Node(request.node_id);
+        let content = response.content.into_bytes();
+        let mut metadata = HashMap::new();
+        metadata.insert("provider".to_string(), client.provider_name().to_string());
+        metadata.insert("model".to_string(), client.model_name().to_string());
+        metadata.insert("provider_type".to_string(), client.provider_name().to_string());
+        metadata.insert("prompt".to_string(), user_prompt);
+
+        let frame = Frame::new(basis, content, request.frame_type.clone(), request.agent_id.clone(), metadata)?;
+
+        // Store frame using put_frame
+        let frame_id = api.put_frame(request.node_id, frame, request.agent_id.clone())?;
+
         info!(
+            request_id = ?request.request_id,
             node_id = %hex::encode(request.node_id),
             agent_id = %request.agent_id,
             frame_id = %hex::encode(frame_id),
