@@ -16,7 +16,6 @@ use merkle::frame::storage::FrameStorage;
 use merkle::heads::HeadIndex;
 use merkle::regeneration::BasisIndex;
 use merkle::store::persistence::SledNodeRecordStore;
-use merkle::tooling::adapter::ContextApiAdapter;
 use merkle::types::Hash;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -49,17 +48,15 @@ fn create_test_api() -> (ContextApi, TempDir) {
 fn create_test_queue() -> (FrameGenerationQueue, TempDir) {
     let (api, temp_dir) = create_test_api();
     let api = Arc::new(api);
-    let adapter = Arc::new(ContextApiAdapter::from_arc(Arc::clone(&api)));
     let config = GenerationConfig::default();
-    let queue = FrameGenerationQueue::new(api, adapter, config);
+    let queue = FrameGenerationQueue::new(api, config);
     (queue, temp_dir)
 }
 
 fn create_test_queue_with_config(config: GenerationConfig) -> (FrameGenerationQueue, TempDir) {
     let (api, temp_dir) = create_test_api();
     let api = Arc::new(api);
-    let adapter = Arc::new(ContextApiAdapter::from_arc(Arc::clone(&api)));
-    let queue = FrameGenerationQueue::new(api, adapter, config);
+    let queue = FrameGenerationQueue::new(api, config);
     (queue, temp_dir)
 }
 
@@ -160,22 +157,27 @@ async fn test_generation_request_ordering() {
     // Test that GenerationRequest implements Ord correctly
     let now = Instant::now();
     
+    use merkle::frame::queue::RequestId;
     let req1 = GenerationRequest {
+        request_id: RequestId::next(),
         node_id: Hash::from([1u8; 32]),
         agent_id: "agent1".to_string(),
         frame_type: "test".to_string(),
         priority: Priority::High,
         retry_count: 0,
         created_at: now,
+        completion_tx: None,
     };
 
     let req2 = GenerationRequest {
+        request_id: RequestId::next(),
         node_id: Hash::from([2u8; 32]),
         agent_id: "agent1".to_string(),
         frame_type: "test".to_string(),
         priority: Priority::Low,
         retry_count: 0,
         created_at: now,
+        completion_tx: None,
     };
 
     // Higher priority should be greater
@@ -183,21 +185,25 @@ async fn test_generation_request_ordering() {
 
     // Same priority, older should be greater (processed first)
     let req3 = GenerationRequest {
+        request_id: RequestId::next(),
         node_id: Hash::from([3u8; 32]),
         agent_id: "agent1".to_string(),
         frame_type: "test".to_string(),
         priority: Priority::Normal,
         retry_count: 0,
         created_at: now,
+        completion_tx: None,
     };
 
     let req4 = GenerationRequest {
+        request_id: RequestId::next(),
         node_id: Hash::from([4u8; 32]),
         agent_id: "agent1".to_string(),
         frame_type: "test".to_string(),
         priority: Priority::Normal,
         retry_count: 0,
         created_at: now + Duration::from_millis(100),
+        completion_tx: None,
     };
 
     // Same priority, older (req3) should be greater
