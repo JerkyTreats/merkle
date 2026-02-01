@@ -390,22 +390,24 @@ The implementation follows a logical progression: first decoupling providers fro
 
 **Goal**: Implement and update context commands to use the new provider-agent separation and XDG configuration.
 
+**Status**: ✅ **COMPLETED**
+
 | Task | Status |
 |------|--------|
-| Implement `merkle context generate` command | Pending |
-| Implement `merkle context get` command | Pending |
-| Add `--provider` flag to context generate | Pending |
-| Update path resolution (canonicalize, lookup NodeID) | Pending |
-| Update agent resolution (default to single Writer agent or require --agent) | Pending |
-| Update frame type resolution (default to context-<agent_id>) | Pending |
-| Implement head frame existence check (--force flag) | Pending |
-| Implement sync/async mode (--sync, --async flags) | Pending |
-| Add frame filtering (--agent, --frame-type) to context get | Pending |
-| Add output formatting (--format text|json, --combine, --separator) | Pending |
-| Add metadata display (--include-metadata) | Pending |
-| Add deleted frame handling (--include-deleted) | Pending |
-| Update error messages with helpful suggestions | Pending |
-| Context CLI tests | Pending |
+| Implement `merkle context generate` command | ✅ Completed |
+| Implement `merkle context get` command | ✅ Completed |
+| Add `--provider` flag to context generate | ✅ Completed |
+| Update path resolution (canonicalize, lookup NodeID) | ✅ Completed |
+| Update agent resolution (default to single Writer agent or require --agent) | ✅ Completed |
+| Update frame type resolution (default to context-<agent_id>) | ✅ Completed |
+| Implement head frame existence check (--force flag) | ✅ Completed |
+| Implement sync/async mode (--sync, --async flags) | ✅ Completed |
+| Add frame filtering (--agent, --frame-type) to context get | ✅ Completed |
+| Add output formatting (--format text|json, --combine, --separator) | ✅ Completed |
+| Add metadata display (--include-metadata) | ✅ Completed |
+| Add deleted frame handling (--include-deleted) | ✅ Completed |
+| Update error messages with helpful suggestions | ✅ Completed |
+| Context CLI tests | ✅ Completed (9 integration tests, 6 unit tests, all passing) |
 
 **Exit Criteria:**
 - ✅ `merkle context generate` creates frames using agent + provider (runtime binding)
@@ -419,15 +421,29 @@ The implementation follows a logical progression: first decoupling providers fro
 - ✅ All filtering, formatting, and output options work
 - ✅ Clear error messages with remediation suggestions
 
+**Phase 5 Completion Summary:**
+- ✅ Path resolution infrastructure implemented (`find_by_path()` in NodeRecordStore, `PathNotInTree` error, `resolve_path_to_node_id()` helper)
+- ✅ Context subcommand structure added with `Generate` and `Get` variants
+- ✅ `merkle context generate` command fully implemented with path/node resolution, agent/provider resolution, validation, head checks, and sync/async modes
+- ✅ `merkle context get` command fully implemented with path/node resolution, ContextView building, text/JSON formatting, filtering, and metadata handling
+- ✅ FrameGenerationQueue integrated into CliContext with lazy initialization
+- ✅ Output formatters implemented (text with combine/metadata support, JSON with structured output)
+- ✅ Comprehensive error handling with helpful suggestions for all error cases
+- ✅ 9 integration tests covering all command scenarios (all passing)
+- ✅ 6 unit tests for helper functions (path resolution, NodeID parsing, output formatting) (all passing)
+- ✅ All 155 unit tests passing (including fixes for pre-existing test issues)
+
 **Key Commands:**
 - `merkle context generate --path <path>|--node <node_id> [--agent <agent_id>] [--provider <provider_name>] [--frame-type <type>] [--force] [--sync|--async]`
 - `merkle context get --path <path>|--node <node_id> [--agent <agent_id>] [--frame-type <type>] [--max-frames <n>] [--ordering recency|deterministic] [--combine] [--separator <text>] [--format text|json] [--include-metadata] [--include-deleted]`
 
 **Key Changes:**
-- Context generate: Requires `--provider` flag (or uses default from config)
+- Context generate: Requires `--provider` flag (no default - agents are provider-agnostic)
 - Context generate: Agent and provider bound at runtime, not configuration time
 - Context get: Rich filtering and formatting options
+- Path resolution: New `find_by_path()` method in NodeRecordStore with path-to-NodeID mapping
 - Error messages: Include suggestions (e.g., "Run `merkle scan` to update tree")
+- FrameGenerationQueue: Integrated into CliContext with lazy initialization
 
 **Dependencies:**
 - Phase 1 (Provider-Agent Separation) - Runtime provider selection required
@@ -472,9 +488,10 @@ The implementation follows a logical progression: first decoupling providers fro
    - Depends on Phase 2 (XDG loading) and Phase 1 (ProviderRegistry)
    - **Status**: All tasks completed, 18 integration tests and 5 unit tests passing
 
-5. **Phase 5: Context Commands** (User-Facing Commands)
+5. **Phase 5: Context Commands** (User-Facing Commands) ✅ **COMPLETED**
    - Main user-facing commands
    - Depends on all previous phases
+   - **Status**: All tasks completed, 9 integration tests and 6 unit tests passing, all 155 unit tests passing
 
 ---
 
@@ -507,12 +524,12 @@ The refactor is complete when:
 1. ✅ Providers and agents are completely separated **(Phase 1 - COMPLETED)**
 2. ✅ Agents and providers stored in XDG directories **(Phase 2 - COMPLETED)**
 3. ✅ Agents use markdown prompt files **(Phase 2 - COMPLETED)**
-4. ⏳ All CLI commands implemented and tested (Phases 3-5) - **Phase 3 COMPLETED, Phase 4 COMPLETED**
-5. ⏳ Clear error messages and user guidance (Phases 3-5) - **Phase 3 COMPLETED, Phase 4 COMPLETED**
+4. ✅ All CLI commands implemented and tested (Phases 3-5) - **Phase 3 COMPLETED, Phase 4 COMPLETED, Phase 5 COMPLETED**
+5. ✅ Clear error messages and user guidance (Phases 3-5) - **Phase 3 COMPLETED, Phase 4 COMPLETED, Phase 5 COMPLETED**
 6. ⏳ Documentation updated (Ongoing)
 7. ✅ Default agents initialization via `merkle init` (Phase 3.5 - COMPLETED)
-8. ✅ All existing tests pass **(Phase 1 - COMPLETED: 246 tests passing; Phase 2 - COMPLETED: 124 integration tests passing; Phase 3 - COMPLETED: 16 integration + 3 unit tests passing; Phase 3.5 - COMPLETED: 12 integration + 3 unit tests passing; Phase 4 - COMPLETED: 18 integration + 5 unit tests passing)**
-9. ✅ New tests cover all functionality **(Phase 1 - COMPLETED; Phase 2 - COMPLETED: 20 XDG config tests; Phase 3 - COMPLETED: 16 agent CLI tests; Phase 3.5 - COMPLETED: 12 init command tests; Phase 4 - COMPLETED: 18 provider CLI tests)**
+8. ✅ All existing tests pass **(Phase 1 - COMPLETED: 246 tests passing; Phase 2 - COMPLETED: 124 integration tests passing; Phase 3 - COMPLETED: 16 integration + 3 unit tests passing; Phase 3.5 - COMPLETED: 12 integration + 3 unit tests passing; Phase 4 - COMPLETED: 18 integration + 5 unit tests passing; Phase 5 - COMPLETED: 9 integration + 6 unit tests passing, all 155 unit tests passing)**
+9. ✅ New tests cover all functionality **(Phase 1 - COMPLETED; Phase 2 - COMPLETED: 20 XDG config tests; Phase 3 - COMPLETED: 16 agent CLI tests; Phase 3.5 - COMPLETED: 12 init command tests; Phase 4 - COMPLETED: 18 provider CLI tests; Phase 5 - COMPLETED: 9 context CLI tests)**
 
 ---
 

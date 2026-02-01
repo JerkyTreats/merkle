@@ -6,12 +6,13 @@
 use crate::api::{ContextApi, ContextView};
 use crate::config::ConfigLoader;
 use crate::error::ApiError;
-use crate::frame::{Basis, Frame};
+use crate::frame::{Basis, Frame, FrameGenerationQueue, GenerationConfig};
 use crate::heads::HeadIndex;
 use crate::regeneration::BasisIndex;
 use crate::provider::ProviderFactory;
 use crate::store::{NodeRecord, NodeRecordStore};
 use crate::store::persistence::SledNodeRecordStore;
+use crate::tooling::adapter::AgentAdapter;
 use crate::tree::builder::TreeBuilder;
 use crate::types::{Hash, NodeID};
 use clap::{Parser, Subcommand};
@@ -210,6 +211,11 @@ pub enum Commands {
         #[arg(long)]
         list: bool,
     },
+    /// Context operations (generate and retrieve frames)
+    Context {
+        #[command(subcommand)]
+        command: ContextCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -384,6 +390,90 @@ pub enum ProviderCommands {
     },
 }
 
+#[derive(Subcommand)]
+pub enum ContextCommands {
+    /// Generate context frame for a node
+    Generate {
+        /// Target node by NodeID (hex string)
+        #[arg(long, conflicts_with = "path")]
+        node: Option<String>,
+        
+        /// Target node by workspace-relative or absolute path
+        #[arg(long, conflicts_with = "node")]
+        path: Option<PathBuf>,
+        
+        /// Agent to use for generation
+        #[arg(long)]
+        agent: Option<String>,
+        
+        /// Provider to use for generation (required)
+        #[arg(long)]
+        provider: Option<String>,
+        
+        /// Frame type (defaults to context-<agent_id>)
+        #[arg(long)]
+        frame_type: Option<String>,
+        
+        /// Generate even if head frame exists
+        #[arg(long)]
+        force: bool,
+        
+        /// Execute immediately (default)
+        #[arg(long, conflicts_with = "async")]
+        sync: bool,
+        
+        /// Enqueue generation with Priority::Urgent
+        #[arg(long, conflicts_with = "sync")]
+        r#async: bool,
+    },
+    /// Retrieve context frames for a node
+    Get {
+        /// Target node by NodeID (hex string)
+        #[arg(long, conflicts_with = "path")]
+        node: Option<String>,
+        
+        /// Target node by workspace-relative or absolute path
+        #[arg(long, conflicts_with = "node")]
+        path: Option<PathBuf>,
+        
+        /// Filter by agent ID
+        #[arg(long)]
+        agent: Option<String>,
+        
+        /// Filter by frame type
+        #[arg(long)]
+        frame_type: Option<String>,
+        
+        /// Maximum frames to return
+        #[arg(long, default_value = "10")]
+        max_frames: usize,
+        
+        /// Ordering policy: recency or deterministic
+        #[arg(long, default_value = "recency")]
+        ordering: String,
+        
+        /// Concatenate frame contents with separator
+        #[arg(long)]
+        combine: bool,
+        
+        /// Separator used with --combine
+        #[arg(long, default_value = "\n\n---\n\n")]
+        separator: String,
+        
+        /// Output format: text or json
+        #[arg(long, default_value = "text")]
+        format: String,
+        
+        /// Include metadata fields in output
+        #[arg(long)]
+        include_metadata: bool,
+        
+        /// Include frames marked deleted (tombstones)
+        #[arg(long)]
+        include_deleted: bool,
+    },
+}
+
 /// CLI context for managing workspace state
 pub struct CliContext {
     api: Arc<ContextApi>,
@@ -392,6 +482,9 @@ pub struct CliContext {
     #[allow(dead_code)] // May be used for debugging or future features
     store_path: PathBuf,
     frame_storage_path: PathBuf,
+    /// Optional generation queue (initialized on demand for context generate commands)
+    #[allow(dead_code)] // Queue is created on demand, not stored
+    queue: Option<Arc<FrameGenerationQueue>>,
 }
 
 impl CliContext {
@@ -483,8 +576,27 @@ impl CliContext {
             config_path,
             store_path,
             frame_storage_path,
+            queue: None, // Initialize on demand for context generate commands
         })
     }
+
+    /// Get or create the generation queue
+    ///
+    /// The queue is initialized lazily when needed for context generation commands.
+    /// Creates a new queue each time (it's cheap to create, workers are started on first use).
+    fn get_or_create_queue(&self) -> Result<Arc<FrameGenerationQueue>, ApiError> {
+        let gen_config = GenerationConfig::default();
+        let queue = Arc::new(FrameGenerationQueue::new(
+            Arc::clone(&self.api),
+            gen_config,
+        ));
+        
+        // Start the queue workers
+        queue.start()?;
+        
+        Ok(queue)
+    }
+
 
     /// Execute a CLI command
     pub fn execute(&self, command: &Commands) -> Result<String, ApiError> {
@@ -911,6 +1023,9 @@ impl CliContext {
             }
             Commands::Init { force, list } => {
                 self.handle_init(*force, *list)
+            }
+            Commands::Context { command } => {
+                self.handle_context_command(command)
             }
             Commands::Watch {
                 debounce_ms,
@@ -1896,6 +2011,343 @@ impl CliContext {
             Ok(format_init_summary(&summary, force))
         }
     }
+
+    /// Handle context management commands
+    fn handle_context_command(&self, command: &ContextCommands) -> Result<String, ApiError> {
+        match command {
+            ContextCommands::Generate {
+                node,
+                path,
+                agent,
+                provider,
+                frame_type,
+                force,
+                sync,
+                r#async,
+            } => {
+                self.handle_context_generate(
+                    node.as_deref(),
+                    path.as_ref(),
+                    agent.as_deref(),
+                    provider.as_deref(),
+                    frame_type.as_deref(),
+                    *force,
+                    *sync,
+                    *r#async,
+                )
+            }
+            ContextCommands::Get {
+                node,
+                path,
+                agent,
+                frame_type,
+                max_frames,
+                ordering,
+                combine,
+                separator,
+                format,
+                include_metadata,
+                include_deleted,
+            } => {
+                self.handle_context_get(
+                    node.as_deref(),
+                    path.as_ref(),
+                    agent.as_deref(),
+                    frame_type.as_deref(),
+                    *max_frames,
+                    ordering,
+                    *combine,
+                    separator,
+                    format,
+                    *include_metadata,
+                    *include_deleted,
+                )
+            }
+        }
+    }
+
+    /// Resolve agent ID (default to single Writer agent if not specified)
+    fn resolve_agent_id(&self, agent_id: Option<&str>) -> Result<String, ApiError> {
+        if let Some(agent_id) = agent_id {
+            // Verify agent exists
+            self.api.get_agent(agent_id)?;
+            return Ok(agent_id.to_string());
+        }
+
+        // Find Writer agents
+        let (agent_count, agent_ids) = {
+            let registry = self.api.agent_registry().read();
+            let writer_agents = registry.list_by_role(Some(crate::agent::AgentRole::Writer));
+            let agent_ids: Vec<String> = writer_agents.iter().map(|a| a.agent_id.clone()).collect();
+            (agent_ids.len(), agent_ids)
+        };
+
+        match agent_count {
+            0 => Err(ApiError::ConfigError(
+                "No Writer agents found. Use `merkle agent list` to see available agents, or use `--agent <agent_id>` to specify an agent.".to_string()
+            )),
+            1 => Ok(agent_ids[0].clone()),
+            _ => {
+                Err(ApiError::ConfigError(format!(
+                    "Multiple Writer agents found: {}. Use `--agent <agent_id>` to specify which agent to use.",
+                    agent_ids.join(", ")
+                )))
+            }
+        }
+    }
+
+    /// Resolve provider name (must be specified)
+    fn resolve_provider_name(&self, provider_name: Option<&str>) -> Result<String, ApiError> {
+        let provider_name = provider_name.ok_or_else(|| {
+            ApiError::ProviderNotConfigured(
+                "Provider is required. Use `--provider <provider_name>` to specify a provider. Use `merkle provider list` to see available providers.".to_string()
+            )
+        })?;
+
+        // Verify provider exists
+        let registry = self.api.provider_registry().read();
+        registry.get_or_error(provider_name)?;
+        drop(registry);
+
+        Ok(provider_name.to_string())
+    }
+
+    /// Handle context generate command
+    fn handle_context_generate(
+        &self,
+        node: Option<&str>,
+        path: Option<&PathBuf>,
+        agent: Option<&str>,
+        provider: Option<&str>,
+        frame_type: Option<&str>,
+        force: bool,
+        _sync: bool,
+        r#async: bool,
+    ) -> Result<String, ApiError> {
+        // 1. Path/NodeID resolution (mutually exclusive)
+        let node_id = match (node, path) {
+            (Some(node_str), None) => {
+                // Parse NodeID
+                parse_node_id(node_str)?
+            }
+            (None, Some(path)) => {
+                // Resolve path to NodeID
+                resolve_path_to_node_id(&self.api, path, &self.workspace_root)?
+            }
+            (Some(_), Some(_)) => {
+                return Err(ApiError::ConfigError(
+                    "Cannot specify both --node and --path. Use one or the other.".to_string()
+                ));
+            }
+            (None, None) => {
+                return Err(ApiError::ConfigError(
+                    "Must specify either --node <node_id> or --path <path>.".to_string()
+                ));
+            }
+        };
+
+        // 2. Agent resolution
+        let agent_id = self.resolve_agent_id(agent)?;
+
+        // 3. Provider resolution
+        let provider_name = self.resolve_provider_name(provider)?;
+
+        // 4. Frame type resolution
+        let frame_type = frame_type.map(|s| s.to_string())
+            .unwrap_or_else(|| format!("context-{}", agent_id));
+
+        // 5. Agent validation
+        let agent = self.api.get_agent(&agent_id)?;
+        
+        // Verify agent has Writer or Synthesis role
+        if agent.role != crate::agent::AgentRole::Writer && agent.role != crate::agent::AgentRole::Synthesis {
+            return Err(ApiError::Unauthorized(format!(
+                "Agent '{}' has role {:?}, but only Writer or Synthesis agents can generate frames.",
+                agent_id, agent.role
+            )));
+        }
+
+        // Verify node exists
+        let _node_record = self.api.node_store().get(&node_id).map_err(ApiError::from)?
+            .ok_or_else(|| ApiError::NodeNotFound(node_id))?;
+        
+        // Check if agent has system_prompt in metadata
+        if !agent.metadata.contains_key("system_prompt") {
+            return Err(ApiError::ConfigError(format!(
+                "Agent '{}' is missing system_prompt. Use `merkle agent validate {}` to check agent configuration.",
+                agent_id, agent_id
+            )));
+        }
+
+        // 6. Head frame check (unless --force)
+        if !force {
+            if let Some(head_frame_id) = self.api.get_head(&node_id, &frame_type)? {
+                return Ok(format!(
+                    "Frame already exists: {}\nUse --force to generate a new frame.",
+                    hex::encode(head_frame_id)
+                ));
+            }
+        }
+
+        // 7. Generation (sync or async)
+        // Default is sync unless --async is explicitly specified
+        let is_async = r#async;
+        
+        // Create runtime before calling get_or_create_queue() which needs it for queue.start()
+        // Check if we're already in a runtime (shouldn't happen in CLI, but can in tests)
+        let rt = if let Ok(_handle) = tokio::runtime::Handle::try_current() {
+            // We're in a runtime - can't create another one or use block_on
+            // This should not happen in normal CLI usage, but can occur in tests
+            // For now, return an error - the caller should handle this case
+            return Err(ApiError::ProviderError(
+                "Cannot generate context from within an async runtime context. This is a limitation when running from async tests.".to_string()
+            ));
+        } else {
+            // No runtime exists, create one
+            tokio::runtime::Runtime::new()
+                .map_err(|e| ApiError::ProviderError(format!("Failed to create runtime: {}", e)))?
+        };
+        
+        // Enter runtime context for queue.start() which needs tokio::spawn
+        let _guard = rt.enter();
+        let queue = self.get_or_create_queue()?;
+        // Drop guard before using block_on (can't block while in runtime context)
+        drop(_guard);
+        
+        if is_async {
+            // Async mode: enqueue and return immediately
+            let request_id = rt.block_on(async {
+                queue.enqueue(
+                    node_id,
+                    agent_id.clone(),
+                    provider_name.clone(),
+                    Some(frame_type.clone()),
+                    crate::frame::queue::Priority::Urgent,
+                ).await
+            })?;
+            
+            Ok(format!("Generation enqueued: request_id={:?}", request_id))
+        } else {
+            // Sync mode: enqueue and wait for completion
+            let adapter = crate::tooling::adapter::ContextApiAdapter::with_queue(
+                Arc::clone(&self.api),
+                queue,
+            );
+            
+            // Create a dummy prompt (queue will generate the actual prompt from agent metadata)
+            let dummy_prompt = String::new();
+            
+            let frame_id = rt.block_on(async {
+                adapter.generate_frame(
+                    node_id,
+                    dummy_prompt,
+                    frame_type.clone(),
+                    agent_id.clone(),
+                    provider_name.clone(),
+                ).await
+            })?;
+            
+            Ok(format!("Frame generated: {}", hex::encode(frame_id)))
+        }
+    }
+
+    /// Handle context get command
+    fn handle_context_get(
+        &self,
+        node: Option<&str>,
+        path: Option<&PathBuf>,
+        agent: Option<&str>,
+        frame_type: Option<&str>,
+        max_frames: usize,
+        ordering: &str,
+        combine: bool,
+        separator: &str,
+        format: &str,
+        include_metadata: bool,
+        include_deleted: bool,
+    ) -> Result<String, ApiError> {
+        // 1. Path/NodeID resolution
+        let node_id = match (node, path) {
+            (Some(node_str), None) => {
+                parse_node_id(node_str)?
+            }
+            (None, Some(path)) => {
+                resolve_path_to_node_id(&self.api, path, &self.workspace_root)?
+            }
+            (Some(_), Some(_)) => {
+                return Err(ApiError::ConfigError(
+                    "Cannot specify both --node and --path. Use one or the other.".to_string()
+                ));
+            }
+            (None, None) => {
+                return Err(ApiError::ConfigError(
+                    "Must specify either --node <node_id> or --path <path>.".to_string()
+                ));
+            }
+        };
+
+        // 2. Build ContextView
+        let ordering_policy = match ordering {
+            "recency" => crate::views::OrderingPolicy::Recency,
+            "deterministic" => crate::views::OrderingPolicy::Type, // Use type ordering for deterministic
+            _ => {
+                return Err(ApiError::ConfigError(format!(
+                    "Invalid ordering: '{}'. Must be 'recency' or 'deterministic'.",
+                    ordering
+                )));
+            }
+        };
+
+        let mut builder = ContextView::builder()
+            .max_frames(max_frames);
+
+        // Set ordering
+        match ordering_policy {
+            crate::views::OrderingPolicy::Recency => {
+                builder = builder.recent();
+            }
+            crate::views::OrderingPolicy::Type => {
+                builder = builder.by_type_ordering(); // Deterministic ordering by type
+            }
+            _ => {
+                builder = builder.recent(); // Default to recency
+            }
+        }
+
+        // Add filters
+        if let Some(agent_id) = agent {
+            builder = builder.by_agent(agent_id);
+        }
+        if let Some(ft) = frame_type {
+            builder = builder.by_type(ft);
+        }
+        if !include_deleted {
+            // Exclude deleted frames by default
+            // Note: FrameFilter::ExcludeDeleted would need to be added to views.rs
+            // For now, we'll filter in the output formatting
+        }
+
+        let view = builder.build();
+
+        // 3. Retrieve context
+        let context = self.api.get_node(node_id, view)?;
+
+        // 4. Format output
+        match format {
+            "text" => {
+                format_context_text_output(&context, include_metadata, combine, separator, include_deleted)
+            }
+            "json" => {
+                format_context_json_output(&context, include_metadata, include_deleted)
+            }
+            _ => {
+                Err(ApiError::ConfigError(format!(
+                    "Invalid format: '{}'. Must be 'text' or 'json'.",
+                    format
+                )))
+            }
+        }
+    }
 }
 
 /// Format agent list as text
@@ -2309,6 +2761,335 @@ fn format_provider_validation_result(result: &crate::provider::ValidationResult,
     output
 }
 
+/// Format context output as text
+fn format_context_text_output(
+    context: &crate::api::NodeContext,
+    include_metadata: bool,
+    combine: bool,
+    separator: &str,
+    include_deleted: bool,
+) -> Result<String, ApiError> {
+    // Filter deleted frames if not including them
+    let frames: Vec<&crate::frame::Frame> = if include_deleted {
+        context.frames.iter().collect()
+    } else {
+        context.frames.iter()
+            .filter(|f| !f.metadata.get("deleted").map(|v| v == "true").unwrap_or(false))
+            .collect()
+    };
+
+    if frames.is_empty() {
+        return Ok(format!(
+            "Node: {}\nPath: {}\nNo frames found.",
+            hex::encode(context.node_id),
+            context.node_record.path.display()
+        ));
+    }
+
+    if combine {
+        // Concatenate all frame contents
+        let texts: Vec<String> = frames.iter()
+            .filter_map(|f| f.text_content().ok())
+            .collect();
+        Ok(texts.join(separator))
+    } else {
+        // Show frames individually
+        let mut output = format!(
+            "Node: {}\nPath: {}\nFrames: {}/{}\n\n",
+            hex::encode(context.node_id),
+            context.node_record.path.display(),
+            frames.len(),
+            context.frame_count
+        );
+
+        for (i, frame) in frames.iter().enumerate() {
+            output.push_str(&format!("--- Frame {} ---\n", i + 1));
+            
+            if include_metadata {
+                output.push_str(&format!("Frame ID: {}\n", hex::encode(frame.frame_id)));
+                output.push_str(&format!("Frame Type: {}\n", frame.frame_type));
+                if let Some(agent_id) = frame.agent_id() {
+                    output.push_str(&format!("Agent: {}\n", agent_id));
+                }
+                output.push_str(&format!("Timestamp: {:?}\n", frame.timestamp));
+                if !frame.metadata.is_empty() {
+                    output.push_str("Metadata:\n");
+                    for (key, value) in &frame.metadata {
+                        if key != "agent_id" && key != "deleted" {
+                            output.push_str(&format!("  {}: {}\n", key, value));
+                        }
+                    }
+                }
+                output.push_str("\n");
+            }
+
+            if let Ok(text) = frame.text_content() {
+                output.push_str(&format!("Content:\n{}\n", text));
+            } else {
+                output.push_str("Content: [Binary content - not UTF-8]\n");
+            }
+            output.push_str("\n");
+        }
+
+        Ok(output)
+    }
+}
+
+/// Format context output as JSON
+fn format_context_json_output(
+    context: &crate::api::NodeContext,
+    include_metadata: bool,
+    include_deleted: bool,
+) -> Result<String, ApiError> {
+    use serde_json::json;
+
+    // Filter deleted frames if not including them
+    let frames: Vec<&crate::frame::Frame> = if include_deleted {
+        context.frames.iter().collect()
+    } else {
+        context.frames.iter()
+            .filter(|f| !f.metadata.get("deleted").map(|v| v == "true").unwrap_or(false))
+            .collect()
+    };
+
+    let frames_json: Vec<serde_json::Value> = frames.iter().map(|frame| {
+        let mut frame_obj = json!({
+            "frame_id": hex::encode(frame.frame_id),
+            "frame_type": frame.frame_type,
+            "timestamp": frame.timestamp,
+        });
+
+        if include_metadata {
+            if let Some(agent_id) = frame.agent_id() {
+                frame_obj["agent_id"] = json!(agent_id);
+            }
+            frame_obj["metadata"] = json!(frame.metadata);
+        }
+
+        if let Ok(text) = frame.text_content() {
+            frame_obj["content"] = json!(text);
+        } else {
+            frame_obj["content"] = json!(null);
+            frame_obj["content_binary"] = json!(true);
+        }
+
+        frame_obj
+    }).collect();
+
+    let result = json!({
+        "node_id": hex::encode(context.node_id),
+        "path": context.node_record.path.to_string_lossy(),
+        "node_type": match context.node_record.node_type {
+            crate::store::NodeType::File { size, .. } => format!("file:{}", size),
+            crate::store::NodeType::Directory => "directory".to_string(),
+        },
+        "frames": frames_json,
+        "frame_count": frames.len(),
+        "total_frame_count": context.frame_count,
+    });
+
+    serde_json::to_string_pretty(&result)
+        .map_err(|e| ApiError::ConfigError(format!("Failed to serialize JSON: {}", e)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::ContextApi;
+    use crate::frame::storage::FrameStorage;
+    use crate::heads::HeadIndex;
+    use crate::regeneration::BasisIndex;
+    use crate::store::persistence::SledNodeRecordStore;
+    use crate::types::Hash;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+
+    fn create_test_api() -> (ContextApi, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let store_path = temp_dir.path().join("store");
+        let node_store = Arc::new(SledNodeRecordStore::new(&store_path).unwrap());
+        let frame_storage_path = temp_dir.path().join("frames");
+        std::fs::create_dir_all(&frame_storage_path).unwrap();
+        let frame_storage = Arc::new(
+            FrameStorage::new(&frame_storage_path).unwrap()
+        );
+        let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
+        let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
+        let agent_registry = Arc::new(parking_lot::RwLock::new(crate::agent::AgentRegistry::new()));
+        let provider_registry = Arc::new(parking_lot::RwLock::new(crate::provider::ProviderRegistry::new()));
+        let lock_manager = Arc::new(crate::concurrency::NodeLockManager::new());
+
+        let api = ContextApi::new(
+            node_store,
+            frame_storage,
+            head_index,
+            basis_index,
+            agent_registry,
+            provider_registry,
+            lock_manager,
+        );
+
+        (api, temp_dir)
+    }
+
+    #[test]
+    fn test_parse_node_id_valid() {
+        let node_id = [1u8; 32];
+        let hex_str = hex::encode(node_id);
+        let parsed = parse_node_id(&hex_str).unwrap();
+        assert_eq!(parsed, Hash::from(node_id));
+    }
+
+    #[test]
+    fn test_parse_node_id_with_prefix() {
+        let node_id = [1u8; 32];
+        let hex_str = format!("0x{}", hex::encode(node_id));
+        let parsed = parse_node_id(&hex_str).unwrap();
+        assert_eq!(parsed, Hash::from(node_id));
+    }
+
+    #[test]
+    fn test_parse_node_id_invalid() {
+        // Invalid hex
+        assert!(parse_node_id("not-hex").is_err());
+        
+        // Wrong length
+        let short_hex = hex::encode([1u8; 16]);
+        assert!(parse_node_id(&short_hex).is_err());
+    }
+
+    #[test]
+    fn test_resolve_path_to_node_id() {
+        let (api, temp_dir) = create_test_api();
+        let workspace_root = temp_dir.path().to_path_buf();
+        
+        // Create a test node record
+        let node_id: NodeID = [1u8; 32];
+        let test_path = workspace_root.join("test.txt");
+        std::fs::write(&test_path, "test content").unwrap();
+        
+        let canonical_path = crate::tree::path::canonicalize_path(&test_path).unwrap();
+        
+        let record = crate::store::NodeRecord {
+            node_id,
+            path: canonical_path.clone(),
+            node_type: crate::store::NodeType::File {
+                size: 12,
+                content_hash: [0u8; 32],
+            },
+            children: vec![],
+            parent: None,
+            frame_set_root: None,
+            metadata: std::collections::HashMap::new(),
+        };
+        
+        api.node_store().put(&record).unwrap();
+        
+        // Test path resolution
+        let resolved = resolve_path_to_node_id(&api, &test_path, &workspace_root).unwrap();
+        assert_eq!(resolved, node_id);
+    }
+
+    #[test]
+    fn test_resolve_path_to_node_id_not_found() {
+        let (api, temp_dir) = create_test_api();
+        let workspace_root = temp_dir.path().to_path_buf();
+        
+        // Create the file but don't add it to the store
+        let test_path = workspace_root.join("nonexistent.txt");
+        std::fs::write(&test_path, "test content").unwrap();
+        
+        let result = resolve_path_to_node_id(&api, &test_path, &workspace_root);
+        assert!(result.is_err());
+        match result {
+            Err(ApiError::PathNotInTree(_)) => {}
+            _ => panic!("Expected PathNotInTree error, got: {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_format_context_text_output_combine() {
+        let node_id: NodeID = [1u8; 32];
+        let node_record = crate::store::NodeRecord {
+            node_id,
+            path: std::path::PathBuf::from("/test/file.txt"),
+            node_type: crate::store::NodeType::File {
+                size: 100,
+                content_hash: [0u8; 32],
+            },
+            children: vec![],
+            parent: None,
+            frame_set_root: None,
+            metadata: std::collections::HashMap::new(),
+        };
+
+        let frame1 = crate::frame::Frame::new(
+            crate::frame::Basis::Node(node_id),
+            b"Frame 1 content".to_vec(),
+            "type1".to_string(),
+            "agent1".to_string(),
+            std::collections::HashMap::new(),
+        ).unwrap();
+
+        let frame2 = crate::frame::Frame::new(
+            crate::frame::Basis::Node(node_id),
+            b"Frame 2 content".to_vec(),
+            "type2".to_string(),
+            "agent2".to_string(),
+            std::collections::HashMap::new(),
+        ).unwrap();
+
+        let context = crate::api::NodeContext {
+            node_id,
+            node_record,
+            frames: vec![frame1, frame2],
+            frame_count: 2,
+        };
+
+        let output = format_context_text_output(&context, false, true, " | ", false).unwrap();
+        assert!(output.contains("Frame 1 content"));
+        assert!(output.contains("Frame 2 content"));
+        assert!(output.contains(" | "));
+    }
+
+    #[test]
+    fn test_format_context_json_output() {
+        let node_id: NodeID = [1u8; 32];
+        let node_record = crate::store::NodeRecord {
+            node_id,
+            path: std::path::PathBuf::from("/test/file.txt"),
+            node_type: crate::store::NodeType::File {
+                size: 100,
+                content_hash: [0u8; 32],
+            },
+            children: vec![],
+            parent: None,
+            frame_set_root: None,
+            metadata: std::collections::HashMap::new(),
+        };
+
+        let frame = crate::frame::Frame::new(
+            crate::frame::Basis::Node(node_id),
+            b"Test content".to_vec(),
+            "test".to_string(),
+            "agent1".to_string(),
+            std::collections::HashMap::new(),
+        ).unwrap();
+
+        let context = crate::api::NodeContext {
+            node_id,
+            node_record,
+            frames: vec![frame],
+            frame_count: 1,
+        };
+
+        let output = format_context_json_output(&context, false, false).unwrap();
+        assert!(output.contains("node_id"));
+        assert!(output.contains("frames"));
+        assert!(output.contains("Test content"));
+    }
+}
+
 /// Parse a hex string to NodeID
 fn parse_node_id(s: &str) -> Result<NodeID, ApiError> {
     // Remove 0x prefix if present
@@ -2329,6 +3110,32 @@ fn parse_node_id(s: &str) -> Result<NodeID, ApiError> {
     let mut hash = [0u8; 32];
     hash.copy_from_slice(&bytes);
     Ok(Hash::from(hash))
+}
+
+/// Resolve a path to a NodeID
+///
+/// Canonicalizes the path relative to the workspace root and looks it up in the node store.
+fn resolve_path_to_node_id(
+    api: &ContextApi,
+    path: &PathBuf,
+    workspace_root: &PathBuf,
+) -> Result<NodeID, ApiError> {
+    // Resolve path relative to workspace root
+    let resolved_path = if path.is_absolute() {
+        path.clone()
+    } else {
+        workspace_root.join(path)
+    };
+
+    // Canonicalize the path
+    let canonical_path = crate::tree::path::canonicalize_path(&resolved_path)
+        .map_err(|e| ApiError::StorageError(e))?;
+
+    // Look up NodeID in store
+    match api.node_store().find_by_path(&canonical_path).map_err(ApiError::from)? {
+        Some(record) => Ok(record.node_id),
+        None => Err(ApiError::PathNotInTree(canonical_path)),
+    }
 }
 
 /// Count frame files in the frame storage directory

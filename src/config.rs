@@ -869,7 +869,7 @@ mod tests {
         };
         assert!(agent.validate(&providers).is_ok());
 
-        // Agent validation no longer checks provider references
+        // Writer agents require either system_prompt or system_prompt_path
         let agent_bad = AgentConfig {
             agent_id: "test-agent-2".to_string(),
             role: AgentRole::Writer,
@@ -877,7 +877,17 @@ mod tests {
             system_prompt_path: None,
             metadata: HashMap::new(),
         };
-        assert!(agent_bad.validate(&providers).is_ok());
+        assert!(agent_bad.validate(&providers).is_err());
+        
+        // Reader agents don't require prompts
+        let agent_reader = AgentConfig {
+            agent_id: "test-agent-3".to_string(),
+            role: AgentRole::Reader,
+            system_prompt: None,
+            system_prompt_path: None,
+            metadata: HashMap::new(),
+        };
+        assert!(agent_reader.validate(&providers).is_ok());
     }
 
     #[test]
@@ -1187,15 +1197,22 @@ endpoint = "http://localhost:11434"
         // Remove HOME env var
         std::env::remove_var("HOME");
         
+        // Verify XDG config path returns None when HOME is not set
+        assert!(ConfigLoader::xdg_config_path().is_none(), "XDG config path should be None when HOME is not set");
+        
         // Load config - should work fine without HOME (just skip XDG config)
         let config = ConfigLoader::load(workspace_root).unwrap();
-        // Should have default config
-        assert_eq!(config.providers.len(), 0);
+        // Should have default config (no providers from XDG or workspace)
+        assert_eq!(config.providers.len(), 0, 
+                   "Should have no providers when HOME is not set. Found: {:?}", 
+                   config.providers.keys().collect::<Vec<_>>());
         assert_eq!(config.agents.len(), 0);
         
         // Clean up
         if let Some(home) = original_home {
             std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
         }
     }
 }

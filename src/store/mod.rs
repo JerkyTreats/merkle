@@ -13,7 +13,7 @@ use crate::tree::Tree;
 use crate::types::{Hash, NodeID};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Node type enumeration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +38,11 @@ pub struct NodeRecord {
 pub trait NodeRecordStore {
     fn get(&self, node_id: &NodeID) -> Result<Option<NodeRecord>, StorageError>;
     fn put(&self, record: &NodeRecord) -> Result<(), StorageError>;
+    
+    /// Find a node record by its canonicalized path
+    ///
+    /// Returns the NodeRecord if found, None if the path is not in the tree.
+    fn find_by_path(&self, path: &Path) -> Result<Option<NodeRecord>, StorageError>;
 }
 
 impl NodeRecord {

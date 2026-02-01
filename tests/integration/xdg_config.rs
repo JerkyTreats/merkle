@@ -8,34 +8,14 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use tempfile::TempDir;
 
-// Mutex to serialize XDG_CONFIG_HOME environment variable access in tests
-static XDG_CONFIG_MUTEX: Mutex<()> = Mutex::new(());
+use crate::integration::with_xdg_env;
 
-/// Helper to set up XDG_CONFIG_HOME for a test with proper cleanup
-fn with_xdg_config_home<F, R>(test_dir: &TempDir, f: F) -> R
-where
-    F: FnOnce() -> R,
-{
-    let _guard = XDG_CONFIG_MUTEX.lock().unwrap();
-    let original_xdg_config = std::env::var("XDG_CONFIG_HOME").ok();
-    let test_config_home = test_dir.path().to_path_buf();
-    std::env::set_var("XDG_CONFIG_HOME", test_config_home.to_str().unwrap());
-    
-    let result = f();
-    
-    // Restore original
-    if let Some(orig) = original_xdg_config {
-        std::env::set_var("XDG_CONFIG_HOME", orig);
-    } else {
-        std::env::remove_var("XDG_CONFIG_HOME");
-    }
-    
-    result
-}
+// Mutex for tests that need direct environment variable manipulation
+static XDG_CONFIG_MUTEX: Mutex<()> = Mutex::new(());
 
 #[test]
 fn test_xdg_config_home() {
-    let _guard = XDG_CONFIG_MUTEX.lock().unwrap();
+    let _guard = XDG_CONFIG_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
     
     // Test that config_home() respects XDG_CONFIG_HOME
     let original_xdg_config = std::env::var("XDG_CONFIG_HOME").ok();
@@ -64,7 +44,7 @@ fn test_xdg_config_home() {
 
 #[test]
 fn test_xdg_agents_dir() {
-    let _guard = XDG_CONFIG_MUTEX.lock().unwrap();
+    let _guard = XDG_CONFIG_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
     
     let test_dir = TempDir::new().unwrap();
     let test_config_home = test_dir.path().to_path_buf();
@@ -85,7 +65,7 @@ fn test_xdg_agents_dir() {
 
 #[test]
 fn test_xdg_providers_dir() {
-    let _guard = XDG_CONFIG_MUTEX.lock().unwrap();
+    let _guard = XDG_CONFIG_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
     
     let test_dir = TempDir::new().unwrap();
     let test_config_home = test_dir.path().to_path_buf();
@@ -177,7 +157,7 @@ fn test_prompt_cache_empty_file() {
 #[test]
 fn test_provider_registry_load_from_xdg() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let providers_dir = xdg::providers_dir().unwrap();
         
         // Create a provider config
@@ -213,7 +193,7 @@ endpoint = "http://localhost:11434"
 #[test]
 fn test_provider_registry_load_from_xdg_invalid_skipped() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let providers_dir = xdg::providers_dir().unwrap();
         
         // Create a valid provider
@@ -252,7 +232,7 @@ model = ""
 #[test]
 fn test_agent_registry_load_from_xdg_inline_prompt() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let agents_dir = xdg::agents_dir().unwrap();
         
         // Create an agent config with inline prompt
@@ -281,7 +261,7 @@ system_prompt = "You are a test agent."
 #[test]
 fn test_agent_registry_load_from_xdg_prompt_path() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let agents_dir = xdg::agents_dir().unwrap();
         
         // Create a prompt file
@@ -317,7 +297,7 @@ system_prompt_path = "{}"
 #[test]
 fn test_agent_registry_load_from_xdg_prompt_path_relative() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let test_config_home = test_dir.path().to_path_buf();
         let agents_dir = xdg::agents_dir().unwrap();
         let merkle_dir = test_config_home.join("merkle");
@@ -352,7 +332,7 @@ system_prompt_path = "prompts/test.md"
 #[test]
 fn test_agent_registry_load_from_xdg_prompt_path_tilde() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let home = std::env::var("HOME").unwrap();
         let home_prompts = PathBuf::from(&home).join("test_prompts");
         fs::create_dir_all(&home_prompts).unwrap();
@@ -392,7 +372,7 @@ system_prompt_path = "~/test_prompts/test.md"
 #[test]
 fn test_agent_registry_load_from_xdg_missing_prompt_skipped() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let agents_dir = xdg::agents_dir().unwrap();
         
         // Create an agent config with non-existent prompt path
@@ -417,7 +397,7 @@ system_prompt_path = "/nonexistent/prompt.md"
 #[test]
 fn test_agent_registry_load_from_xdg_reader_no_prompt() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let agents_dir = xdg::agents_dir().unwrap();
         
         // Create a Reader agent without prompt (should be valid)
@@ -443,7 +423,7 @@ role = "Reader"
 #[test]
 fn test_agent_registry_load_from_xdg_writer_missing_prompt_skipped() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let agents_dir = xdg::agents_dir().unwrap();
         
         // Create a Writer agent without prompt (should be skipped)
@@ -467,7 +447,7 @@ role = "Writer"
 #[test]
 fn test_load_order_xdg_overrides_config() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         // Create a config.toml with a provider
         let mut config = MerkleConfig::default();
         let provider_config = ProviderConfig {
@@ -505,7 +485,7 @@ model = "llama3"
 #[test]
 fn test_agent_id_filename_mismatch_warning() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let agents_dir = xdg::agents_dir().unwrap();
         
         // Create an agent config where agent_id doesn't match filename

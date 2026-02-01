@@ -5,33 +5,10 @@ use merkle::error::ApiError;
 use merkle::tooling::cli::{CliContext, Commands, ProviderCommands};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use tempfile::TempDir;
 
-// Mutex to serialize XDG_CONFIG_HOME environment variable access in tests
-static XDG_CONFIG_MUTEX: Mutex<()> = Mutex::new(());
+use crate::integration::with_xdg_env;
 
-/// Helper to set up XDG_CONFIG_HOME for a test with proper cleanup
-fn with_xdg_config_home<F, R>(test_dir: &TempDir, f: F) -> R
-where
-    F: FnOnce() -> R,
-{
-    let _guard = XDG_CONFIG_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-    let original_xdg_config = std::env::var("XDG_CONFIG_HOME").ok();
-    let test_config_home = test_dir.path().to_path_buf();
-    std::env::set_var("XDG_CONFIG_HOME", test_config_home.to_str().unwrap());
-    
-    let result = f();
-    
-    // Restore original
-    if let Some(orig) = original_xdg_config {
-        std::env::set_var("XDG_CONFIG_HOME", orig);
-    } else {
-        std::env::remove_var("XDG_CONFIG_HOME");
-    }
-    
-    result
-}
 
 /// Create a test provider config file
 fn create_test_provider(
@@ -67,7 +44,7 @@ fn create_test_provider(
 #[test]
 fn test_provider_list_empty() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         // Ensure providers directory exists but is empty
         let providers_dir = xdg::providers_dir().unwrap();
         // Remove any existing providers
@@ -101,7 +78,7 @@ fn test_provider_list_empty() {
 #[test]
 fn test_provider_list_with_providers() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
         create_test_provider("test-ollama", ProviderType::Ollama, "llama2", Some("http://localhost:11434")).unwrap();
         
@@ -127,7 +104,7 @@ fn test_provider_list_with_providers() {
 #[test]
 fn test_provider_list_filter_by_type() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
         create_test_provider("test-ollama", ProviderType::Ollama, "llama2", Some("http://localhost:11434")).unwrap();
         
@@ -151,7 +128,7 @@ fn test_provider_list_filter_by_type() {
 #[test]
 fn test_provider_list_json_format() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
         
         let workspace = test_dir.path().to_path_buf();
@@ -175,7 +152,7 @@ fn test_provider_list_json_format() {
 #[test]
 fn test_provider_show() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
         
         let workspace = test_dir.path().to_path_buf();
@@ -200,7 +177,7 @@ fn test_provider_show() {
 #[test]
 fn test_provider_show_with_credentials() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
         
         let workspace = test_dir.path().to_path_buf();
@@ -223,7 +200,7 @@ fn test_provider_show_with_credentials() {
 #[test]
 fn test_provider_show_not_found() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
         
@@ -244,7 +221,7 @@ fn test_provider_show_not_found() {
 #[test]
 fn test_provider_validate() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
         
         let workspace = test_dir.path().to_path_buf();
@@ -268,7 +245,7 @@ fn test_provider_validate() {
 #[test]
 fn test_provider_validate_not_found() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
         
@@ -290,7 +267,7 @@ fn test_provider_validate_not_found() {
 #[test]
 fn test_provider_create_non_interactive() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
         
@@ -320,7 +297,7 @@ fn test_provider_create_non_interactive() {
 #[test]
 fn test_provider_create_missing_required_fields() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
         
@@ -345,7 +322,7 @@ fn test_provider_create_missing_required_fields() {
 #[test]
 fn test_provider_edit_with_flags() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         create_test_provider("test-provider", ProviderType::Ollama, "llama2", Some("http://localhost:11434")).unwrap();
         
         let workspace = test_dir.path().to_path_buf();
@@ -376,7 +353,7 @@ fn test_provider_edit_with_flags() {
 #[test]
 fn test_provider_edit_not_found() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
         
@@ -399,7 +376,7 @@ fn test_provider_edit_not_found() {
 #[test]
 fn test_provider_remove() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         create_test_provider("test-provider", ProviderType::Ollama, "llama2", Some("http://localhost:11434")).unwrap();
         
         let workspace = test_dir.path().to_path_buf();
@@ -426,7 +403,7 @@ fn test_provider_remove() {
 #[test]
 fn test_provider_remove_not_found() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
         
@@ -446,7 +423,7 @@ fn test_provider_remove_not_found() {
 #[test]
 fn test_provider_list_invalid_type_filter() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
         
@@ -466,7 +443,7 @@ fn test_provider_list_invalid_type_filter() {
 #[test]
 fn test_provider_show_json_format() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
         
         let workspace = test_dir.path().to_path_buf();
@@ -492,7 +469,7 @@ fn test_provider_show_json_format() {
 #[test]
 fn test_provider_registry_list_by_type() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
         create_test_provider("test-ollama", ProviderType::Ollama, "llama2", Some("http://localhost:11434")).unwrap();
         create_test_provider("test-anthropic", ProviderType::Anthropic, "claude-3-opus", None).unwrap();

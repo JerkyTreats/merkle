@@ -71,7 +71,51 @@ impl NodeRecordStore for SledNodeRecordStore {
             ))
         })?;
 
+        // Store path-to-NodeID mapping for efficient path lookups
+        // Use a prefix to separate path mappings from node records
+        let path_key = format!("path:{}", record.path.to_string_lossy());
+        let path_value = bincode::serialize(&record.node_id).map_err(|e| {
+            StorageError::IoError(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Failed to serialize node ID for path mapping: {}", e),
+            ))
+        })?;
+
+        self.db.insert(path_key.as_bytes(), path_value).map_err(|e| {
+            StorageError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to store path mapping: {}", e),
+            ))
+        })?;
+
         Ok(())
+    }
+
+    fn find_by_path(&self, path: &Path) -> Result<Option<NodeRecord>, StorageError> {
+        // Convert path to string for lookup
+        let path_str = path.to_string_lossy();
+        let path_key = format!("path:{}", path_str);
+        
+        // Look up NodeID from path mapping
+        match self.db.get(path_key.as_bytes()).map_err(|e| {
+            StorageError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to get path mapping: {}", e),
+            ))
+        })? {
+            Some(node_id_bytes) => {
+                let node_id: NodeID = bincode::deserialize(&node_id_bytes).map_err(|e| {
+                    StorageError::IoError(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("Failed to deserialize node ID from path mapping: {}", e),
+                    ))
+                })?;
+                
+                // Retrieve the full node record using the NodeID
+                self.get(&node_id)
+            }
+            None => Ok(None),
+        }
     }
 }
 

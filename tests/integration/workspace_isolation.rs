@@ -14,37 +14,44 @@ use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
+use crate::integration::with_xdg_data_home;
+
 /// Test that two separate workspaces have different XDG data directories
 #[test]
 fn test_workspace_isolation_xdg_directories() {
+    let test_dir = TempDir::new().unwrap();
     let workspace1 = TempDir::new().unwrap();
     let workspace2 = TempDir::new().unwrap();
 
-    // Get XDG data directories for each workspace
-    let data_dir1 = merkle::config::xdg::workspace_data_dir(workspace1.path()).unwrap();
-    let data_dir2 = merkle::config::xdg::workspace_data_dir(workspace2.path()).unwrap();
+    with_xdg_data_home(&test_dir, || {
+        // Get XDG data directories for each workspace
+        let data_dir1 = merkle::config::xdg::workspace_data_dir(workspace1.path()).unwrap();
+        let data_dir2 = merkle::config::xdg::workspace_data_dir(workspace2.path()).unwrap();
 
-    // Verify they are different
-    assert_ne!(data_dir1, data_dir2, "Each workspace should have a unique XDG data directory");
+        // Verify they are different
+        assert_ne!(data_dir1, data_dir2, "Each workspace should have a unique XDG data directory");
 
-    // Verify the paths are based on the workspace paths
-    assert!(data_dir1.to_string_lossy().contains(workspace1.path().to_string_lossy().as_ref()));
-    assert!(data_dir2.to_string_lossy().contains(workspace2.path().to_string_lossy().as_ref()));
+        // Verify the paths are based on the workspace paths
+        assert!(data_dir1.to_string_lossy().contains(workspace1.path().to_string_lossy().as_ref()));
+        assert!(data_dir2.to_string_lossy().contains(workspace2.path().to_string_lossy().as_ref()));
+    });
 }
 
 /// Test that data stored in one workspace doesn't appear in another
 #[test]
 fn test_workspace_isolation_data_isolation() {
+    let test_dir = TempDir::new().unwrap();
     let workspace1 = TempDir::new().unwrap();
     let workspace2 = TempDir::new().unwrap();
 
-    // Create identical file structures in both workspaces
-    fs::write(workspace1.path().join("test.txt"), "content1").unwrap();
-    fs::write(workspace2.path().join("test.txt"), "content2").unwrap();
+    with_xdg_data_home(&test_dir, || {
+        // Create identical file structures in both workspaces
+        fs::write(workspace1.path().join("test.txt"), "content1").unwrap();
+        fs::write(workspace2.path().join("test.txt"), "content2").unwrap();
 
-    // Initialize CLI contexts for both workspaces
-    let ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
-    let ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
+        // Initialize CLI contexts for both workspaces
+        let ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
+        let ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
 
     // Create a test node ID
     let node_id: NodeID = [1u8; 32];
@@ -73,17 +80,20 @@ fn test_workspace_isolation_data_isolation() {
     // Verify node does NOT exist in workspace 2
     let retrieved2 = ctx2.api().node_store().get(&node_id).unwrap();
     assert!(retrieved2.is_none(), "Node should NOT exist in workspace 2");
+    });
 }
 
 /// Test that frames stored in one workspace don't appear in another
 #[test]
 fn test_workspace_isolation_frame_isolation() {
+    let test_dir = TempDir::new().unwrap();
     let workspace1 = TempDir::new().unwrap();
     let workspace2 = TempDir::new().unwrap();
 
-    // Initialize CLI contexts for both workspaces
-    let ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
-    let ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
+    with_xdg_data_home(&test_dir, || {
+        // Initialize CLI contexts for both workspaces
+        let ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
+        let ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
 
     // Create a test frame for workspace 1
     let node_id: NodeID = [1u8; 32];
@@ -107,17 +117,20 @@ fn test_workspace_isolation_frame_isolation() {
     // Verify frame does NOT exist in workspace 2
     let retrieved2 = ctx2.api().frame_storage().get(&frame1.frame_id).unwrap();
     assert!(retrieved2.is_none(), "Frame should NOT exist in workspace 2");
+    });
 }
 
 /// Test that head indices are isolated between workspaces
 #[test]
 fn test_workspace_isolation_head_index_isolation() {
+    let test_dir = TempDir::new().unwrap();
     let workspace1 = TempDir::new().unwrap();
     let workspace2 = TempDir::new().unwrap();
 
-    // Initialize CLI contexts for both workspaces
-    let ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
-    let ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
+    with_xdg_data_home(&test_dir, || {
+        // Initialize CLI contexts for both workspaces
+        let ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
+        let ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
 
     let node_id: NodeID = [1u8; 32];
     let frame_id = merkle::types::FrameID::from([2u8; 32]);
@@ -141,17 +154,20 @@ fn test_workspace_isolation_head_index_isolation() {
         let head = head_index.get_head(&node_id, "test").unwrap();
         assert_eq!(head, None, "Head should NOT exist in workspace 2");
     }
+    });
 }
 
 /// Test that basis indices are isolated between workspaces
 #[test]
 fn test_workspace_isolation_basis_index_isolation() {
+    let test_dir = TempDir::new().unwrap();
     let workspace1 = TempDir::new().unwrap();
     let workspace2 = TempDir::new().unwrap();
 
-    // Initialize CLI contexts for both workspaces
-    let ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
-    let ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
+    with_xdg_data_home(&test_dir, || {
+        // Initialize CLI contexts for both workspaces
+        let ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
+        let ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
 
     let basis_hash: Hash = [1u8; 32].into();
     let frame_id = merkle::types::FrameID::from([2u8; 32]);
@@ -176,17 +192,20 @@ fn test_workspace_isolation_basis_index_isolation() {
         let frames = basis_index.get_frames_by_basis(&basis_hash);
         assert_eq!(frames.len(), 0, "Basis entry should NOT exist in workspace 2");
     }
+    });
 }
 
 /// Test that persistence files are isolated between workspaces
 #[test]
 fn test_workspace_isolation_persistence_isolation() {
+    let test_dir = TempDir::new().unwrap();
     let workspace1 = TempDir::new().unwrap();
     let workspace2 = TempDir::new().unwrap();
 
-    // Initialize CLI contexts for both workspaces
-    let ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
-    let ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
+    with_xdg_data_home(&test_dir, || {
+        // Initialize CLI contexts for both workspaces
+        let ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
+        let ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
 
     let node_id: NodeID = [1u8; 32];
     let frame_id = merkle::types::FrameID::from([2u8; 32]);
@@ -242,39 +261,43 @@ fn test_workspace_isolation_persistence_isolation() {
         let head = head_index.get_head(&node_id, "test").unwrap();
         assert_eq!(head, Some(frame_id2), "Workspace 2 should have its original data");
     }
+    });
 }
 
 /// Test that workspaces with the same file structure remain isolated
 #[test]
 fn test_workspace_isolation_same_structure() {
+    let test_dir = TempDir::new().unwrap();
     let workspace1 = TempDir::new().unwrap();
     let workspace2 = TempDir::new().unwrap();
 
-    // Create identical file structures
-    fs::write(workspace1.path().join("file1.txt"), "content").unwrap();
-    fs::write(workspace1.path().join("file2.txt"), "content").unwrap();
-    fs::write(workspace2.path().join("file1.txt"), "content").unwrap();
-    fs::write(workspace2.path().join("file2.txt"), "content").unwrap();
+    with_xdg_data_home(&test_dir, || {
+        // Create identical file structures
+        fs::write(workspace1.path().join("file1.txt"), "content").unwrap();
+        fs::write(workspace1.path().join("file2.txt"), "content").unwrap();
+        fs::write(workspace2.path().join("file1.txt"), "content").unwrap();
+        fs::write(workspace2.path().join("file2.txt"), "content").unwrap();
 
-    // Initialize CLI contexts (just to verify they can be created)
-    let _ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
-    let _ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
+        // Initialize CLI contexts (just to verify they can be created)
+        let _ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
+        let _ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
 
-    // Build trees - they should have different root hashes because paths are different
-    // (even though content is the same, the workspace paths differ)
-    use merkle::tree::builder::TreeBuilder;
-    let builder1 = TreeBuilder::new(workspace1.path().to_path_buf());
-    let builder2 = TreeBuilder::new(workspace2.path().to_path_buf());
-    let root1 = builder1.compute_root().unwrap();
-    let root2 = builder2.compute_root().unwrap();
+        // Build trees - they should have different root hashes because paths are different
+        // (even though content is the same, the workspace paths differ)
+        use merkle::tree::builder::TreeBuilder;
+        let builder1 = TreeBuilder::new(workspace1.path().to_path_buf());
+        let builder2 = TreeBuilder::new(workspace2.path().to_path_buf());
+        let root1 = builder1.compute_root().unwrap();
+        let root2 = builder2.compute_root().unwrap();
 
-    // Different workspace paths should produce different root hashes
-    // (the tree includes path information, so different locations = different hashes)
-    assert_ne!(root1, root2, "Different workspace paths should produce different root hashes");
+        // Different workspace paths should produce different root hashes
+        // (the tree includes path information, so different locations = different hashes)
+        assert_ne!(root1, root2, "Different workspace paths should produce different root hashes");
 
-    // But workspaces should still be isolated
-    let data_dir1 = merkle::config::xdg::workspace_data_dir(workspace1.path()).unwrap();
-    let data_dir2 = merkle::config::xdg::workspace_data_dir(workspace2.path()).unwrap();
-    assert_ne!(data_dir1, data_dir2, "Workspaces should have different data directories even with same content");
+        // But workspaces should still be isolated
+        let data_dir1 = merkle::config::xdg::workspace_data_dir(workspace1.path()).unwrap();
+        let data_dir2 = merkle::config::xdg::workspace_data_dir(workspace2.path()).unwrap();
+        assert_ne!(data_dir1, data_dir2, "Workspaces should have different data directories even with same content");
+    });
 }
 

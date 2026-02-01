@@ -6,33 +6,9 @@ use merkle::error::ApiError;
 use merkle::tooling::cli::{CliContext, Commands, AgentCommands};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use tempfile::TempDir;
 
-// Mutex to serialize XDG_CONFIG_HOME environment variable access in tests
-static XDG_CONFIG_MUTEX: Mutex<()> = Mutex::new(());
-
-/// Helper to set up XDG_CONFIG_HOME for a test with proper cleanup
-fn with_xdg_config_home<F, R>(test_dir: &TempDir, f: F) -> R
-where
-    F: FnOnce() -> R,
-{
-    let _guard = XDG_CONFIG_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-    let original_xdg_config = std::env::var("XDG_CONFIG_HOME").ok();
-    let test_config_home = test_dir.path().to_path_buf();
-    std::env::set_var("XDG_CONFIG_HOME", test_config_home.to_str().unwrap());
-    
-    let result = f();
-    
-    // Restore original
-    if let Some(orig) = original_xdg_config {
-        std::env::set_var("XDG_CONFIG_HOME", orig);
-    } else {
-        std::env::remove_var("XDG_CONFIG_HOME");
-    }
-    
-    result
-}
+use crate::integration::with_xdg_env;
 
 /// Create a test agent config file
 fn create_test_agent(
@@ -84,7 +60,7 @@ fn create_test_prompt_file(test_dir: &TempDir, filename: &str) -> PathBuf {
 #[test]
 fn test_agent_list_empty() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         // Ensure agents directory exists but is empty
         let agents_dir = xdg::agents_dir().unwrap();
         // Remove any existing agents
@@ -117,7 +93,7 @@ fn test_agent_list_empty() {
 #[test]
 fn test_agent_list_text() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let prompt_path = create_test_prompt_file(&test_dir, "test.md");
         create_test_agent("test-writer", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
         create_test_agent("test-reader", AgentRole::Reader, None).unwrap();
@@ -143,7 +119,7 @@ fn test_agent_list_text() {
 #[test]
 fn test_agent_list_json() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let prompt_path = create_test_prompt_file(&test_dir, "test.md");
         create_test_agent("test-writer", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
         
@@ -167,7 +143,7 @@ fn test_agent_list_json() {
 #[test]
 fn test_agent_list_filtered_by_role() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let prompt_path = create_test_prompt_file(&test_dir, "test.md");
         create_test_agent("test-writer", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
         create_test_agent("test-reader", AgentRole::Reader, None).unwrap();
@@ -191,7 +167,7 @@ fn test_agent_list_filtered_by_role() {
 #[test]
 fn test_agent_show_text() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let prompt_path = create_test_prompt_file(&test_dir, "test.md");
         create_test_agent("test-agent", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
         
@@ -215,7 +191,7 @@ fn test_agent_show_text() {
 #[test]
 fn test_agent_show_with_prompt() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let prompt_path = create_test_prompt_file(&test_dir, "test.md");
         create_test_agent("test-agent", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
         
@@ -239,7 +215,7 @@ fn test_agent_show_with_prompt() {
 #[test]
 fn test_agent_show_json() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let prompt_path = create_test_prompt_file(&test_dir, "test.md");
         create_test_agent("test-agent", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
         
@@ -263,7 +239,7 @@ fn test_agent_show_json() {
 #[test]
 fn test_agent_show_not_found() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
         
@@ -283,7 +259,7 @@ fn test_agent_show_not_found() {
 #[test]
 fn test_agent_validate_valid() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let prompt_path = create_test_prompt_file(&test_dir, "test.md");
         create_test_agent("test-agent", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
         
@@ -308,7 +284,7 @@ fn test_agent_validate_valid() {
 #[test]
 fn test_agent_validate_missing_prompt() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         // Create agent with non-existent prompt path
         create_test_agent("test-agent", AgentRole::Writer, Some("/nonexistent/path.md")).unwrap();
         
@@ -333,7 +309,7 @@ fn test_agent_validate_missing_prompt() {
 #[test]
 fn test_agent_validate_all() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let prompt_path1 = create_test_prompt_file(&test_dir, "test1.md");
         let prompt_path2 = create_test_prompt_file(&test_dir, "test2.md");
         create_test_agent("test-agent-1", AgentRole::Writer, Some(prompt_path1.to_str().unwrap())).unwrap();
@@ -363,7 +339,7 @@ fn test_agent_validate_all() {
 #[test]
 fn test_agent_validate_all_verbose() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let prompt_path = create_test_prompt_file(&test_dir, "test.md");
         create_test_agent("test-agent", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
         
@@ -388,7 +364,7 @@ fn test_agent_validate_all_verbose() {
 #[test]
 fn test_agent_validate_all_empty() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         // Ensure agents directory exists but is empty
         let agents_dir = xdg::agents_dir().unwrap();
         // Remove any existing agents
@@ -422,7 +398,7 @@ fn test_agent_validate_all_empty() {
 #[test]
 fn test_agent_create_non_interactive() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let prompt_path = create_test_prompt_file(&test_dir, "new.md");
         
         let workspace = test_dir.path().to_path_buf();
@@ -451,7 +427,7 @@ fn test_agent_create_non_interactive() {
 #[test]
 fn test_agent_create_reader() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
         
@@ -477,7 +453,7 @@ fn test_agent_create_reader() {
 #[test]
 fn test_agent_edit_prompt_path() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let prompt_path = create_test_prompt_file(&test_dir, "old.md");
         create_test_agent("test-agent", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
         
@@ -509,7 +485,7 @@ fn test_agent_edit_prompt_path() {
 #[test]
 fn test_agent_edit_role() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let prompt_path = create_test_prompt_file(&test_dir, "test.md");
         create_test_agent("test-agent", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
         
@@ -538,7 +514,7 @@ fn test_agent_edit_role() {
 #[test]
 fn test_agent_remove() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let prompt_path = create_test_prompt_file(&test_dir, "test.md");
         create_test_agent("test-agent", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
         
@@ -567,7 +543,7 @@ fn test_agent_remove() {
 #[test]
 fn test_agent_remove_not_found() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
         

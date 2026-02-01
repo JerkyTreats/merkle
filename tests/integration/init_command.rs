@@ -4,38 +4,14 @@ use merkle::agent::AgentRegistry;
 use merkle::config::xdg;
 use merkle::init;
 use std::fs;
-use std::sync::Mutex;
 use tempfile::TempDir;
 
-// Mutex to serialize XDG_CONFIG_HOME environment variable access in tests
-static XDG_CONFIG_MUTEX: Mutex<()> = Mutex::new(());
-
-/// Helper to set up XDG_CONFIG_HOME for a test with proper cleanup
-fn with_xdg_config_home<F, R>(test_dir: &TempDir, f: F) -> R
-where
-    F: FnOnce() -> R,
-{
-    let _guard = XDG_CONFIG_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-    let original_xdg_config = std::env::var("XDG_CONFIG_HOME").ok();
-    let test_config_home = test_dir.path().to_path_buf();
-    std::env::set_var("XDG_CONFIG_HOME", test_config_home.to_str().unwrap());
-    
-    let result = f();
-    
-    // Restore original
-    if let Some(orig) = original_xdg_config {
-        std::env::set_var("XDG_CONFIG_HOME", orig);
-    } else {
-        std::env::remove_var("XDG_CONFIG_HOME");
-    }
-    
-    result
-}
+use crate::integration::with_xdg_env;
 
 #[test]
 fn test_init_creates_default_agents() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let summary = init::initialize_all(false).unwrap();
         
         // Check that all 4 agents were created
@@ -57,7 +33,7 @@ fn test_init_creates_default_agents() {
 #[test]
 fn test_init_creates_prompts() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let summary = init::initialize_prompts(false).unwrap();
         
         // Check that all 3 prompts were created
@@ -81,7 +57,7 @@ fn test_init_creates_prompts() {
 #[test]
 fn test_init_idempotent() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         // First initialization
         let summary1 = init::initialize_all(false).unwrap();
         assert_eq!(summary1.agents.created.len(), 4);
@@ -99,7 +75,7 @@ fn test_init_idempotent() {
 #[test]
 fn test_init_force_overwrites() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         // First initialization
         let summary1 = init::initialize_all(false).unwrap();
         assert_eq!(summary1.agents.created.len(), 4);
@@ -126,7 +102,7 @@ fn test_init_force_overwrites() {
 #[test]
 fn test_init_list_mode() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         // List before initialization
         let preview1 = init::list_initialization().unwrap();
         assert_eq!(preview1.prompts.len(), 3);
@@ -145,7 +121,7 @@ fn test_init_list_mode() {
 #[test]
 fn test_init_validates_agents() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         let summary = init::initialize_all(false).unwrap();
         
         // All agents should be valid
@@ -160,7 +136,7 @@ fn test_init_validates_agents() {
 #[test]
 fn test_init_creates_xdg_directories() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         // Directories should not exist initially
         let config_home = xdg::config_home().unwrap();
         let merkle_dir = config_home.join("merkle");
@@ -183,7 +159,7 @@ fn test_init_creates_xdg_directories() {
 #[test]
 fn test_init_handles_existing_files() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         // Create a custom agent file
         let agents_dir = xdg::agents_dir().unwrap();
         fs::write(
@@ -206,7 +182,7 @@ fn test_init_handles_existing_files() {
 #[test]
 fn test_init_preserves_user_customizations() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         // Initialize once
         init::initialize_all(false).unwrap();
         
@@ -234,7 +210,7 @@ fn test_init_preserves_user_customizations() {
 #[test]
 fn test_init_error_handling() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         // Create a read-only directory to test error handling
         let config_home = xdg::config_home().unwrap();
         let merkle_dir = config_home.join("merkle");
@@ -270,7 +246,7 @@ fn test_init_error_handling() {
 #[test]
 fn test_init_agent_configs_valid() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         init::initialize_all(false).unwrap();
         
         let agents_dir = xdg::agents_dir().unwrap();
@@ -292,7 +268,7 @@ fn test_init_agent_configs_valid() {
 #[test]
 fn test_init_prompts_have_content() {
     let test_dir = TempDir::new().unwrap();
-    with_xdg_config_home(&test_dir, || {
+    with_xdg_env(&test_dir, || {
         init::initialize_prompts(false).unwrap();
         
         let prompts_dir = xdg::prompts_dir().unwrap();
