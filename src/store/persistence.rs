@@ -95,7 +95,7 @@ impl NodeRecordStore for SledNodeRecordStore {
         // Convert path to string for lookup
         let path_str = path.to_string_lossy();
         let path_key = format!("path:{}", path_str);
-        
+
         // Look up NodeID from path mapping
         match self.db.get(path_key.as_bytes()).map_err(|e| {
             StorageError::IoError(std::io::Error::new(
@@ -110,12 +110,36 @@ impl NodeRecordStore for SledNodeRecordStore {
                         format!("Failed to deserialize node ID from path mapping: {}", e),
                     ))
                 })?;
-                
+
                 // Retrieve the full node record using the NodeID
                 self.get(&node_id)
             }
             None => Ok(None),
         }
+    }
+
+    fn list_all(&self) -> Result<Vec<NodeRecord>, StorageError> {
+        let mut records = Vec::new();
+        for item in self.db.iter() {
+            let (key, value) = item.map_err(|e| {
+                StorageError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to iterate store: {}", e),
+                ))
+            })?;
+            // Only 32-byte keys are node IDs; path mappings use "path:..." prefix
+            if key.len() != 32 {
+                continue;
+            }
+            let record: NodeRecord = bincode::deserialize(&value).map_err(|e| {
+                StorageError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Failed to deserialize node record: {}", e),
+                ))
+            })?;
+            records.push(record);
+        }
+        Ok(records)
     }
 }
 

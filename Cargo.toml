@@ -50,6 +50,8 @@ futures = "0.3"
 # CLI support
 clap = { version = "4.0", features = ["derive"] }
 dialoguer = "0.11"
+comfy-table = "7.2"
+owo-colors = "4.2"
 
 # File watching for editor integration
 notify = "6.0"

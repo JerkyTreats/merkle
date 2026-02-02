@@ -71,6 +71,19 @@ impl HeadIndex {
         node_ids.into_iter().collect()
     }
 
+    /// Count distinct node IDs that have a head for the given frame type.
+    ///
+    /// Used for workspace status context coverage per agent (frame type = `context-<agent_id>`).
+    pub fn count_nodes_for_frame_type(&self, frame_type: &str) -> usize {
+        let mut node_ids = std::collections::HashSet::new();
+        for ((node_id, ft), _) in &self.heads {
+            if ft.as_str() == frame_type {
+                node_ids.insert(*node_id);
+            }
+        }
+        node_ids.len()
+    }
+
     /// Get the persistence path for a workspace root
     /// 
     /// Uses XDG data directory: $XDG_DATA_HOME/merkle/workspaces/<hash>/head_index.bin

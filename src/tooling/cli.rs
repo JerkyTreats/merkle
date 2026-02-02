@@ -157,6 +157,11 @@ pub enum Commands {
         #[arg(long)]
         force: bool,
     },
+    /// Workspace commands (status, validate)
+    Workspace {
+        #[command(subcommand)]
+        command: WorkspaceCommands,
+    },
     /// Show workspace status
     Status,
     /// Validate workspace integrity
@@ -216,6 +221,21 @@ pub enum Commands {
         #[command(subcommand)]
         command: ContextCommands,
     },
+}
+
+#[derive(Subcommand)]
+pub enum WorkspaceCommands {
+    /// Show workspace status (tree, context coverage, top paths)
+    Status {
+        /// Output format (text or json)
+        #[arg(long, default_value = "text")]
+        format: String,
+        /// Include top-level path breakdown
+        #[arg(long)]
+        breakdown: bool,
+    },
+    /// Validate workspace integrity
+    Validate,
 }
 
 #[derive(Subcommand)]
@@ -600,6 +620,97 @@ impl CliContext {
         Ok(queue)
     }
 
+    /// Run workspace validation (store, head index, basis index consistency).
+    fn run_workspace_validate(&self) -> Result<String, ApiError> {
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+
+        let builder = TreeBuilder::new(self.workspace_root.clone());
+        let root_hash = match builder.compute_root() {
+            Ok(hash) => hash,
+            Err(e) => {
+                errors.push(format!("Failed to compute workspace root: {}", e));
+                return Ok(format!("Validation failed:\n{}", errors.join("\n")));
+            }
+        };
+
+        let node_count = match self.api.node_store().get(&root_hash).map_err(ApiError::from)? {
+            Some(record) => {
+                if record.node_id != root_hash {
+                    errors.push(format!(
+                        "Root node record has mismatched node_id: {} vs {}",
+                        hex::encode(record.node_id),
+                        hex::encode(root_hash)
+                    ));
+                }
+                1
+            }
+            None => {
+                warnings.push("Root node not found in store - workspace may not be scanned".to_string());
+                0
+            }
+        };
+
+        let head_index = self.api.head_index().read();
+        for node_id in head_index.get_all_node_ids() {
+            let frame_ids = head_index.get_all_heads_for_node(&node_id);
+            for frame_id in frame_ids {
+                if self.api.frame_storage().get(&frame_id).map_err(ApiError::from)?.is_none() {
+                    warnings.push(format!(
+                        "Head frame {} for node {} not found in storage",
+                        hex::encode(frame_id),
+                        hex::encode(node_id)
+                    ));
+                }
+            }
+        }
+        drop(head_index);
+
+        let basis_index = self.api.basis_index().read();
+        for (_basis_hash, frame_ids) in basis_index.iter() {
+            for frame_id in frame_ids {
+                if self.api.frame_storage().get(frame_id).map_err(ApiError::from)?.is_none() {
+                    warnings.push(format!(
+                        "Basis index frame {} not found in storage",
+                        hex::encode(frame_id)
+                    ));
+                }
+            }
+        }
+        drop(basis_index);
+
+        let frame_count = if self.frame_storage_path.exists() {
+            count_frame_files(&self.frame_storage_path)?
+        } else {
+            0
+        };
+
+        let root_hex = hex::encode(root_hash);
+        if errors.is_empty() && warnings.is_empty() {
+            Ok(format!(
+                "Validation passed:\n  Root hash: {}\n  Nodes: {}\n  Frames: {}\n  All checks passed",
+                root_hex, node_count, frame_count
+            ))
+        } else {
+            let mut result = format!(
+                "Validation completed with issues:\n  Root hash: {}\n  Nodes: {}\n  Frames: {}",
+                root_hex, node_count, frame_count
+            );
+            if !errors.is_empty() {
+                result.push_str(&format!("\n\nErrors ({}):", errors.len()));
+                for error in &errors {
+                    result.push_str(&format!("\n  - {}", error));
+                }
+            }
+            if !warnings.is_empty() {
+                result.push_str(&format!("\n\nWarnings ({}):", warnings.len()));
+                for warning in &warnings {
+                    result.push_str(&format!("\n  - {}", warning));
+                }
+            }
+            Ok(result)
+        }
+    }
 
     /// Execute a CLI command
     pub fn execute(&self, command: &Commands) -> Result<String, ApiError> {
@@ -773,6 +884,31 @@ impl CliContext {
                     root_hex
                 ))
             }
+            Commands::Workspace { command } => match command {
+                WorkspaceCommands::Status { format, breakdown } => {
+                    let registry = self.api.agent_registry().read();
+                    let head_index = self.api.head_index().read();
+                    let status = crate::workspace_status::build_workspace_status(
+                        self.api.node_store().as_ref() as &dyn NodeRecordStore,
+                        &head_index,
+                        &registry,
+                        self.workspace_root.as_path(),
+                        *breakdown,
+                    )?;
+                    if format == "json" {
+                        serde_json::to_string_pretty(&status).map_err(|e| {
+                            ApiError::StorageError(crate::error::StorageError::InvalidPath(
+                                e.to_string(),
+                            ))
+                        })
+                    } else {
+                        Ok(crate::workspace_status::format_workspace_status_text(
+                            &status, *breakdown,
+                        ))
+                    }
+                }
+                WorkspaceCommands::Validate => self.run_workspace_validate(),
+            },
             Commands::Status => {
                 // Compute workspace root hash
                 let builder = TreeBuilder::new(self.workspace_root.clone());
@@ -813,102 +949,7 @@ impl CliContext {
                     root_hex, node_count, frame_count, head_count, basis_count
                 ))
             }
-            Commands::Validate => {
-                let mut errors = Vec::new();
-                let mut warnings = Vec::new();
-
-                // 1. Verify workspace root can be computed
-                let builder = TreeBuilder::new(self.workspace_root.clone());
-                let root_hash = match builder.compute_root() {
-                    Ok(hash) => hash,
-                    Err(e) => {
-                        errors.push(format!("Failed to compute workspace root: {}", e));
-                        return Ok(format!("Validation failed:\n{}", errors.join("\n")));
-                    }
-                };
-
-                // 2. Verify root node exists and is accessible
-                let node_count = match self.api.node_store().get(&root_hash).map_err(ApiError::from)? {
-                    Some(record) => {
-                        // Verify the record is valid
-                        if record.node_id != root_hash {
-                            errors.push(format!(
-                                "Root node record has mismatched node_id: {} vs {}",
-                                hex::encode(record.node_id), hex::encode(root_hash)
-                            ));
-                        }
-                        1 // At least root exists
-                    }
-                    None => {
-                        warnings.push("Root node not found in store - workspace may not be scanned".to_string());
-                        0
-                    }
-                };
-
-                // 3. Verify head index consistency
-                let head_index = self.api.head_index().read();
-                for node_id in head_index.get_all_node_ids() {
-                    let frame_ids = head_index.get_all_heads_for_node(&node_id);
-                    for frame_id in frame_ids {
-                        // Verify frame exists in storage
-                        if self.api.frame_storage().get(&frame_id).map_err(ApiError::from)?.is_none() {
-                            warnings.push(format!(
-                                "Head frame {} for node {} not found in storage",
-                                hex::encode(frame_id), hex::encode(node_id)
-                            ));
-                        }
-                    }
-                }
-                drop(head_index);
-
-                // 4. Verify basis index consistency
-                let basis_index = self.api.basis_index().read();
-                for (_basis_hash, frame_ids) in basis_index.iter() {
-                    for frame_id in frame_ids {
-                        // Verify frame exists
-                        if self.api.frame_storage().get(frame_id).map_err(ApiError::from)?.is_none() {
-                            warnings.push(format!(
-                                "Basis index frame {} not found in storage",
-                                hex::encode(frame_id)
-                            ));
-                        }
-                    }
-                }
-                drop(basis_index);
-
-                // 5. Count frames and verify they're valid
-                let frame_count = if self.frame_storage_path.exists() {
-                    count_frame_files(&self.frame_storage_path)?
-                } else {
-                    0
-                };
-
-                let root_hex = hex::encode(root_hash);
-                if errors.is_empty() && warnings.is_empty() {
-                    Ok(format!(
-                        "Validation passed:\n  Root hash: {}\n  Nodes: {}\n  Frames: {}\n  All checks passed",
-                        root_hex, node_count, frame_count
-                    ))
-                } else {
-                    let mut result = format!(
-                        "Validation completed with issues:\n  Root hash: {}\n  Nodes: {}\n  Frames: {}",
-                        root_hex, node_count, frame_count
-                    );
-                    if !errors.is_empty() {
-                        result.push_str(&format!("\n\nErrors ({}):", errors.len()));
-                        for error in &errors {
-                            result.push_str(&format!("\n  - {}", error));
-                        }
-                    }
-                    if !warnings.is_empty() {
-                        result.push_str(&format!("\n\nWarnings ({}):", warnings.len()));
-                        for warning in &warnings {
-                            result.push_str(&format!("\n  - {}", warning));
-                        }
-                    }
-                    Ok(result)
-                }
-            }
+            Commands::Validate => self.run_workspace_validate(),
             Commands::ValidateProviders { agent_id: _ } => {
                 // Load configuration
                 let config = if let Some(ref config_path) = self.config_path {

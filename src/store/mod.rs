@@ -38,11 +38,17 @@ pub struct NodeRecord {
 pub trait NodeRecordStore {
     fn get(&self, node_id: &NodeID) -> Result<Option<NodeRecord>, StorageError>;
     fn put(&self, record: &NodeRecord) -> Result<(), StorageError>;
-    
+
     /// Find a node record by its canonicalized path
     ///
     /// Returns the NodeRecord if found, None if the path is not in the tree.
     fn find_by_path(&self, path: &Path) -> Result<Option<NodeRecord>, StorageError>;
+
+    /// List all node records in the store.
+    ///
+    /// Used for status (total count, path breakdown, top paths). Path mappings
+    /// (e.g. path:...) are not returned; only node records keyed by NodeID.
+    fn list_all(&self) -> Result<Vec<NodeRecord>, StorageError>;
 }
 
 impl NodeRecord {

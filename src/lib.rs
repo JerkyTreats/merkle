@@ -21,3 +21,4 @@ pub mod tooling;
 pub mod tree;
 pub mod types;
 pub mod views;
+pub mod workspace_status;
