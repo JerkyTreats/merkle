@@ -2,7 +2,9 @@
 //!
 //! Produces the workspace section for `merkle workspace status`: tree state,
 //! optional breakdown, context coverage per Writer/Synthesis agent, and top
-//! paths by node count. Used by the CLI and later by unified `merkle status`.
+//! paths by node count. Also provides agent status and provider status
+//! formatting for `merkle agent status` and `merkle provider status`. Used by
+//! the CLI and later by unified `merkle status`.
 
 use crate::agent::{AgentRegistry, AgentRole};
 use crate::error::ApiError;
@@ -10,6 +12,7 @@ use crate::heads::HeadIndex;
 use crate::store::NodeRecordStore;
 use crate::tree::builder::TreeBuilder;
 use crate::types::NodeID;
+use comfy_table::presets::UTF8_BORDERS_ONLY;
 use comfy_table::Table;
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
@@ -210,16 +213,18 @@ pub fn format_workspace_status_text(data: &WorkspaceStatus, include_breakdown: b
         if let Some(ref breakdown) = tree.breakdown {
             out.push_str("  Top-level breakdown\n\n");
             let mut table = Table::new();
+            table.load_preset(UTF8_BORDERS_ONLY);
             table.set_header(vec!["Path", "Nodes"]);
             for row in breakdown {
                 table.add_row(vec![row.path.clone(), row.nodes.to_string()]);
             }
-            out.push_str(&format!("  {}\n\n", table));
+            out.push_str(&format!("{}\n\n", table));
         }
     }
     if let Some(ref coverage) = data.context_coverage {
         out.push_str(&format!("{}\n\n", format_section_heading("Context coverage")));
         let mut table = Table::new();
+        table.load_preset(UTF8_BORDERS_ONLY);
         table.set_header(vec!["Agent", "With frame", "Without", "Coverage"]);
         for row in coverage {
             let pct = row
@@ -233,7 +238,7 @@ pub fn format_workspace_status_text(data: &WorkspaceStatus, include_breakdown: b
                 pct,
             ]);
         }
-        out.push_str(&format!("  {}\n\n", table));
+        out.push_str(&format!("{}\n\n", table));
     }
     if let Some(ref top_paths) = data.top_paths_by_node_count {
         out.push_str(&format!(
@@ -241,11 +246,128 @@ pub fn format_workspace_status_text(data: &WorkspaceStatus, include_breakdown: b
             format_section_heading("Top paths by node count")
         ));
         let mut table = Table::new();
+        table.load_preset(UTF8_BORDERS_ONLY);
         table.set_header(vec!["Path", "Nodes"]);
         for row in top_paths {
             table.add_row(vec![row.path.clone(), row.nodes.to_string()]);
         }
-        out.push_str(&format!("  {}\n", table));
+        out.push_str(&format!("{}\n", table));
     }
+    out
+}
+
+// --- Agent status (merkle agent status) ---
+
+/// One row for agent status table / JSON.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentStatusEntry {
+    pub agent_id: String,
+    pub role: String,
+    pub valid: bool,
+    pub prompt_path_exists: bool,
+}
+
+/// Agent status output for JSON.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentStatusOutput {
+    pub agents: Vec<AgentStatusEntry>,
+    pub total: usize,
+    pub valid_count: usize,
+}
+
+/// Format agent status as human-readable text (comfy-table + section heading).
+pub fn format_agent_status_text(entries: &[AgentStatusEntry]) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("{}\n\n", format_section_heading("Agents")));
+    if entries.is_empty() {
+        out.push_str("No agents configured.\n");
+        return out;
+    }
+    let mut table = Table::new();
+    table.load_preset(UTF8_BORDERS_ONLY);
+    table.set_header(vec!["Agent", "Role", "Valid", "Prompt"]);
+    for row in entries {
+        let valid_str = if row.valid { "yes" } else { "no" };
+        let prompt_str = if row.role == "Reader" {
+            "n/a".to_string()
+        } else if row.prompt_path_exists {
+            "exists".to_string()
+        } else {
+            "missing".to_string()
+        };
+        table.add_row(vec![
+            row.agent_id.clone(),
+            row.role.clone(),
+            valid_str.to_string(),
+            prompt_str,
+        ]);
+    }
+    out.push_str(&format!("{}\n\n", table));
+    let valid_count = entries.iter().filter(|e| e.valid).count();
+    out.push_str(&format!("Total: {} agents, {} valid.\n", entries.len(), valid_count));
+    out
+}
+
+// --- Provider status (merkle provider status) ---
+
+/// One row for provider status table / JSON.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderStatusEntry {
+    pub provider_name: String,
+    pub provider_type: String,
+    pub model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connectivity: Option<String>,
+}
+
+/// Provider status output for JSON.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderStatusOutput {
+    pub providers: Vec<ProviderStatusEntry>,
+    pub total: usize,
+}
+
+/// Format provider status as human-readable text (comfy-table + section heading).
+pub fn format_provider_status_text(entries: &[ProviderStatusEntry], include_connectivity: bool) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("{}\n\n", format_section_heading("Providers")));
+    if entries.is_empty() {
+        out.push_str("No providers configured.\n");
+        return out;
+    }
+    let mut table = Table::new();
+    table.load_preset(UTF8_BORDERS_ONLY);
+    if include_connectivity {
+        table.set_header(vec!["Provider", "Type", "Model", "Connectivity"]);
+        for row in entries {
+            let conn = row
+                .connectivity
+                .as_deref()
+                .map(|c| match c {
+                    "ok" => "OK",
+                    "fail" => "Fail",
+                    "skipped" => "Skipped",
+                    _ => c,
+                })
+                .unwrap_or("-");
+            table.add_row(vec![
+                row.provider_name.clone(),
+                row.provider_type.clone(),
+                row.model.clone(),
+                conn.to_owned(),
+            ]);
+        }
+    } else {
+        table.set_header(vec!["Provider", "Type", "Model"]);
+        for row in entries {
+            table.add_row(vec![
+                row.provider_name.clone(),
+                row.provider_type.clone(),
+                row.model.clone(),
+            ]);
+        }
+    }
+    out.push_str(&format!("{}\n\n", table));
+    out.push_str(&format!("Total: {} providers.\n", entries.len()));
     out
 }

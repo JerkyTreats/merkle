@@ -91,6 +91,103 @@ fn test_agent_list_empty() {
 }
 
 #[test]
+fn test_agent_status_empty() {
+    let test_dir = TempDir::new().unwrap();
+    with_xdg_env(&test_dir, || {
+        let agents_dir = xdg::agents_dir().unwrap();
+        if agents_dir.exists() {
+            for entry in fs::read_dir(&agents_dir).unwrap() {
+                let entry = entry.unwrap();
+                if entry.path().extension().and_then(|s| s.to_str()) == Some("toml") {
+                    fs::remove_file(entry.path()).unwrap();
+                }
+            }
+        }
+        let workspace = test_dir.path().to_path_buf();
+        let cli = CliContext::new(workspace, None).unwrap();
+        let result = cli.execute(&Commands::Agent {
+            command: AgentCommands::Status {
+                format: "text".to_string(),
+            },
+        });
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains("No agents configured") || output.contains("Agents"));
+    });
+}
+
+#[test]
+fn test_agent_status_one_agent_text() {
+    let test_dir = TempDir::new().unwrap();
+    with_xdg_env(&test_dir, || {
+        let prompt_path = create_test_prompt_file(&test_dir, "status-test.md");
+        create_test_agent("status-agent", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
+        let workspace = test_dir.path().to_path_buf();
+        let cli = CliContext::new(workspace, None).unwrap();
+        let result = cli.execute(&Commands::Agent {
+            command: AgentCommands::Status {
+                format: "text".to_string(),
+            },
+        });
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains("Agents"));
+        assert!(output.contains("status-agent"));
+        assert!(output.contains("Writer"));
+        assert!(output.contains("Valid") || output.contains("Prompt"));
+        assert!(output.contains("Total:") && output.contains("agents"));
+    });
+}
+
+#[test]
+fn test_agent_status_one_agent_json() {
+    let test_dir = TempDir::new().unwrap();
+    with_xdg_env(&test_dir, || {
+        let prompt_path = create_test_prompt_file(&test_dir, "status-json.md");
+        create_test_agent("status-json-agent", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
+        let workspace = test_dir.path().to_path_buf();
+        let cli = CliContext::new(workspace, None).unwrap();
+        let result = cli.execute(&Commands::Agent {
+            command: AgentCommands::Status {
+                format: "json".to_string(),
+            },
+        });
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains("\"agents\""));
+        assert!(output.contains("\"total\""));
+        assert!(output.contains("\"valid_count\""));
+        assert!(output.contains("status-json-agent"));
+        assert!(output.contains("\"agent_id\""));
+        assert!(output.contains("\"role\""));
+        assert!(output.contains("\"valid\""));
+        assert!(output.contains("\"prompt_path_exists\""));
+    });
+}
+
+#[test]
+fn test_agent_status_multiple_agents() {
+    let test_dir = TempDir::new().unwrap();
+    with_xdg_env(&test_dir, || {
+        let prompt_path = create_test_prompt_file(&test_dir, "multi.md");
+        create_test_agent("valid-writer", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
+        create_test_agent("reader-agent", AgentRole::Reader, None).unwrap();
+        let workspace = test_dir.path().to_path_buf();
+        let cli = CliContext::new(workspace, None).unwrap();
+        let result = cli.execute(&Commands::Agent {
+            command: AgentCommands::Status {
+                format: "text".to_string(),
+            },
+        });
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains("valid-writer"));
+        assert!(output.contains("reader-agent"));
+        assert!(output.contains("Total: 2 agents"));
+    });
+}
+
+#[test]
 fn test_agent_list_text() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {

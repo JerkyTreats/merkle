@@ -11,7 +11,7 @@ This document outlines the phased implementation plan for the command cleanup re
 | Phase | Goal | Dependencies | Completion |
 |-------|------|--------------|------------|
 | 1 | Display stack and workspace status | None | Done |
-| 2 | Agent status and provider status | Phase 1 | Not started |
+| 2 | Agent status and provider status | Phase 1 | Done |
 | 3 | Unified merkle status | Phase 1, Phase 2 | Not started |
 | 4 | Workspace command specs and scan / validate / watch | Phase 1–3 if status touches workspace | Not started |
 | 5 | Node delete | Node store and head index | Not started |
@@ -55,24 +55,24 @@ This document outlines the phased implementation plan for the command cleanup re
 | Goal | Implement merkle agent status and merkle provider status per their specs; reuse display stack. |
 | Dependencies | Phase 1 (display stack) |
 | Docs | agent_status_spec.md, provider_status_spec.md, provider_validate_spec.md |
-| Completion | Not started |
+| Completion | Done |
 
 | Task | Completion |
 |------|------------|
-| Remove top-level validate-providers; provider validation is merkle provider validate per provider_validate_spec.md. | Not started |
-| Implement merkle agent status: table (Agent, Role, Valid, Prompt); data from AgentRegistry::list_all() and validate_agent(); text and JSON. | Not started |
-| Implement merkle provider status: table (Provider, Type, Model, optional Connectivity); optional --test-connectivity; text and JSON. | Not started |
-| Reuse comfy-table and styling crate for headings and tables. | Not started |
+| Remove top-level validate-providers; provider validation is merkle provider validate per provider_validate_spec.md. | Done |
+| Implement merkle agent status: table (Agent, Role, Valid, Prompt); data from AgentRegistry::list_all() and validate_agent(); text and JSON. | Done |
+| Implement merkle provider status: table (Provider, Type, Model, optional Connectivity); optional --test-connectivity; text and JSON. | Done |
+| Reuse comfy-table and styling crate for headings and tables. | Done |
 
 | Exit criterion | Completion |
 |----------------|------------|
-| merkle agent status and merkle provider status produce output matching agent_status_spec.md and provider_status_spec.md. | Not started |
-| Empty lists do not fail; validation and connectivity reused from existing code. | Not started |
+| merkle agent status and merkle provider status produce output matching agent_status_spec.md and provider_status_spec.md. | Done |
+| Empty lists do not fail; validation and connectivity reused from existing code. | Done |
 
 | Key change | Completion |
 |------------|------------|
-| New CLI variants: Agent::Status, Provider::Status. | Not started |
-| Handlers that build status from registries and validation/connectivity logic. | Not started |
+| New CLI variants: Agent::Status, Provider::Status. | Done |
+| Handlers that build status from registries and validation/connectivity logic. | Done |
 
 ---
 

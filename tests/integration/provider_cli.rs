@@ -229,8 +229,7 @@ fn test_provider_validate() {
         
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Validate {
-                provider_name: Some("test-openai".to_string()),
-                all: false,
+                provider_name: "test-openai".to_string(),
                 test_connectivity: false,
                 check_model: false,
                 verbose: false,
@@ -252,8 +251,7 @@ fn test_provider_validate_not_found() {
         
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Validate {
-                provider_name: Some("nonexistent".to_string()),
-                all: false,
+                provider_name: "nonexistent".to_string(),
                 test_connectivity: false,
                 check_model: false,
                 verbose: false,
@@ -263,6 +261,101 @@ fn test_provider_validate_not_found() {
         assert!(result.is_ok()); // Validation returns result even if provider not found
         let output = result.unwrap();
         assert!(output.contains("not found"));
+    });
+}
+
+#[test]
+fn test_provider_status_empty() {
+    let test_dir = TempDir::new().unwrap();
+    with_xdg_env(&test_dir, || {
+        let providers_dir = xdg::providers_dir().unwrap();
+        if providers_dir.exists() {
+            for entry in fs::read_dir(&providers_dir).unwrap() {
+                let entry = entry.unwrap();
+                if entry.path().extension().and_then(|s| s.to_str()) == Some("toml") {
+                    fs::remove_file(entry.path()).unwrap();
+                }
+            }
+        }
+        let workspace = test_dir.path().to_path_buf();
+        let cli = CliContext::new(workspace, None).unwrap();
+        let result = cli.execute(&Commands::Provider {
+            command: ProviderCommands::Status {
+                format: "text".to_string(),
+                test_connectivity: false,
+            },
+        });
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains("No providers configured") || output.contains("Providers") || output.contains("Total:"));
+    });
+}
+
+#[test]
+fn test_provider_status_one_provider_text() {
+    let test_dir = TempDir::new().unwrap();
+    with_xdg_env(&test_dir, || {
+        create_test_provider("status-provider", ProviderType::Ollama, "llama2", Some("http://127.0.0.1:11434")).unwrap();
+        let workspace = test_dir.path().to_path_buf();
+        let cli = CliContext::new(workspace, None).unwrap();
+        let result = cli.execute(&Commands::Provider {
+            command: ProviderCommands::Status {
+                format: "text".to_string(),
+                test_connectivity: false,
+            },
+        });
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains("Providers"));
+        assert!(output.contains("status-provider"));
+        assert!(output.contains("ollama"));
+        assert!(output.contains("llama2"));
+        assert!(output.contains("Total:"));
+    });
+}
+
+#[test]
+fn test_provider_status_one_provider_json() {
+    let test_dir = TempDir::new().unwrap();
+    with_xdg_env(&test_dir, || {
+        create_test_provider("status-json-provider", ProviderType::Ollama, "llama2", Some("http://127.0.0.1:11434")).unwrap();
+        let workspace = test_dir.path().to_path_buf();
+        let cli = CliContext::new(workspace, None).unwrap();
+        let result = cli.execute(&Commands::Provider {
+            command: ProviderCommands::Status {
+                format: "json".to_string(),
+                test_connectivity: false,
+            },
+        });
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains("\"providers\""));
+        assert!(output.contains("\"total\""));
+        assert!(output.contains("status-json-provider"));
+        assert!(output.contains("\"provider_name\""));
+        assert!(output.contains("\"provider_type\""));
+        assert!(output.contains("\"model\""));
+    });
+}
+
+#[test]
+fn test_provider_status_with_test_connectivity() {
+    let test_dir = TempDir::new().unwrap();
+    with_xdg_env(&test_dir, || {
+        create_test_provider("conn-provider", ProviderType::Ollama, "llama2", Some("http://127.0.0.1:11434")).unwrap();
+        let workspace = test_dir.path().to_path_buf();
+        let cli = CliContext::new(workspace, None).unwrap();
+        let result = cli.execute(&Commands::Provider {
+            command: ProviderCommands::Status {
+                format: "text".to_string(),
+                test_connectivity: true,
+            },
+        });
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains("Providers"));
+        assert!(output.contains("conn-provider"));
+        assert!(output.contains("Connectivity") || output.contains("OK") || output.contains("Fail") || output.contains("Skipped"));
     });
 }
 
