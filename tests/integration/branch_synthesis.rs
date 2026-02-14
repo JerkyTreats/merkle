@@ -7,8 +7,8 @@
 //! - Empty directory handling
 //! - Error handling
 
-use merkle::api::ContextApi;
 use merkle::agent::{AgentIdentity, AgentRegistry, AgentRole};
+use merkle::api::ContextApi;
 use merkle::concurrency::NodeLockManager;
 use merkle::error::ApiError;
 use merkle::frame::{Basis, Frame, FrameStorage};
@@ -29,10 +29,14 @@ fn create_test_api() -> (ContextApi, TempDir) {
     let frame_storage = Arc::new(FrameStorage::new(&frame_storage_path).unwrap());
     let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
     let agent_registry = Arc::new(parking_lot::RwLock::new(AgentRegistry::new()));
-    let provider_registry = Arc::new(parking_lot::RwLock::new(merkle::provider::ProviderRegistry::new()));
+    let provider_registry = Arc::new(parking_lot::RwLock::new(
+        merkle::provider::ProviderRegistry::new(),
+    ));
     let lock_manager = Arc::new(NodeLockManager::new());
 
-    let basis_index = Arc::new(parking_lot::RwLock::new(merkle::regeneration::BasisIndex::new()));
+    let basis_index = Arc::new(parking_lot::RwLock::new(
+        merkle::regeneration::BasisIndex::new(),
+    ));
     let api = ContextApi::new(
         node_store,
         frame_storage,
@@ -132,7 +136,12 @@ fn test_synthesize_branch_deterministic() {
     // Synthesize branch twice with same inputs
     let policy = SynthesisPolicy::Concatenation;
     let frame_id1 = api
-        .synthesize_branch(dir_id, frame_type.clone(), agent_id.clone(), Some(policy.clone()))
+        .synthesize_branch(
+            dir_id,
+            frame_type.clone(),
+            agent_id.clone(),
+            Some(policy.clone()),
+        )
         .unwrap();
 
     let frame_id2 = api
@@ -381,11 +390,8 @@ fn test_synthesize_branch_filtering_policy() {
     let file2_id: NodeID = [3u8; 32];
     let file3_id: NodeID = [4u8; 32];
 
-    let dir_record = create_test_directory_record(
-        dir_id,
-        "/test/dir",
-        vec![file1_id, file2_id, file3_id],
-    );
+    let dir_record =
+        create_test_directory_record(dir_id, "/test/dir", vec![file1_id, file2_id, file3_id]);
     api.node_store().put(&dir_record).unwrap();
 
     let file1_record = create_test_file_record(file1_id, "/test/dir/file1.txt");

@@ -20,12 +20,14 @@ use blake3::Hasher;
 const OFFICIAL_TEST_VECTORS: &[(&[u8], Option<&str>)] = &[
     // Empty input - this is the official BLAKE3 hash of empty input
     // Verified: https://github.com/BLAKE3-team/BLAKE3
-    (b"", Some("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262")),
-
+    (
+        b"",
+        Some("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"),
+    ),
     // Standard test vectors - we'll verify these are computed correctly
-    (b"a", None),  // Will verify it's deterministic
-    (b"abc", None),  // Will verify it's deterministic
-    (b"Hello, World!", None),  // Will verify it's deterministic
+    (b"a", None),             // Will verify it's deterministic
+    (b"abc", None),           // Will verify it's deterministic
+    (b"Hello, World!", None), // Will verify it's deterministic
 ];
 
 /// Test that we're using the official BLAKE3 implementation correctly
@@ -40,8 +42,7 @@ fn test_official_blake3_vectors() {
 
         if let Some(expected_hex) = expected_hex_opt {
             assert_eq!(
-                actual_hex,
-                *expected_hex,
+                actual_hex, *expected_hex,
                 "BLAKE3 hash mismatch for input: {:?}",
                 input
             );
@@ -50,7 +51,11 @@ fn test_official_blake3_vectors() {
             let mut hasher2 = Hasher::new();
             hasher2.update(input);
             let hash2 = hasher2.finalize();
-            assert_eq!(hash.as_bytes(), hash2.as_bytes(), "Hash should be deterministic");
+            assert_eq!(
+                hash.as_bytes(),
+                hash2.as_bytes(),
+                "Hash should be deterministic"
+            );
         }
     }
 }
@@ -149,8 +154,8 @@ fn test_empty_input() {
 
     // Empty input should produce a specific, well-known hash
     // This is the BLAKE3 hash of empty input
-    let expected = hex::decode("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262")
-        .unwrap();
+    let expected =
+        hex::decode("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262").unwrap();
     assert_eq!(hash.as_bytes(), expected.as_slice());
 }
 

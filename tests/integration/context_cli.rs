@@ -2,7 +2,7 @@
 
 use clap::Parser;
 use merkle::agent::AgentRole;
-use merkle::config::{AgentConfig, ProviderConfig, ProviderType, xdg};
+use merkle::config::{xdg, AgentConfig, ProviderConfig, ProviderType};
 use merkle::error::ApiError;
 use merkle::tooling::cli::{Cli, CliContext, Commands, ContextCommands};
 use std::fs;
@@ -10,7 +10,6 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 use crate::integration::with_xdg_env;
-
 
 /// Create a test agent config file
 fn create_test_agent(
@@ -23,7 +22,7 @@ fn create_test_agent(
     fs::create_dir_all(&agents_dir)
         .map_err(|e| ApiError::ConfigError(format!("Failed to create agents directory: {}", e)))?;
     let config_path = agents_dir.join(format!("{}.toml", agent_id));
-    
+
     let mut agent_config = AgentConfig {
         agent_id: agent_id.to_string(),
         role,
@@ -45,10 +44,10 @@ fn create_test_agent(
 
     let toml = toml::to_string(&agent_config)
         .map_err(|e| ApiError::ConfigError(format!("Failed to serialize agent config: {}", e)))?;
-    
+
     fs::write(&config_path, toml)
         .map_err(|e| ApiError::ConfigError(format!("Failed to write agent config: {}", e)))?;
-    
+
     Ok(config_path)
 }
 
@@ -59,10 +58,11 @@ fn create_test_provider(
 ) -> Result<PathBuf, ApiError> {
     let providers_dir = xdg::providers_dir()?;
     // Ensure directory exists
-    fs::create_dir_all(&providers_dir)
-        .map_err(|e| ApiError::ConfigError(format!("Failed to create providers directory: {}", e)))?;
+    fs::create_dir_all(&providers_dir).map_err(|e| {
+        ApiError::ConfigError(format!("Failed to create providers directory: {}", e))
+    })?;
     let config_path = providers_dir.join(format!("{}.toml", provider_name));
-    
+
     let provider_config = ProviderConfig {
         provider_name: Some(provider_name.to_string()),
         provider_type,
@@ -72,12 +72,13 @@ fn create_test_provider(
         default_options: merkle::provider::CompletionOptions::default(),
     };
 
-    let toml = toml::to_string(&provider_config)
-        .map_err(|e| ApiError::ConfigError(format!("Failed to serialize provider config: {}", e)))?;
-    
+    let toml = toml::to_string(&provider_config).map_err(|e| {
+        ApiError::ConfigError(format!("Failed to serialize provider config: {}", e))
+    })?;
+
     fs::write(&config_path, toml)
         .map_err(|e| ApiError::ConfigError(format!("Failed to write provider config: {}", e)))?;
-    
+
     Ok(config_path)
 }
 
@@ -88,17 +89,19 @@ fn test_context_get_with_path() {
         // Create workspace
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
-        
+
         // Create a test file
         let test_file = workspace_root.join("test.txt");
         fs::write(&test_file, "test content").unwrap();
-        
+
         // Initialize CLI context
         let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-        
+
         // Scan the workspace
-        cli_context.execute(&Commands::Scan { force: true }).unwrap();
-        
+        cli_context
+            .execute(&Commands::Scan { force: true })
+            .unwrap();
+
         // Get context for the file
         let result = cli_context.execute(&Commands::Context {
             command: ContextCommands::Get {
@@ -115,7 +118,7 @@ fn test_context_get_with_path() {
                 include_deleted: false,
             },
         });
-        
+
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("Node:"));
@@ -130,31 +133,35 @@ fn test_context_get_with_node_id() {
         // Create workspace
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
-        
+
         // Create a test file
         let test_file = workspace_root.join("test.txt");
         fs::write(&test_file, "test content").unwrap();
-        
+
         // Initialize CLI context
         let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-        
+
         // Scan the workspace
-        cli_context.execute(&Commands::Scan { force: true }).unwrap();
-        
+        cli_context
+            .execute(&Commands::Scan { force: true })
+            .unwrap();
+
         // Get root node ID from status (use JSON format to get full hash)
-        let status_output = cli_context.execute(&Commands::Status {
-            format: "json".to_string(),
-            workspace_only: true,
-            agents_only: false,
-            providers_only: false,
-            breakdown: false,
-            test_connectivity: false,
-        }).unwrap();
+        let status_output = cli_context
+            .execute(&Commands::Status {
+                format: "json".to_string(),
+                workspace_only: true,
+                agents_only: false,
+                providers_only: false,
+                breakdown: false,
+                test_connectivity: false,
+            })
+            .unwrap();
         let status_json: serde_json::Value = serde_json::from_str(&status_output).unwrap();
         let root_hash = status_json["workspace"]["tree"]["root_hash"]
             .as_str()
             .unwrap();
-        
+
         // Get context for the root node
         let result = cli_context.execute(&Commands::Context {
             command: ContextCommands::Get {
@@ -171,7 +178,7 @@ fn test_context_get_with_node_id() {
                 include_deleted: false,
             },
         });
-        
+
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("Node:"));
@@ -184,13 +191,13 @@ fn test_context_get_invalid_path() {
     with_xdg_env(&temp_dir, || {
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
-        
+
         let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-        
+
         // Create the file but don't scan it (so it's not in the tree)
         let test_path = workspace_root.join("nonexistent.txt");
         fs::write(&test_path, "test content").unwrap();
-        
+
         // Try to get context for a path not in the tree
         let result = cli_context.execute(&Commands::Context {
             command: ContextCommands::Get {
@@ -207,7 +214,7 @@ fn test_context_get_invalid_path() {
                 include_deleted: false,
             },
         });
-        
+
         assert!(result.is_err());
         match result {
             Err(ApiError::PathNotInTree(_)) => {}
@@ -222,13 +229,15 @@ fn test_context_get_json_format() {
     with_xdg_env(&temp_dir, || {
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
-        
+
         let test_file = workspace_root.join("test.txt");
         fs::write(&test_file, "test content").unwrap();
-        
+
         let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-        cli_context.execute(&Commands::Scan { force: true }).unwrap();
-        
+        cli_context
+            .execute(&Commands::Scan { force: true })
+            .unwrap();
+
         let result = cli_context.execute(&Commands::Context {
             command: ContextCommands::Get {
                 node: None,
@@ -244,7 +253,7 @@ fn test_context_get_json_format() {
                 include_deleted: false,
             },
         });
-        
+
         assert!(result.is_ok());
         let output = result.unwrap();
         // Verify it's valid JSON
@@ -260,13 +269,15 @@ fn test_context_get_combine() {
     with_xdg_env(&temp_dir, || {
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
-        
+
         let test_file = workspace_root.join("test.txt");
         fs::write(&test_file, "test content").unwrap();
-        
+
         let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-        cli_context.execute(&Commands::Scan { force: true }).unwrap();
-        
+        cli_context
+            .execute(&Commands::Scan { force: true })
+            .unwrap();
+
         let result = cli_context.execute(&Commands::Context {
             command: ContextCommands::Get {
                 node: None,
@@ -282,7 +293,7 @@ fn test_context_get_combine() {
                 include_deleted: false,
             },
         });
-        
+
         assert!(result.is_ok());
         // With no frames, should still work
     });
@@ -295,19 +306,21 @@ fn test_context_generate_requires_provider() {
         // Create workspace and agent
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
-        
+
         let prompts_dir = xdg::prompts_dir().unwrap();
         let prompt_path = prompts_dir.join("test.md");
         fs::write(&prompt_path, "Test prompt").unwrap();
-        
+
         create_test_agent("test-agent", AgentRole::Writer, Some("prompts/test.md")).unwrap();
-        
+
         let test_file = workspace_root.join("test.txt");
         fs::write(&test_file, "test content").unwrap();
-        
+
         let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-        cli_context.execute(&Commands::Scan { force: true }).unwrap();
-        
+        cli_context
+            .execute(&Commands::Scan { force: true })
+            .unwrap();
+
         // Try to generate without provider
         let result = cli_context.execute(&Commands::Context {
             command: ContextCommands::Generate {
@@ -320,7 +333,7 @@ fn test_context_generate_requires_provider() {
                 force: false,
             },
         });
-        
+
         assert!(result.is_err());
         match result {
             Err(ApiError::ProviderNotConfigured(_)) => {}
@@ -335,21 +348,23 @@ fn test_context_generate_requires_agent_or_default() {
     with_xdg_env(&temp_dir, || {
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
-        
+
         let prompts_dir = xdg::prompts_dir().unwrap();
         let prompt_path = prompts_dir.join("test.md");
         fs::write(&prompt_path, "Test prompt").unwrap();
-        
+
         // Create a single Writer agent (should be used as default)
         create_test_agent("test-agent", AgentRole::Writer, Some("prompts/test.md")).unwrap();
         create_test_provider("test-provider", ProviderType::Ollama).unwrap();
-        
+
         let test_file = workspace_root.join("test.txt");
         fs::write(&test_file, "test content").unwrap();
-        
+
         let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-        cli_context.execute(&Commands::Scan { force: true }).unwrap();
-        
+        cli_context
+            .execute(&Commands::Scan { force: true })
+            .unwrap();
+
         // Should work without --agent (uses default)
         // Note: This will fail at generation time if provider is not actually available,
         // but the agent resolution should work
@@ -364,7 +379,7 @@ fn test_context_generate_requires_agent_or_default() {
                 force: false,
             },
         });
-        
+
         // May fail at provider connection, but should not fail at agent resolution
         if let Err(e) = result {
             // Should not be a "no agent" error
@@ -379,22 +394,24 @@ fn test_context_generate_multiple_agents_requires_flag() {
     with_xdg_env(&temp_dir, || {
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
-        
+
         let prompts_dir = xdg::prompts_dir().unwrap();
         let prompt_path = prompts_dir.join("test.md");
         fs::write(&prompt_path, "Test prompt").unwrap();
-        
+
         // Create multiple Writer agents
         create_test_agent("agent1", AgentRole::Writer, Some("prompts/test.md")).unwrap();
         create_test_agent("agent2", AgentRole::Writer, Some("prompts/test.md")).unwrap();
         create_test_provider("test-provider", ProviderType::Ollama).unwrap();
-        
+
         let test_file = workspace_root.join("test.txt");
         fs::write(&test_file, "test content").unwrap();
-        
+
         let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-        cli_context.execute(&Commands::Scan { force: true }).unwrap();
-        
+        cli_context
+            .execute(&Commands::Scan { force: true })
+            .unwrap();
+
         // Should fail without --agent when multiple agents exist
         let result = cli_context.execute(&Commands::Context {
             command: ContextCommands::Generate {
@@ -407,9 +424,12 @@ fn test_context_generate_multiple_agents_requires_flag() {
                 force: false,
             },
         });
-        
+
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Multiple Writer agents found"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Multiple Writer agents found"));
     });
 }
 
@@ -419,13 +439,15 @@ fn test_context_get_invalid_ordering() {
     with_xdg_env(&temp_dir, || {
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
-        
+
         let test_file = workspace_root.join("test.txt");
         fs::write(&test_file, "test content").unwrap();
-        
+
         let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-        cli_context.execute(&Commands::Scan { force: true }).unwrap();
-        
+        cli_context
+            .execute(&Commands::Scan { force: true })
+            .unwrap();
+
         let result = cli_context.execute(&Commands::Context {
             command: ContextCommands::Get {
                 node: None,
@@ -441,7 +463,7 @@ fn test_context_get_invalid_ordering() {
                 include_deleted: false,
             },
         });
-        
+
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid ordering"));
     });
@@ -453,13 +475,15 @@ fn test_context_get_invalid_format() {
     with_xdg_env(&temp_dir, || {
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
-        
+
         let test_file = workspace_root.join("test.txt");
         fs::write(&test_file, "test content").unwrap();
-        
+
         let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-        cli_context.execute(&Commands::Scan { force: true }).unwrap();
-        
+        cli_context
+            .execute(&Commands::Scan { force: true })
+            .unwrap();
+
         let result = cli_context.execute(&Commands::Context {
             command: ContextCommands::Get {
                 node: None,
@@ -475,7 +499,7 @@ fn test_context_get_invalid_format() {
                 include_deleted: false,
             },
         });
-        
+
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid format"));
     });
@@ -494,17 +518,17 @@ fn test_context_generate_rejects_async_flag() {
     assert!(parse_result.is_err());
 }
 
-    #[test]
-    fn test_context_generate_mutually_exclusive_node_path() {
-        let temp_dir = TempDir::new().unwrap();
-        with_xdg_env(&temp_dir, || {
-            let workspace_root = temp_dir.path().join("workspace");
-            fs::create_dir_all(&workspace_root).unwrap();
-            
-            let _cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-            
-            // This should be caught by clap, but test the execution path anyway
-            // Note: clap will prevent both from being set, so this test may not be reachable
-            // But we handle it in code for safety
-        });
-    }
+#[test]
+fn test_context_generate_mutually_exclusive_node_path() {
+    let temp_dir = TempDir::new().unwrap();
+    with_xdg_env(&temp_dir, || {
+        let workspace_root = temp_dir.path().join("workspace");
+        fs::create_dir_all(&workspace_root).unwrap();
+
+        let _cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
+
+        // This should be caught by clap, but test the execution path anyway
+        // Note: clap will prevent both from being set, so this test may not be reachable
+        // But we handle it in code for safety
+    });
+}

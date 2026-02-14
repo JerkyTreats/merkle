@@ -64,7 +64,11 @@ fn test_file_node_stored_correctly() {
 
     let record = store.get(&file_node_id).unwrap().unwrap();
     assert!(matches!(record.node_type, NodeType::File { .. }));
-    if let NodeType::File { size, content_hash: _ } = record.node_type {
+    if let NodeType::File {
+        size,
+        content_hash: _,
+    } = record.node_type
+    {
         assert_eq!(size, "test content".len() as u64);
     }
 }
@@ -223,7 +227,7 @@ fn retry_open_store(
     max_retries: u32,
 ) -> Result<SledNodeRecordStore, merkle::error::StorageError> {
     use std::time::Duration;
-    
+
     for attempt in 0..max_retries {
         match SledNodeRecordStore::new(path) {
             Ok(store) => return Ok(store),

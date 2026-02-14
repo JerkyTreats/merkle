@@ -5,8 +5,8 @@
 
 use merkle::tree::hasher;
 use std::collections::BTreeMap;
-use tempfile::TempDir;
 use std::fs;
+use tempfile::TempDir;
 
 /// Test that content hash matches BLAKE3 directly
 #[test]

@@ -1,6 +1,6 @@
 //! Integration tests for Provider CLI commands
 
-use merkle::config::{ProviderConfig, ProviderType, xdg};
+use merkle::config::{xdg, ProviderConfig, ProviderType};
 use merkle::error::ApiError;
 use merkle::tooling::cli::{CliContext, Commands, ProviderCommands};
 use std::fs;
@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 use crate::integration::with_xdg_env;
-
 
 /// Create a test provider config file
 fn create_test_provider(
@@ -19,10 +18,11 @@ fn create_test_provider(
 ) -> Result<PathBuf, ApiError> {
     let providers_dir = xdg::providers_dir()?;
     // Ensure directory exists
-    std::fs::create_dir_all(&providers_dir)
-        .map_err(|e| ApiError::ConfigError(format!("Failed to create providers directory: {}", e)))?;
+    std::fs::create_dir_all(&providers_dir).map_err(|e| {
+        ApiError::ConfigError(format!("Failed to create providers directory: {}", e))
+    })?;
     let config_path = providers_dir.join(format!("{}.toml", provider_name));
-    
+
     let provider_config = ProviderConfig {
         provider_name: Some(provider_name.to_string()),
         provider_type,
@@ -34,7 +34,7 @@ fn create_test_provider(
 
     let toml_content = toml::to_string_pretty(&provider_config)
         .map_err(|e| ApiError::ConfigError(format!("Failed to serialize: {}", e)))?;
-    
+
     fs::write(&config_path, toml_content)
         .map_err(|e| ApiError::ConfigError(format!("Failed to write: {}", e)))?;
 
@@ -56,22 +56,26 @@ fn test_provider_list_empty() {
                 }
             }
         }
-        
+
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
-        
+
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::List {
                 format: "text".to_string(),
                 type_filter: None,
             },
         });
-        
+
         assert!(result.is_ok());
         let output = result.unwrap();
         // Output should be valid (either "No providers found" or a list)
         // Note: Providers may be loaded from config.toml, so we just verify the command works
-        assert!(output.contains("No providers found") || output.contains("Available Providers") || output.contains("Total:"));
+        assert!(
+            output.contains("No providers found")
+                || output.contains("Available Providers")
+                || output.contains("Total:")
+        );
     });
 }
 
@@ -80,18 +84,24 @@ fn test_provider_list_with_providers() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
-        create_test_provider("test-ollama", ProviderType::Ollama, "llama2", Some("http://localhost:11434")).unwrap();
-        
+        create_test_provider(
+            "test-ollama",
+            ProviderType::Ollama,
+            "llama2",
+            Some("http://localhost:11434"),
+        )
+        .unwrap();
+
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
-        
+
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::List {
                 format: "text".to_string(),
                 type_filter: None,
             },
         });
-        
+
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("test-openai"));
@@ -106,18 +116,24 @@ fn test_provider_list_filter_by_type() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
-        create_test_provider("test-ollama", ProviderType::Ollama, "llama2", Some("http://localhost:11434")).unwrap();
-        
+        create_test_provider(
+            "test-ollama",
+            ProviderType::Ollama,
+            "llama2",
+            Some("http://localhost:11434"),
+        )
+        .unwrap();
+
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
-        
+
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::List {
                 format: "text".to_string(),
                 type_filter: Some("openai".to_string()),
             },
         });
-        
+
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("test-openai"));
@@ -130,17 +146,17 @@ fn test_provider_list_json_format() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
-        
+
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
-        
+
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::List {
                 format: "json".to_string(),
                 type_filter: None,
             },
         });
-        
+
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("\"provider_name\""));
@@ -154,10 +170,10 @@ fn test_provider_show() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
-        
+
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
-        
+
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Show {
                 provider_name: "test-openai".to_string(),
@@ -165,7 +181,7 @@ fn test_provider_show() {
                 include_credentials: false,
             },
         });
-        
+
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("Provider: test-openai"));
@@ -179,10 +195,10 @@ fn test_provider_show_with_credentials() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
-        
+
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
-        
+
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Show {
                 provider_name: "test-openai".to_string(),
@@ -190,7 +206,7 @@ fn test_provider_show_with_credentials() {
                 include_credentials: true,
             },
         });
-        
+
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("API Key:"));
@@ -203,7 +219,7 @@ fn test_provider_show_not_found() {
     with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
-        
+
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Show {
                 provider_name: "nonexistent".to_string(),
@@ -211,7 +227,7 @@ fn test_provider_show_not_found() {
                 include_credentials: false,
             },
         });
-        
+
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert!(format!("{}", error).contains("not found"));
@@ -223,10 +239,10 @@ fn test_provider_validate() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
-        
+
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
-        
+
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Validate {
                 provider_name: "test-openai".to_string(),
@@ -235,7 +251,7 @@ fn test_provider_validate() {
                 verbose: false,
             },
         });
-        
+
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("Validating provider: test-openai"));
@@ -248,7 +264,7 @@ fn test_provider_validate_not_found() {
     with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
-        
+
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Validate {
                 provider_name: "nonexistent".to_string(),
@@ -257,7 +273,7 @@ fn test_provider_validate_not_found() {
                 verbose: false,
             },
         });
-        
+
         assert!(result.is_ok()); // Validation returns result even if provider not found
         let output = result.unwrap();
         assert!(output.contains("not found"));
@@ -287,7 +303,11 @@ fn test_provider_status_empty() {
         });
         assert!(result.is_ok());
         let output = result.unwrap();
-        assert!(output.contains("No providers configured") || output.contains("Providers") || output.contains("Total:"));
+        assert!(
+            output.contains("No providers configured")
+                || output.contains("Providers")
+                || output.contains("Total:")
+        );
     });
 }
 
@@ -295,7 +315,13 @@ fn test_provider_status_empty() {
 fn test_provider_status_one_provider_text() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
-        create_test_provider("status-provider", ProviderType::Ollama, "llama2", Some("http://127.0.0.1:11434")).unwrap();
+        create_test_provider(
+            "status-provider",
+            ProviderType::Ollama,
+            "llama2",
+            Some("http://127.0.0.1:11434"),
+        )
+        .unwrap();
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
         let result = cli.execute(&Commands::Provider {
@@ -318,7 +344,13 @@ fn test_provider_status_one_provider_text() {
 fn test_provider_status_one_provider_json() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
-        create_test_provider("status-json-provider", ProviderType::Ollama, "llama2", Some("http://127.0.0.1:11434")).unwrap();
+        create_test_provider(
+            "status-json-provider",
+            ProviderType::Ollama,
+            "llama2",
+            Some("http://127.0.0.1:11434"),
+        )
+        .unwrap();
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
         let result = cli.execute(&Commands::Provider {
@@ -342,7 +374,13 @@ fn test_provider_status_one_provider_json() {
 fn test_provider_status_with_test_connectivity() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
-        create_test_provider("conn-provider", ProviderType::Ollama, "llama2", Some("http://127.0.0.1:11434")).unwrap();
+        create_test_provider(
+            "conn-provider",
+            ProviderType::Ollama,
+            "llama2",
+            Some("http://127.0.0.1:11434"),
+        )
+        .unwrap();
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
         let result = cli.execute(&Commands::Provider {
@@ -355,7 +393,12 @@ fn test_provider_status_with_test_connectivity() {
         let output = result.unwrap();
         assert!(output.contains("Providers"));
         assert!(output.contains("conn-provider"));
-        assert!(output.contains("Connectivity") || output.contains("OK") || output.contains("Fail") || output.contains("Skipped"));
+        assert!(
+            output.contains("Connectivity")
+                || output.contains("OK")
+                || output.contains("Fail")
+                || output.contains("Skipped")
+        );
     });
 }
 
@@ -365,7 +408,7 @@ fn test_provider_create_non_interactive() {
     with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
-        
+
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Create {
                 provider_name: "new-provider".to_string(),
@@ -377,11 +420,11 @@ fn test_provider_create_non_interactive() {
                 non_interactive: true,
             },
         });
-        
+
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("Provider created: new-provider"));
-        
+
         // Verify provider was created
         let providers_dir = xdg::providers_dir().unwrap();
         let config_path = providers_dir.join("new-provider.toml");
@@ -395,7 +438,7 @@ fn test_provider_create_missing_required_fields() {
     with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
-        
+
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Create {
                 provider_name: "new-provider".to_string(),
@@ -407,7 +450,7 @@ fn test_provider_create_missing_required_fields() {
                 non_interactive: true,
             },
         });
-        
+
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert!(format!("{}", error).contains("required"));
@@ -418,11 +461,17 @@ fn test_provider_create_missing_required_fields() {
 fn test_provider_edit_with_flags() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
-        create_test_provider("test-provider", ProviderType::Ollama, "llama2", Some("http://localhost:11434")).unwrap();
-        
+        create_test_provider(
+            "test-provider",
+            ProviderType::Ollama,
+            "llama2",
+            Some("http://localhost:11434"),
+        )
+        .unwrap();
+
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
-        
+
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Edit {
                 provider_name: "test-provider".to_string(),
@@ -432,11 +481,11 @@ fn test_provider_edit_with_flags() {
                 editor: None,
             },
         });
-        
+
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("Provider updated: test-provider"));
-        
+
         // Verify model was updated
         let providers_dir = xdg::providers_dir().unwrap();
         let config_path = providers_dir.join("test-provider.toml");
@@ -451,7 +500,7 @@ fn test_provider_edit_not_found() {
     with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
-        
+
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Edit {
                 provider_name: "nonexistent".to_string(),
@@ -461,7 +510,7 @@ fn test_provider_edit_not_found() {
                 editor: None,
             },
         });
-        
+
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert!(format!("{}", error).contains("not found"));
@@ -472,22 +521,28 @@ fn test_provider_edit_not_found() {
 fn test_provider_remove() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
-        create_test_provider("test-provider", ProviderType::Ollama, "llama2", Some("http://localhost:11434")).unwrap();
-        
+        create_test_provider(
+            "test-provider",
+            ProviderType::Ollama,
+            "llama2",
+            Some("http://localhost:11434"),
+        )
+        .unwrap();
+
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
-        
+
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Remove {
                 provider_name: "test-provider".to_string(),
                 force: true,
             },
         });
-        
+
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("Removed provider: test-provider"));
-        
+
         // Verify provider was deleted
         let providers_dir = xdg::providers_dir().unwrap();
         let config_path = providers_dir.join("test-provider.toml");
@@ -501,14 +556,14 @@ fn test_provider_remove_not_found() {
     with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
-        
+
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Remove {
                 provider_name: "nonexistent".to_string(),
                 force: true,
             },
         });
-        
+
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert!(format!("{}", error).contains("not found"));
@@ -521,14 +576,14 @@ fn test_provider_list_invalid_type_filter() {
     with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
-        
+
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::List {
                 format: "text".to_string(),
                 type_filter: Some("invalid".to_string()),
             },
         });
-        
+
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert!(format!("{}", error).contains("Invalid type filter"));
@@ -540,10 +595,10 @@ fn test_provider_show_json_format() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
-        
+
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
-        
+
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Show {
                 provider_name: "test-openai".to_string(),
@@ -551,7 +606,7 @@ fn test_provider_show_json_format() {
                 include_credentials: true,
             },
         });
-        
+
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("\"provider_name\""));
@@ -566,25 +621,44 @@ fn test_provider_registry_list_by_type() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
-        create_test_provider("test-ollama", ProviderType::Ollama, "llama2", Some("http://localhost:11434")).unwrap();
-        create_test_provider("test-anthropic", ProviderType::Anthropic, "claude-3-opus", None).unwrap();
-        
+        create_test_provider(
+            "test-ollama",
+            ProviderType::Ollama,
+            "llama2",
+            Some("http://localhost:11434"),
+        )
+        .unwrap();
+        create_test_provider(
+            "test-anthropic",
+            ProviderType::Anthropic,
+            "claude-3-opus",
+            None,
+        )
+        .unwrap();
+
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
         let registry = cli.api().provider_registry().read();
-        
+
         let openai_providers = registry.list_by_type(Some(ProviderType::OpenAI));
         assert_eq!(openai_providers.len(), 1);
-        assert_eq!(openai_providers[0].provider_name.as_deref(), Some("test-openai"));
-        
+        assert_eq!(
+            openai_providers[0].provider_name.as_deref(),
+            Some("test-openai")
+        );
+
         let ollama_providers = registry.list_by_type(Some(ProviderType::Ollama));
         assert_eq!(ollama_providers.len(), 1);
-        assert_eq!(ollama_providers[0].provider_name.as_deref(), Some("test-ollama"));
-        
+        assert_eq!(
+            ollama_providers[0].provider_name.as_deref(),
+            Some("test-ollama")
+        );
+
         let all_providers = registry.list_by_type(None);
         // May have additional providers from config.toml, so just check we have at least our 3 test providers
         assert!(all_providers.len() >= 3);
-        let provider_names: Vec<Option<&str>> = all_providers.iter()
+        let provider_names: Vec<Option<&str>> = all_providers
+            .iter()
             .map(|p| p.provider_name.as_deref())
             .collect();
         assert!(provider_names.contains(&Some("test-openai")));
@@ -592,4 +666,3 @@ fn test_provider_registry_list_by_type() {
         assert!(provider_names.contains(&Some("test-anthropic")));
     });
 }
-

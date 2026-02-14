@@ -113,9 +113,7 @@ fn test_head_index_o1_lookup() {
             frame_id[0] = (i % 256) as u8;
             frame_id[1] = ((i / 256) % 256) as u8;
 
-            head_index
-                .update_head(&node_id, "test", &frame_id)
-                .unwrap();
+            head_index.update_head(&node_id, "test", &frame_id).unwrap();
         }
 
         // Measure lookup time for random node
@@ -185,9 +183,7 @@ fn test_head_index_o1_update() {
             let mut frame_id = [0u8; 32];
             frame_id[0] = (i % 256) as u8;
 
-            head_index
-                .update_head(&node_id, "test", &frame_id)
-                .unwrap();
+            head_index.update_head(&node_id, "test", &frame_id).unwrap();
         }
 
         // Measure update time

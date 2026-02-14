@@ -25,7 +25,10 @@ fn scan_emits_session_boundary_events() {
             .expect("scan session should exist");
         assert_eq!(scan_session.status, SessionStatus::Completed);
 
-        let events = runtime.store().read_events(&scan_session.session_id).unwrap();
+        let events = runtime
+            .store()
+            .read_events(&scan_session.session_id)
+            .unwrap();
         assert!(events.len() >= 2);
         assert_eq!(events.first().unwrap().event_type, "session_started");
         assert_eq!(events.first().unwrap().seq, 1);
@@ -70,7 +73,10 @@ fn failed_command_emits_session_end() {
             .expect("context generate session should exist");
         assert_eq!(failed_session.status, SessionStatus::Failed);
 
-        let events = runtime.store().read_events(&failed_session.session_id).unwrap();
+        let events = runtime
+            .store()
+            .read_events(&failed_session.session_id)
+            .unwrap();
         assert_eq!(events.first().unwrap().event_type, "session_started");
         assert_eq!(events.last().unwrap().event_type, "session_ended");
         assert!(events.iter().any(|e| e.event_type == "command_summary"));
@@ -116,7 +122,9 @@ fn context_get_emits_summary_event() {
             .store()
             .read_events(&context_get_session.session_id)
             .unwrap();
-        assert!(events.iter().any(|e| e.event_type == "context_read_summary"));
+        assert!(events
+            .iter()
+            .any(|e| e.event_type == "context_read_summary"));
         assert!(events.iter().any(|e| e.event_type == "command_summary"));
     });
 }
@@ -143,8 +151,13 @@ fn regenerate_failure_emits_regeneration_failed_event() {
             .iter()
             .find(|s| s.command == "regenerate")
             .expect("regenerate session should exist");
-        let events = runtime.store().read_events(&regen_session.session_id).unwrap();
-        assert!(events.iter().any(|e| e.event_type == "regeneration_started"));
+        let events = runtime
+            .store()
+            .read_events(&regen_session.session_id)
+            .unwrap();
+        assert!(events
+            .iter()
+            .any(|e| e.event_type == "regeneration_started"));
         assert!(events.iter().any(|e| e.event_type == "regeneration_failed"));
     });
 }

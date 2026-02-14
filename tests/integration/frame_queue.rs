@@ -11,7 +11,9 @@
 
 use merkle::api::ContextApi;
 use merkle::error::ApiError;
-use merkle::frame::queue::{FrameGenerationQueue, GenerationConfig, GenerationRequest, Priority, QueueEventContext};
+use merkle::frame::queue::{
+    FrameGenerationQueue, GenerationConfig, GenerationRequest, Priority, QueueEventContext,
+};
 use merkle::frame::storage::FrameStorage;
 use merkle::heads::HeadIndex;
 use merkle::progress::ProgressRuntime;
@@ -35,14 +37,17 @@ fn create_test_api() -> (ContextApi, TempDir) {
     let mut provider_registry = merkle::provider::ProviderRegistry::new();
     // Add a test provider
     let mut config = merkle::config::MerkleConfig::default();
-    config.providers.insert("test-provider".to_string(), merkle::config::ProviderConfig {
-        provider_name: Some("test-provider".to_string()),
-        provider_type: merkle::config::ProviderType::Ollama,
-        model: "test-model".to_string(),
-        api_key: None,
-        endpoint: None,
-        default_options: merkle::provider::CompletionOptions::default(),
-    });
+    config.providers.insert(
+        "test-provider".to_string(),
+        merkle::config::ProviderConfig {
+            provider_name: Some("test-provider".to_string()),
+            provider_type: merkle::config::ProviderType::Ollama,
+            model: "test-model".to_string(),
+            api_key: None,
+            endpoint: None,
+            default_options: merkle::provider::CompletionOptions::default(),
+        },
+    );
     provider_registry.load_from_config(&config).unwrap();
     let provider_registry = Arc::new(parking_lot::RwLock::new(provider_registry));
     let lock_manager = Arc::new(merkle::concurrency::NodeLockManager::new());
@@ -78,17 +83,53 @@ fn create_test_queue_with_config(config: GenerationConfig) -> (FrameGenerationQu
 #[tokio::test]
 async fn test_priority_ordering() {
     let (queue, _temp_dir) = create_test_queue();
-    
+
     // Enqueue requests with different priorities
     let node1 = Hash::from([1u8; 32]);
     let node2 = Hash::from([2u8; 32]);
     let node3 = Hash::from([3u8; 32]);
     let node4 = Hash::from([4u8; 32]);
 
-    queue.enqueue(node1, "agent1".to_string(), "test-provider".to_string(), None, Priority::Low).await.unwrap();
-    queue.enqueue(node2, "agent1".to_string(), "test-provider".to_string(), None, Priority::High).await.unwrap();
-    queue.enqueue(node3, "agent1".to_string(), "test-provider".to_string(), None, Priority::Urgent).await.unwrap();
-    queue.enqueue(node4, "agent1".to_string(), "test-provider".to_string(), None, Priority::Normal).await.unwrap();
+    queue
+        .enqueue(
+            node1,
+            "agent1".to_string(),
+            "test-provider".to_string(),
+            None,
+            Priority::Low,
+        )
+        .await
+        .unwrap();
+    queue
+        .enqueue(
+            node2,
+            "agent1".to_string(),
+            "test-provider".to_string(),
+            None,
+            Priority::High,
+        )
+        .await
+        .unwrap();
+    queue
+        .enqueue(
+            node3,
+            "agent1".to_string(),
+            "test-provider".to_string(),
+            None,
+            Priority::Urgent,
+        )
+        .await
+        .unwrap();
+    queue
+        .enqueue(
+            node4,
+            "agent1".to_string(),
+            "test-provider".to_string(),
+            None,
+            Priority::Normal,
+        )
+        .await
+        .unwrap();
 
     // Verify ordering by checking stats and testing dequeue behavior
     // Since we can't directly access the internal queue, we verify through
@@ -100,9 +141,18 @@ async fn test_priority_ordering() {
 #[tokio::test]
 async fn test_enqueue_dequeue() {
     let (queue, _temp_dir) = create_test_queue();
-    
+
     let node_id = Hash::from([1u8; 32]);
-    queue.enqueue(node_id, "agent1".to_string(), "test-provider".to_string(), None, Priority::Normal).await.unwrap();
+    queue
+        .enqueue(
+            node_id,
+            "agent1".to_string(),
+            "test-provider".to_string(),
+            None,
+            Priority::Normal,
+        )
+        .await
+        .unwrap();
 
     let stats = queue.stats();
     assert_eq!(stats.pending, 1);
@@ -120,12 +170,29 @@ async fn test_queue_size_limit() {
     // Fill queue to capacity
     for i in 0..3 {
         let node_id = Hash::from([i as u8; 32]);
-        queue.enqueue(node_id, "agent1".to_string(), "test-provider".to_string(), None, Priority::Normal).await.unwrap();
+        queue
+            .enqueue(
+                node_id,
+                "agent1".to_string(),
+                "test-provider".to_string(),
+                None,
+                Priority::Normal,
+            )
+            .await
+            .unwrap();
     }
 
     // Next enqueue should fail
     let node_id = Hash::from([4u8; 32]);
-    let result = queue.enqueue(node_id, "agent1".to_string(), "test-provider".to_string(), None, Priority::Normal).await;
+    let result = queue
+        .enqueue(
+            node_id,
+            "agent1".to_string(),
+            "test-provider".to_string(),
+            None,
+            Priority::Normal,
+        )
+        .await;
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), ApiError::ConfigError(_)));
 
@@ -136,11 +203,29 @@ async fn test_queue_size_limit() {
 #[tokio::test]
 async fn test_batch_enqueue() {
     let (queue, _temp_dir) = create_test_queue();
-    
+
     let requests = vec![
-        (Hash::from([1u8; 32]), "agent1".to_string(), "test-provider".to_string(), None, Priority::Normal),
-        (Hash::from([2u8; 32]), "agent1".to_string(), "test-provider".to_string(), None, Priority::High),
-        (Hash::from([3u8; 32]), "agent2".to_string(), "test-provider".to_string(), None, Priority::Urgent),
+        (
+            Hash::from([1u8; 32]),
+            "agent1".to_string(),
+            "test-provider".to_string(),
+            None,
+            Priority::Normal,
+        ),
+        (
+            Hash::from([2u8; 32]),
+            "agent1".to_string(),
+            "test-provider".to_string(),
+            None,
+            Priority::High,
+        ),
+        (
+            Hash::from([3u8; 32]),
+            "agent2".to_string(),
+            "test-provider".to_string(),
+            None,
+            Priority::Urgent,
+        ),
     ];
 
     queue.enqueue_batch(requests).await.unwrap();
@@ -157,9 +242,27 @@ async fn test_batch_enqueue_size_limit() {
 
     // Try to enqueue batch that exceeds limit
     let requests = vec![
-        (Hash::from([1u8; 32]), "agent1".to_string(), "test-provider".to_string(), None, Priority::Normal),
-        (Hash::from([2u8; 32]), "agent1".to_string(), "test-provider".to_string(), None, Priority::Normal),
-        (Hash::from([3u8; 32]), "agent1".to_string(), "test-provider".to_string(), None, Priority::Normal),
+        (
+            Hash::from([1u8; 32]),
+            "agent1".to_string(),
+            "test-provider".to_string(),
+            None,
+            Priority::Normal,
+        ),
+        (
+            Hash::from([2u8; 32]),
+            "agent1".to_string(),
+            "test-provider".to_string(),
+            None,
+            Priority::Normal,
+        ),
+        (
+            Hash::from([3u8; 32]),
+            "agent1".to_string(),
+            "test-provider".to_string(),
+            None,
+            Priority::Normal,
+        ),
     ];
 
     let result = queue.enqueue_batch(requests).await;
@@ -171,7 +274,7 @@ async fn test_batch_enqueue_size_limit() {
 async fn test_generation_request_ordering() {
     // Test that GenerationRequest implements Ord correctly
     let now = Instant::now();
-    
+
     use merkle::frame::queue::RequestId;
     let req1 = GenerationRequest {
         request_id: RequestId::next(),
@@ -232,7 +335,7 @@ async fn test_generation_request_ordering() {
 #[tokio::test]
 async fn test_queue_stats() {
     let (queue, _temp_dir) = create_test_queue();
-    
+
     let stats = queue.stats();
     assert_eq!(stats.pending, 0);
     assert_eq!(stats.processing, 0);
@@ -242,7 +345,16 @@ async fn test_queue_stats() {
     // Enqueue some items
     for i in 0..5 {
         let node_id = Hash::from([i as u8; 32]);
-        queue.enqueue(node_id, "agent1".to_string(), "test-provider".to_string(), None, Priority::Normal).await.unwrap();
+        queue
+            .enqueue(
+                node_id,
+                "agent1".to_string(),
+                "test-provider".to_string(),
+                None,
+                Priority::Normal,
+            )
+            .await
+            .unwrap();
     }
 
     let stats = queue.stats();
@@ -252,16 +364,16 @@ async fn test_queue_stats() {
 #[tokio::test]
 async fn test_worker_start_stop() {
     let (queue, _temp_dir) = create_test_queue();
-    
+
     // Start workers
     queue.start().unwrap();
-    
+
     // Should be able to start again (idempotent)
     queue.start().unwrap();
 
     // Stop workers
     queue.stop().await.unwrap();
-    
+
     // Should be able to stop again (idempotent)
     queue.stop().await.unwrap();
 }
@@ -269,9 +381,18 @@ async fn test_worker_start_stop() {
 #[tokio::test]
 async fn test_frame_type_default() {
     let (queue, _temp_dir) = create_test_queue();
-    
+
     let node_id = Hash::from([1u8; 32]);
-    queue.enqueue(node_id, "my-agent".to_string(), "test-provider".to_string(), None, Priority::Normal).await.unwrap();
+    queue
+        .enqueue(
+            node_id,
+            "my-agent".to_string(),
+            "test-provider".to_string(),
+            None,
+            Priority::Normal,
+        )
+        .await
+        .unwrap();
 
     // Frame type is set during enqueue, verify through stats
     let stats = queue.stats();
@@ -281,15 +402,18 @@ async fn test_frame_type_default() {
 #[tokio::test]
 async fn test_frame_type_custom() {
     let (queue, _temp_dir) = create_test_queue();
-    
+
     let node_id = Hash::from([1u8; 32]);
-    queue.enqueue(
-        node_id,
-        "my-agent".to_string(),
-        "test-provider".to_string(),
-        Some("custom-type".to_string()),
-        Priority::Normal,
-    ).await.unwrap();
+    queue
+        .enqueue(
+            node_id,
+            "my-agent".to_string(),
+            "test-provider".to_string(),
+            Some("custom-type".to_string()),
+            Priority::Normal,
+        )
+        .await
+        .unwrap();
 
     // Frame type is set during enqueue, verify through stats
     let stats = queue.stats();
@@ -302,24 +426,38 @@ async fn test_priority_enum_ordering() {
     assert!(Priority::Urgent > Priority::High);
     assert!(Priority::High > Priority::Normal);
     assert!(Priority::Normal > Priority::Low);
-    
+
     // Verify Ord implementation
-    assert_eq!(Priority::Urgent.cmp(&Priority::High), std::cmp::Ordering::Greater);
-    assert_eq!(Priority::Low.cmp(&Priority::Normal), std::cmp::Ordering::Less);
+    assert_eq!(
+        Priority::Urgent.cmp(&Priority::High),
+        std::cmp::Ordering::Greater
+    );
+    assert_eq!(
+        Priority::Low.cmp(&Priority::Normal),
+        std::cmp::Ordering::Less
+    );
 }
 
 #[tokio::test]
 async fn test_concurrent_enqueue() {
     let (queue, _temp_dir) = create_test_queue();
     let queue = Arc::new(queue);
-    
+
     // Spawn multiple tasks to enqueue concurrently
     let mut handles = vec![];
     for i in 0..10 {
         let queue = Arc::clone(&queue);
         let handle = tokio::spawn(async move {
             let node_id = Hash::from([i as u8; 32]);
-            queue.enqueue(node_id, "agent1".to_string(), "test-provider".to_string(), None, Priority::Normal).await
+            queue
+                .enqueue(
+                    node_id,
+                    "agent1".to_string(),
+                    "test-provider".to_string(),
+                    None,
+                    Priority::Normal,
+                )
+                .await
         });
         handles.push(handle);
     }
@@ -364,7 +502,9 @@ async fn test_enqueue_emits_observability_events() {
         .await
         .unwrap();
 
-    progress.finish_command_session(&session_id, true, None).unwrap();
+    progress
+        .finish_command_session(&session_id, true, None)
+        .unwrap();
     let events = progress.store().read_events(&session_id).unwrap();
     assert!(events.iter().any(|e| e.event_type == "request_enqueued"));
     assert!(events.iter().any(|e| e.event_type == "queue_stats"));
@@ -373,4 +513,3 @@ async fn test_enqueue_emits_observability_events() {
 // Note: Full integration tests with actual frame generation would require
 // mocking the adapter and API, which is more complex. These tests focus
 // on the queue structure and operations themselves.
-

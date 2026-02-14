@@ -5,7 +5,7 @@ use merkle::frame::{Basis, Frame};
 use merkle::heads::HeadIndex;
 use merkle::regeneration::BasisIndex;
 use merkle::store::persistence::SledNodeRecordStore;
-use merkle::tooling::{AgentAdapter, adapter::ContextApiAdapter, CiIntegration, BatchOperation};
+use merkle::tooling::{adapter::ContextApiAdapter, AgentAdapter, BatchOperation, CiIntegration};
 use merkle::types::Hash;
 use merkle::views::OrderingPolicy;
 use std::collections::HashMap;
@@ -18,11 +18,14 @@ fn create_test_api() -> (ContextApi, TempDir) {
     let node_store = Arc::new(SledNodeRecordStore::new(&store_path).unwrap());
     let frame_storage_path = temp_dir.path().join("frames");
     std::fs::create_dir_all(&frame_storage_path).unwrap();
-    let frame_storage = Arc::new(merkle::frame::storage::FrameStorage::new(&frame_storage_path).unwrap());
+    let frame_storage =
+        Arc::new(merkle::frame::storage::FrameStorage::new(&frame_storage_path).unwrap());
     let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
     let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
     let agent_registry = Arc::new(parking_lot::RwLock::new(merkle::agent::AgentRegistry::new()));
-    let provider_registry = Arc::new(parking_lot::RwLock::new(merkle::provider::ProviderRegistry::new()));
+    let provider_registry = Arc::new(parking_lot::RwLock::new(
+        merkle::provider::ProviderRegistry::new(),
+    ));
     let lock_manager = Arc::new(merkle::concurrency::NodeLockManager::new());
 
     let api = ContextApi::new(
@@ -98,8 +101,22 @@ fn test_tool_idempotency_put_frame() {
     let node_id = Hash::from([5u8; 32]);
     let basis = Basis::Node(node_id);
     let content = b"idempotent content".to_vec();
-    let frame1 = Frame::new(basis.clone(), content.clone(), "test".to_string(), "test-agent".to_string(), HashMap::new()).unwrap();
-    let frame2 = Frame::new(basis, content, "test".to_string(), "test-agent".to_string(), HashMap::new()).unwrap();
+    let frame1 = Frame::new(
+        basis.clone(),
+        content.clone(),
+        "test".to_string(),
+        "test-agent".to_string(),
+        HashMap::new(),
+    )
+    .unwrap();
+    let frame2 = Frame::new(
+        basis,
+        content,
+        "test".to_string(),
+        "test-agent".to_string(),
+        HashMap::new(),
+    )
+    .unwrap();
 
     // Both frames should have the same FrameID (deterministic)
     assert_eq!(frame1.frame_id, frame2.frame_id);
@@ -114,7 +131,10 @@ fn test_tool_idempotency_regenerate() {
     // Register the agent first (regenerate checks for agent existence)
     {
         let mut registry = api.agent_registry().write();
-        let agent = merkle::agent::AgentIdentity::new("test-agent".to_string(), merkle::agent::AgentRole::Writer);
+        let agent = merkle::agent::AgentIdentity::new(
+            "test-agent".to_string(),
+            merkle::agent::AgentRole::Writer,
+        );
         registry.register(agent);
     }
 

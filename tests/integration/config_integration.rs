@@ -11,7 +11,9 @@ fn test_config_loads_agents_into_registry() {
     let temp_dir = TempDir::new().unwrap();
     let config_file = temp_dir.path().join("test_config.toml");
 
-    std::fs::write(&config_file, r#"
+    std::fs::write(
+        &config_file,
+        r#"
 [system]
 default_workspace_root = "."
 
@@ -28,7 +30,9 @@ endpoint = "http://localhost:11434"
 agent_id = "test-agent"
 role = "Writer"
 system_prompt = "You are a test agent."
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     let config = ConfigLoader::load_from_file(&config_file).unwrap();
     assert!(config.validate().is_ok());
@@ -51,12 +55,16 @@ fn test_config_agent_without_provider() {
     let temp_dir = TempDir::new().unwrap();
     let config_file = temp_dir.path().join("test_config.toml");
 
-    std::fs::write(&config_file, r#"
+    std::fs::write(
+        &config_file,
+        r#"
 [agents.reader-agent]
 agent_id = "reader-agent"
 role = "Reader"
 system_prompt = "You are a reader agent."
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     let config = ConfigLoader::load_from_file(&config_file).unwrap();
     assert!(config.validate().is_ok());
@@ -79,24 +87,30 @@ fn test_config_provider_conversion() {
     let mut config = MerkleConfig::default();
 
     // Add OpenAI provider
-    config.providers.insert("openai-test".to_string(), ProviderConfig {
-        provider_name: Some("openai-test".to_string()),
-        provider_type: ProviderType::OpenAI,
-        model: "gpt-4".to_string(),
-        api_key: Some("test-key-123".to_string()),
-        endpoint: None,
-        default_options: CompletionOptions::default(),
-    });
+    config.providers.insert(
+        "openai-test".to_string(),
+        ProviderConfig {
+            provider_name: Some("openai-test".to_string()),
+            provider_type: ProviderType::OpenAI,
+            model: "gpt-4".to_string(),
+            api_key: Some("test-key-123".to_string()),
+            endpoint: None,
+            default_options: CompletionOptions::default(),
+        },
+    );
 
     // Add Ollama provider
-    config.providers.insert("ollama-test".to_string(), ProviderConfig {
-        provider_name: Some("ollama-test".to_string()),
-        provider_type: ProviderType::Ollama,
-        model: "llama2".to_string(),
-        api_key: None,
-        endpoint: Some("http://localhost:11434".to_string()),
-        default_options: CompletionOptions::default(),
-    });
+    config.providers.insert(
+        "ollama-test".to_string(),
+        ProviderConfig {
+            provider_name: Some("ollama-test".to_string()),
+            provider_type: ProviderType::Ollama,
+            model: "llama2".to_string(),
+            api_key: None,
+            endpoint: Some("http://localhost:11434".to_string()),
+            default_options: CompletionOptions::default(),
+        },
+    );
 
     // Test OpenAI conversion
     let openai_provider = config.providers.get("openai-test").unwrap();
@@ -113,7 +127,9 @@ fn test_config_provider_conversion() {
     let ollama_provider = config.providers.get("ollama-test").unwrap();
     let model_provider = ollama_provider.to_model_provider().unwrap();
     match model_provider {
-        merkle::provider::ModelProvider::Ollama { model, base_url, .. } => {
+        merkle::provider::ModelProvider::Ollama {
+            model, base_url, ..
+        } => {
             assert_eq!(model, "llama2");
             assert_eq!(base_url, Some("http://localhost:11434".to_string()));
         }
@@ -126,29 +142,41 @@ fn test_config_validation_errors() {
     let mut config = MerkleConfig::default();
 
     // Add agent with invalid agent_id (empty string) to trigger validation error
-    config.agents.insert("bad-agent".to_string(), AgentConfig {
-        agent_id: "".to_string(), // Empty agent_id should fail validation
-        role: AgentRole::Writer,
-        system_prompt: None,
-        system_prompt_path: None,
-        metadata: HashMap::new(),
-    });
+    config.agents.insert(
+        "bad-agent".to_string(),
+        AgentConfig {
+            agent_id: "".to_string(), // Empty agent_id should fail validation
+            role: AgentRole::Writer,
+            system_prompt: None,
+            system_prompt_path: None,
+            metadata: HashMap::new(),
+        },
+    );
 
     let validation_result = config.validate();
     assert!(validation_result.is_err());
     let errors = validation_result.unwrap_err();
     assert!(errors.len() > 0);
-    assert!(errors.iter().any(|e| {
-        matches!(e, merkle::config::ValidationError::Agent(_, _))
-    }));
+    assert!(errors
+        .iter()
+        .any(|e| { matches!(e, merkle::config::ValidationError::Agent(_, _)) }));
 }
 
 #[test]
 fn test_config_default_values() {
     let config = MerkleConfig::default();
-    assert_eq!(config.system.default_workspace_root, std::path::PathBuf::from("."));
-    assert_eq!(config.system.storage.store_path, std::path::PathBuf::from(".merkle/store"));
-    assert_eq!(config.system.storage.frames_path, std::path::PathBuf::from(".merkle/frames"));
+    assert_eq!(
+        config.system.default_workspace_root,
+        std::path::PathBuf::from(".")
+    );
+    assert_eq!(
+        config.system.storage.store_path,
+        std::path::PathBuf::from(".merkle/store")
+    );
+    assert_eq!(
+        config.system.storage.frames_path,
+        std::path::PathBuf::from(".merkle/frames")
+    );
 }
 
 #[test]
@@ -156,7 +184,9 @@ fn test_config_agent_metadata() {
     let temp_dir = TempDir::new().unwrap();
     let config_file = temp_dir.path().join("test_config.toml");
 
-    std::fs::write(&config_file, r#"
+    std::fs::write(
+        &config_file,
+        r#"
 [agents.test-agent]
 agent_id = "test-agent"
 role = "Writer"
@@ -164,16 +194,27 @@ system_prompt = "Test prompt"
 [agents.test-agent.metadata]
 custom_key = "custom_value"
 another_key = "another_value"
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     let config = ConfigLoader::load_from_file(&config_file).unwrap();
     let mut registry = AgentRegistry::new();
     registry.load_from_config(&config).unwrap();
 
     let agent = registry.get("test-agent").unwrap();
-    assert_eq!(agent.metadata.get("system_prompt"), Some(&"Test prompt".to_string()));
-    assert_eq!(agent.metadata.get("custom_key"), Some(&"custom_value".to_string()));
-    assert_eq!(agent.metadata.get("another_key"), Some(&"another_value".to_string()));
+    assert_eq!(
+        agent.metadata.get("system_prompt"),
+        Some(&"Test prompt".to_string())
+    );
+    assert_eq!(
+        agent.metadata.get("custom_key"),
+        Some(&"custom_value".to_string())
+    );
+    assert_eq!(
+        agent.metadata.get("another_key"),
+        Some(&"another_value".to_string())
+    );
 }
 
 #[test]
@@ -181,7 +222,9 @@ fn test_config_completion_options() {
     let temp_dir = TempDir::new().unwrap();
     let config_file = temp_dir.path().join("test_config.toml");
 
-    std::fs::write(&config_file, r#"
+    std::fs::write(
+        &config_file,
+        r#"
 [providers.test-provider]
 provider_type = "ollama"
 model = "llama2"
@@ -189,7 +232,9 @@ model = "llama2"
 temperature = 0.7
 max_tokens = 2000
 top_p = 0.9
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     let config = ConfigLoader::load_from_file(&config_file).unwrap();
     let provider = config.providers.get("test-provider").unwrap();

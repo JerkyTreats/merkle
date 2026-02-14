@@ -10,16 +10,19 @@ use merkle::provider::{
 fn test_provider_registry_with_openai() {
     let mut registry = ProviderRegistry::new();
     let mut config = MerkleConfig::default();
-    
-    config.providers.insert("test-openai".to_string(), ProviderConfig {
-        provider_name: Some("test-openai".to_string()),
-        provider_type: ProviderType::OpenAI,
-        model: "gpt-4".to_string(),
-        api_key: Some("test-key".to_string()),
-        endpoint: None,
-        default_options: CompletionOptions::default(),
-    });
-    
+
+    config.providers.insert(
+        "test-openai".to_string(),
+        ProviderConfig {
+            provider_name: Some("test-openai".to_string()),
+            provider_type: ProviderType::OpenAI,
+            model: "gpt-4".to_string(),
+            api_key: Some("test-key".to_string()),
+            endpoint: None,
+            default_options: CompletionOptions::default(),
+        },
+    );
+
     registry.load_from_config(&config).unwrap();
     let client = registry.create_client("test-openai").unwrap();
     assert_eq!(client.provider_name(), "openai");
@@ -30,16 +33,19 @@ fn test_provider_registry_with_openai() {
 fn test_provider_registry_with_anthropic() {
     let mut registry = ProviderRegistry::new();
     let mut config = MerkleConfig::default();
-    
-    config.providers.insert("test-anthropic".to_string(), ProviderConfig {
-        provider_name: Some("test-anthropic".to_string()),
-        provider_type: ProviderType::Anthropic,
-        model: "claude-3-opus".to_string(),
-        api_key: Some("test-key".to_string()),
-        endpoint: None,
-        default_options: CompletionOptions::default(),
-    });
-    
+
+    config.providers.insert(
+        "test-anthropic".to_string(),
+        ProviderConfig {
+            provider_name: Some("test-anthropic".to_string()),
+            provider_type: ProviderType::Anthropic,
+            model: "claude-3-opus".to_string(),
+            api_key: Some("test-key".to_string()),
+            endpoint: None,
+            default_options: CompletionOptions::default(),
+        },
+    );
+
     registry.load_from_config(&config).unwrap();
     let client = registry.create_client("test-anthropic").unwrap();
     assert_eq!(client.provider_name(), "anthropic");
@@ -50,16 +56,19 @@ fn test_provider_registry_with_anthropic() {
 fn test_provider_registry_with_ollama() {
     let mut registry = ProviderRegistry::new();
     let mut config = MerkleConfig::default();
-    
-    config.providers.insert("test-ollama".to_string(), ProviderConfig {
-        provider_name: Some("test-ollama".to_string()),
-        provider_type: ProviderType::Ollama,
-        model: "llama2".to_string(),
-        api_key: None,
-        endpoint: None,
-        default_options: CompletionOptions::default(),
-    });
-    
+
+    config.providers.insert(
+        "test-ollama".to_string(),
+        ProviderConfig {
+            provider_name: Some("test-ollama".to_string()),
+            provider_type: ProviderType::Ollama,
+            model: "llama2".to_string(),
+            api_key: None,
+            endpoint: None,
+            default_options: CompletionOptions::default(),
+        },
+    );
+
     registry.load_from_config(&config).unwrap();
     let client = registry.create_client("test-ollama").unwrap();
     assert_eq!(client.provider_name(), "ollama");
@@ -70,16 +79,19 @@ fn test_provider_registry_with_ollama() {
 fn test_provider_registry_with_custom_local() {
     let mut registry = ProviderRegistry::new();
     let mut config = MerkleConfig::default();
-    
-    config.providers.insert("test-local".to_string(), ProviderConfig {
-        provider_name: Some("test-local".to_string()),
-        provider_type: ProviderType::LocalCustom,
-        model: "custom-model".to_string(),
-        api_key: None,
-        endpoint: Some("http://localhost:8080/v1".to_string()),
-        default_options: CompletionOptions::default(),
-    });
-    
+
+    config.providers.insert(
+        "test-local".to_string(),
+        ProviderConfig {
+            provider_name: Some("test-local".to_string()),
+            provider_type: ProviderType::LocalCustom,
+            model: "custom-model".to_string(),
+            api_key: None,
+            endpoint: Some("http://localhost:8080/v1".to_string()),
+            default_options: CompletionOptions::default(),
+        },
+    );
+
     registry.load_from_config(&config).unwrap();
     let client = registry.create_client("test-local").unwrap();
     assert_eq!(client.provider_name(), "local");

@@ -86,7 +86,12 @@ fn test_workspace_ignore_dry_run() {
             .unwrap();
         assert!(out.contains("Would add"));
         let list_path = ignore::ignore_list_path(&workspace_root).unwrap();
-        assert!(!list_path.exists() || fs::read_to_string(&list_path).unwrap_or_default().is_empty());
+        assert!(
+            !list_path.exists()
+                || fs::read_to_string(&list_path)
+                    .unwrap_or_default()
+                    .is_empty()
+        );
     });
 }
 
@@ -147,7 +152,10 @@ fn test_validate_format_json() {
             })
             .unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert!(parsed.get("valid").and_then(|v| v.as_bool()).unwrap_or(false));
+        assert!(parsed
+            .get("valid")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false));
         assert!(parsed.get("root_hash").is_some());
         assert!(parsed.get("node_count").is_some());
         assert!(parsed.get("frame_count").is_some());
@@ -221,7 +229,10 @@ fn test_scan_default_uses_gitignore_when_ignore_list_missing() {
         let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
         ctx.execute(&Commands::Scan { force: true }).unwrap();
         let records = ctx.api().node_store().list_all().unwrap();
-        let paths: Vec<String> = records.iter().map(|r| r.path.to_string_lossy().into_owned()).collect();
+        let paths: Vec<String> = records
+            .iter()
+            .map(|r| r.path.to_string_lossy().into_owned())
+            .collect();
         assert!(paths.iter().any(|p| p.contains("keep")));
         assert!(!paths.iter().any(|p| p.contains("ignore_me")));
     });
@@ -245,7 +256,10 @@ fn test_scan_syncs_gitignore_to_ignore_list() {
         assert!(contents.contains("synced_ignore"));
         assert!(contents.contains("*.log"));
         let records = ctx.api().node_store().list_all().unwrap();
-        let paths: Vec<String> = records.iter().map(|r| r.path.to_string_lossy().into_owned()).collect();
+        let paths: Vec<String> = records
+            .iter()
+            .map(|r| r.path.to_string_lossy().into_owned())
+            .collect();
         assert!(!paths.iter().any(|p| p.contains("synced_ignore")));
     });
 }
@@ -261,15 +275,14 @@ fn test_scan_respects_ignore_list() {
         fs::create_dir_all(&skip_dir).unwrap();
         fs::write(skip_dir.join("file.txt"), "x").unwrap();
         let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
-        ctx
-            .execute(&Commands::Workspace {
-                command: WorkspaceCommands::Ignore {
-                    path: Some(PathBuf::from("skip_me")),
-                    dry_run: false,
-                    format: "text".to_string(),
-                },
-            })
-            .unwrap();
+        ctx.execute(&Commands::Workspace {
+            command: WorkspaceCommands::Ignore {
+                path: Some(PathBuf::from("skip_me")),
+                dry_run: false,
+                format: "text".to_string(),
+            },
+        })
+        .unwrap();
         ctx.execute(&Commands::Scan { force: true }).unwrap();
         let records = ctx.api().node_store().list_all().unwrap();
         let paths: Vec<String> = records

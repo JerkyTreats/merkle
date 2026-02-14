@@ -6,8 +6,8 @@
 //! - Error handling
 //! - Concurrent request handling
 
-use merkle::api::{ContextApi, ContextView};
 use merkle::agent::{AgentIdentity, AgentRegistry, AgentRole};
+use merkle::api::{ContextApi, ContextView};
 use merkle::concurrency::NodeLockManager;
 use merkle::error::ApiError;
 use merkle::frame::{Basis, Frame, FrameStorage};
@@ -31,7 +31,9 @@ fn create_test_api() -> (ContextApi, TempDir) {
     let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
     let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
     let agent_registry = Arc::new(parking_lot::RwLock::new(AgentRegistry::new()));
-    let provider_registry = Arc::new(parking_lot::RwLock::new(merkle::provider::ProviderRegistry::new()));
+    let provider_registry = Arc::new(parking_lot::RwLock::new(
+        merkle::provider::ProviderRegistry::new(),
+    ));
     let lock_manager = Arc::new(NodeLockManager::new());
 
     let api = ContextApi::new(
@@ -156,14 +158,7 @@ fn test_put_frame_deterministic() {
     let frame_id1 = frame.frame_id;
 
     // Create another frame with same inputs
-    let frame2 = Frame::new(
-        basis,
-        content,
-        frame_type,
-        agent_id.clone(),
-        metadata,
-    )
-    .unwrap();
+    let frame2 = Frame::new(basis, content, frame_type, agent_id.clone(), metadata).unwrap();
 
     let frame_id2 = frame2.frame_id;
 
@@ -242,10 +237,7 @@ fn test_concurrent_put_frame() {
     {
         let mut registry = api.agent_registry().write();
         for i in 0..5 {
-            let agent = AgentIdentity::new(
-                format!("writer-{}", i),
-                AgentRole::Writer,
-            );
+            let agent = AgentIdentity::new(format!("writer-{}", i), AgentRole::Writer);
             registry.register(agent);
         }
     }

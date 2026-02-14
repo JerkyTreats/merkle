@@ -1,7 +1,7 @@
 //! Integration tests for unified status command (merkle status)
 
 use merkle::agent::AgentRole;
-use merkle::config::{AgentConfig, ProviderConfig, ProviderType, xdg};
+use merkle::config::{xdg, AgentConfig, ProviderConfig, ProviderType};
 use merkle::error::ApiError;
 use merkle::tooling::cli::{CliContext, Commands};
 use std::fs;
@@ -64,8 +64,9 @@ fn create_test_provider(
     endpoint: Option<&str>,
 ) -> Result<PathBuf, ApiError> {
     let providers_dir = xdg::providers_dir()?;
-    std::fs::create_dir_all(&providers_dir)
-        .map_err(|e| ApiError::ConfigError(format!("Failed to create providers directory: {}", e)))?;
+    std::fs::create_dir_all(&providers_dir).map_err(|e| {
+        ApiError::ConfigError(format!("Failed to create providers directory: {}", e))
+    })?;
     let config_path = providers_dir.join(format!("{}.toml", provider_name));
 
     let provider_config = ProviderConfig {
@@ -116,8 +117,19 @@ fn test_unified_status_all_sections_text() {
     with_xdg_env(&test_dir, || {
         clear_configs();
         let prompt_path = create_test_prompt_file(&test_dir, "test.md");
-        create_test_agent("test-writer", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
-        create_test_provider("test-ollama", ProviderType::Ollama, "llama2", Some("http://localhost:11434")).unwrap();
+        create_test_agent(
+            "test-writer",
+            AgentRole::Writer,
+            Some(prompt_path.to_str().unwrap()),
+        )
+        .unwrap();
+        create_test_provider(
+            "test-ollama",
+            ProviderType::Ollama,
+            "llama2",
+            Some("http://localhost:11434"),
+        )
+        .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
@@ -148,8 +160,19 @@ fn test_unified_status_all_sections_json() {
     with_xdg_env(&test_dir, || {
         clear_configs();
         let prompt_path = create_test_prompt_file(&test_dir, "test.md");
-        create_test_agent("json-agent", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
-        create_test_provider("json-provider", ProviderType::Ollama, "llama2", Some("http://localhost:11434")).unwrap();
+        create_test_agent(
+            "json-agent",
+            AgentRole::Writer,
+            Some(prompt_path.to_str().unwrap()),
+        )
+        .unwrap();
+        create_test_provider(
+            "json-provider",
+            ProviderType::Ollama,
+            "llama2",
+            Some("http://localhost:11434"),
+        )
+        .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
@@ -180,8 +203,19 @@ fn test_unified_status_workspace_only() {
     with_xdg_env(&test_dir, || {
         clear_configs();
         let prompt_path = create_test_prompt_file(&test_dir, "test.md");
-        create_test_agent("excluded-agent", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
-        create_test_provider("excluded-provider", ProviderType::Ollama, "llama2", Some("http://localhost:11434")).unwrap();
+        create_test_agent(
+            "excluded-agent",
+            AgentRole::Writer,
+            Some(prompt_path.to_str().unwrap()),
+        )
+        .unwrap();
+        create_test_provider(
+            "excluded-provider",
+            ProviderType::Ollama,
+            "llama2",
+            Some("http://localhost:11434"),
+        )
+        .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
@@ -211,8 +245,19 @@ fn test_unified_status_agents_only() {
     with_xdg_env(&test_dir, || {
         clear_configs();
         let prompt_path = create_test_prompt_file(&test_dir, "test.md");
-        create_test_agent("only-agent", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
-        create_test_provider("excluded-provider", ProviderType::Ollama, "llama2", Some("http://localhost:11434")).unwrap();
+        create_test_agent(
+            "only-agent",
+            AgentRole::Writer,
+            Some(prompt_path.to_str().unwrap()),
+        )
+        .unwrap();
+        create_test_provider(
+            "excluded-provider",
+            ProviderType::Ollama,
+            "llama2",
+            Some("http://localhost:11434"),
+        )
+        .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
@@ -243,8 +288,19 @@ fn test_unified_status_providers_only() {
     with_xdg_env(&test_dir, || {
         clear_configs();
         let prompt_path = create_test_prompt_file(&test_dir, "test.md");
-        create_test_agent("excluded-agent", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
-        create_test_provider("only-provider", ProviderType::Ollama, "llama2", Some("http://localhost:11434")).unwrap();
+        create_test_agent(
+            "excluded-agent",
+            AgentRole::Writer,
+            Some(prompt_path.to_str().unwrap()),
+        )
+        .unwrap();
+        create_test_provider(
+            "only-provider",
+            ProviderType::Ollama,
+            "llama2",
+            Some("http://localhost:11434"),
+        )
+        .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
@@ -299,7 +355,13 @@ fn test_unified_status_with_test_connectivity() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         clear_configs();
-        create_test_provider("conn-provider", ProviderType::Ollama, "llama2", Some("http://127.0.0.1:11434")).unwrap();
+        create_test_provider(
+            "conn-provider",
+            ProviderType::Ollama,
+            "llama2",
+            Some("http://127.0.0.1:11434"),
+        )
+        .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
@@ -318,7 +380,9 @@ fn test_unified_status_with_test_connectivity() {
         assert!(output.contains("Providers"));
         assert!(output.contains("conn-provider"));
         // Connectivity column should be present
-        assert!(output.contains("Connectivity") || output.contains("OK") || output.contains("Fail"));
+        assert!(
+            output.contains("Connectivity") || output.contains("OK") || output.contains("Fail")
+        );
     });
 }
 
@@ -386,7 +450,12 @@ fn test_unified_status_json_agents_only() {
     with_xdg_env(&test_dir, || {
         clear_configs();
         let prompt_path = create_test_prompt_file(&test_dir, "test.md");
-        create_test_agent("json-only-agent", AgentRole::Writer, Some(prompt_path.to_str().unwrap())).unwrap();
+        create_test_agent(
+            "json-only-agent",
+            AgentRole::Writer,
+            Some(prompt_path.to_str().unwrap()),
+        )
+        .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
@@ -415,7 +484,13 @@ fn test_unified_status_json_providers_only() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         clear_configs();
-        create_test_provider("json-only-provider", ProviderType::Ollama, "llama2", Some("http://localhost:11434")).unwrap();
+        create_test_provider(
+            "json-only-provider",
+            ProviderType::Ollama,
+            "llama2",
+            Some("http://localhost:11434"),
+        )
+        .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
         let cli = CliContext::new(workspace, None).unwrap();
