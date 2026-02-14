@@ -19,12 +19,13 @@ use comfy_table::Table;
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Workspace status: not-scanned (minimal) or scanned (full tree, coverage, top paths).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceStatus {
     pub scanned: bool,
+    pub store_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -69,6 +70,7 @@ pub fn build_workspace_status(
     head_index: &HeadIndex,
     agent_registry: &AgentRegistry,
     workspace_root: &Path,
+    store_path: &Path,
     include_breakdown: bool,
 ) -> Result<WorkspaceStatus, ApiError> {
     // Use same ignore config as scan so computed root matches stored root
@@ -88,6 +90,7 @@ pub fn build_workspace_status(
     if !root_in_store {
         return Ok(WorkspaceStatus {
             scanned: false,
+            store_path: normalize_display_path(store_path),
             message: Some("Run merkle scan to build the tree.".to_string()),
             tree: None,
             context_coverage: None,
@@ -187,6 +190,7 @@ pub fn build_workspace_status(
 
     Ok(WorkspaceStatus {
         scanned: true,
+        store_path: normalize_display_path(store_path),
         message: None,
         tree: Some(TreeStatus {
             root_hash: root_hash_hex,
@@ -196,6 +200,11 @@ pub fn build_workspace_status(
         context_coverage: Some(context_coverage),
         top_paths_by_node_count: Some(top_paths),
     })
+}
+
+fn normalize_display_path(path: &Path) -> String {
+    let buf: PathBuf = path.to_path_buf();
+    buf.display().to_string()
 }
 
 /// Format a section heading with bold/underline. Respects NO_COLOR and TTY.
@@ -209,6 +218,7 @@ pub fn format_workspace_status_text(data: &WorkspaceStatus, include_breakdown: b
     out.push_str(&format!("{}\n\n", format_section_heading("Workspace Status")));
     out.push_str(&format!("{}\n", format_section_heading("Tree")));
     if !data.scanned {
+        out.push_str(&format!("  Store path: {}\n", data.store_path));
         out.push_str("  Scanned: no\n\n");
         if let Some(ref msg) = data.message {
             out.push_str(msg);
@@ -217,6 +227,7 @@ pub fn format_workspace_status_text(data: &WorkspaceStatus, include_breakdown: b
         return out;
     }
     let tree = data.tree.as_ref().unwrap();
+    out.push_str(&format!("  Store path: {}\n", data.store_path));
     out.push_str(&format!("  Root hash: {}...\n", &tree.root_hash[..tree.root_hash.len().min(7)]));
     out.push_str(&format!("  Total nodes: {}\n", tree.total_nodes));
     out.push_str("  Scanned: yes\n\n");

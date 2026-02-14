@@ -56,6 +56,12 @@ fn is_corrupt_node_record_error(err: &StorageError) -> bool {
     matches!(err, StorageError::IoError(io_err) if io_err.kind() == std::io::ErrorKind::InvalidData)
 }
 
+fn is_node_record_key(key: &[u8]) -> bool {
+    // Path index keys are namespaced as "path:<canonical-path>" and can
+    // coincidentally be 32 bytes long, so length alone is not sufficient.
+    !key.starts_with(b"path:") && key.len() == 32
+}
+
 /// Sled-based implementation of NodeRecordStore
 pub struct SledNodeRecordStore {
     db: sled::Db,
@@ -173,7 +179,7 @@ impl NodeRecordStore for SledNodeRecordStore {
                     format!("Failed to iterate store: {}", e),
                 ))
             })?;
-            if key.len() != 32 {
+            if !is_node_record_key(key.as_ref()) {
                 continue;
             }
             match deserialize_node_record(&value) {
@@ -265,7 +271,7 @@ impl NodeRecordStore for SledNodeRecordStore {
                     format!("Failed to iterate store: {}", e),
                 ))
             })?;
-            if key.len() != 32 {
+            if !is_node_record_key(key.as_ref()) {
                 continue;
             }
             let record = match deserialize_node_record(&value) {
@@ -666,5 +672,32 @@ mod tests {
 
         let tomb = store.list_tombstoned(None).unwrap();
         assert_eq!(tomb, vec![[2u8; 32]]);
+    }
+
+    #[test]
+    fn test_list_all_ignores_path_keys_even_when_len_32() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = SledNodeRecordStore::new(temp_dir.path()).unwrap();
+
+        let valid = NodeRecord {
+            node_id: [1u8; 32],
+            path: std::path::PathBuf::from("/ok"),
+            node_type: NodeType::File { size: 10, content_hash: [2u8; 32] },
+            children: vec![],
+            parent: None,
+            frame_set_root: None,
+            metadata: HashMap::new(),
+            tombstoned_at: None,
+        };
+        store.put(&valid).unwrap();
+
+        let key = b"path:./apps/react/src/components".to_vec();
+        assert_eq!(key.len(), 32);
+        let value = bincode::serialize(&[7u8; 32]).unwrap();
+        store.db.insert(key, value).unwrap();
+
+        let records = store.list_all().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].node_id, [1u8; 32]);
     }
 }
