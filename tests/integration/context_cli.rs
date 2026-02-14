@@ -331,6 +331,7 @@ fn test_context_generate_requires_provider() {
                 provider: None,
                 frame_type: None,
                 force: false,
+                no_recursive: false,
             },
         });
 
@@ -377,6 +378,7 @@ fn test_context_generate_requires_agent_or_default() {
                 provider: Some("test-provider".to_string()),
                 frame_type: None,
                 force: false,
+                no_recursive: false,
             },
         });
 
@@ -422,6 +424,7 @@ fn test_context_generate_multiple_agents_requires_flag() {
                 provider: Some("test-provider".to_string()),
                 frame_type: None,
                 force: false,
+                no_recursive: false,
             },
         });
 

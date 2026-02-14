@@ -205,6 +205,7 @@ fn failed_command_emits_session_end() {
                 provider: None,
                 frame_type: None,
                 force: false,
+                no_recursive: false,
             },
         });
         assert!(result.is_err());
@@ -251,6 +252,7 @@ fn context_generate_plan_constructed_includes_path_field() {
                 provider: Some("obs-provider".to_string()),
                 frame_type: Some("context-obs-agent".to_string()),
                 force: true,
+                no_recursive: false,
             },
         });
         assert!(result.is_err());
@@ -335,6 +337,7 @@ fn context_generate_node_skipped_includes_path_field() {
                 provider: Some("skip-provider".to_string()),
                 frame_type: Some(frame_type),
                 force: false,
+                no_recursive: false,
             },
         });
         assert!(result.is_ok());
@@ -606,6 +609,7 @@ fn command_summary_failure_message_is_bounded() {
                 provider: Some(provider_name),
                 frame_type: None,
                 force: false,
+                no_recursive: false,
             },
         });
         assert!(result.is_err());

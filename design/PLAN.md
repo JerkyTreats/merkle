@@ -103,20 +103,29 @@ This order keeps runtime contracts stable before UI integration.
 
 **Goal**: Implement generation plan and orchestrator execution model with queue integration.
 
-**Status**: 🚧 In Progress
+**Status**: ✅ Completed
 
 | Task | Status |
 | --- | --- |
-| Implement generation plan types | ⬜ Pending |
-| Implement path resolution and subtree collection | ⬜ Pending |
-| Implement deepest first level grouping | ⬜ Pending |
-| Implement single directory descendant readiness check | ⬜ Pending |
-| Implement head filtering and force semantics | ⬜ Pending |
-| Implement orchestrator module and result model | ⬜ Pending |
-| Implement failure policy behavior | ⬜ Pending |
-| Implement active plan first queue interaction rules | ⬜ Pending |
-| Emit context and orchestrator event families | ⬜ Pending |
-| Add integration coverage for overlap and dedupe scenarios | ⬜ Pending |
+| Implement generation plan types | ✅ Completed |
+| Implement path resolution and subtree collection | ✅ Completed |
+| Implement deepest first level grouping | ✅ Completed |
+| Implement single directory descendant readiness check | ✅ Completed |
+| Implement head filtering and force semantics | ✅ Completed |
+| Implement orchestrator module and result model | ✅ Completed |
+| Implement failure policy behavior | ✅ Completed |
+| Implement active plan first queue interaction rules | ✅ Completed |
+| Emit context and orchestrator event families | ✅ Completed |
+| Add integration coverage for overlap and dedupe scenarios | ✅ Completed |
+
+**Progress Update:**
+
+- Added `src/generation/` module with `GenerationPlan`, `GenerationItem`, `GenerationResult`, `LevelSummary`, `FailurePolicy`, and `PlanPriority` in `plan.rs`; validation and serde round-trip unit tests added
+- Implemented `GenerationOrchestrator` in `orchestrator.rs` with `QueueSubmitter` trait, level-ordered execution, and unit tests for `Continue` and `StopOnLevelFailure` policies
+- Refactored `context generate` in `src/tooling/cli.rs`: added `--no-recursive`, `build_generation_plan`, `collect_subtree_levels`, `find_missing_descendant_heads`; recursive mode uses deepest-first levels; single-directory mode enforces descendant readiness unless `--force`; plan execution delegated to orchestrator
+- Updated queue in `src/frame/queue.rs`: dedupe identity is `node_id + agent_id + frame_type`; added `GenerationRequestOptions` and `enqueue_and_wait_with_options`; head short-circuit and force semantics; plan-aware request ordering
+- Context events: `plan_constructed`, `descendant_check_started` / `descendant_check_passed` / `descendant_check_failed`, `node_skipped`; orchestrator events: `generation_started`, `level_started`, `node_generation_started` / `completed` / `failed`, `level_completed`, `generation_completed` / `generation_failed`
+- Integration tests updated for new `ContextCommands::Generate` shape and queue request options; library and integration test suites pass
 
 **Exit Criteria:**
 

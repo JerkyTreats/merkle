@@ -8,6 +8,10 @@ use crate::config::ConfigLoader;
 use crate::error::ApiError;
 use crate::frame::queue::QueueEventContext;
 use crate::frame::{FrameGenerationQueue, GenerationConfig};
+use crate::generation::{
+    FailurePolicy, GenerationItem, GenerationNodeType, GenerationOrchestrator, GenerationPlan,
+    PlanPriority,
+};
 use crate::heads::HeadIndex;
 use crate::ignore;
 use crate::progress::{
@@ -16,13 +20,12 @@ use crate::progress::{
 use crate::regeneration::BasisIndex;
 use crate::store::persistence::SledNodeRecordStore;
 use crate::store::{NodeRecord, NodeRecordStore};
-use crate::tooling::adapter::AgentAdapter;
 use crate::tree::builder::TreeBuilder;
 use crate::tree::walker::WalkerConfig;
 use crate::types::{Hash, NodeID};
 use clap::{Parser, Subcommand};
 use serde_json::json;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -473,6 +476,9 @@ pub enum ContextCommands {
         /// Generate even if head frame exists
         #[arg(long)]
         force: bool,
+        /// Disable recursive generation for directory targets
+        #[arg(long)]
+        no_recursive: bool,
     },
     /// Retrieve context frames for a node
     Get {
@@ -2926,6 +2932,7 @@ impl CliContext {
                 provider,
                 frame_type,
                 force,
+                no_recursive,
             } => {
                 let path_merged = path.as_ref().or(path_positional.as_ref());
                 self.handle_context_generate(
@@ -2935,6 +2942,7 @@ impl CliContext {
                     provider.as_deref(),
                     frame_type.as_deref(),
                     *force,
+                    *no_recursive,
                     session_id,
                 )
             }
@@ -3022,6 +3030,7 @@ impl CliContext {
         provider: Option<&str>,
         frame_type: Option<&str>,
         force: bool,
+        no_recursive: bool,
         session_id: &str,
     ) -> Result<String, ApiError> {
         // 1. Path/NodeID resolution (mutually exclusive)
@@ -3087,41 +3096,43 @@ impl CliContext {
             )));
         }
 
-        // 6. Head frame check (unless --force)
-        if !force {
-            if let Some(head_frame_id) = self.api.get_head(&node_id, &frame_type)? {
-                self.progress.emit_event_best_effort(
-                    session_id,
-                    "node_skipped",
-                    json!({
-                        "node_id": hex::encode(node_id),
-                        "path": node_path,
-                        "agent_id": agent_id,
-                        "provider_name": provider_name,
-                        "frame_type": frame_type,
-                        "reason": "head_reuse"
-                    }),
-                );
-                return Ok(format!(
-                    "Frame already exists: {}\nUse --force to generate a new frame.",
-                    hex::encode(head_frame_id)
-                ));
-            }
-        }
+        let is_directory_target = matches!(node_record.node_type, crate::store::NodeType::Directory);
+        let recursive = is_directory_target && !no_recursive;
+        let plan = self.build_generation_plan(
+            node_id,
+            &node_record.path,
+            is_directory_target,
+            recursive,
+            force,
+            session_id,
+            &agent_id,
+            &provider_name,
+            &frame_type,
+        )?;
         self.progress.emit_event_best_effort(
             session_id,
             "plan_constructed",
             json!({
+                "plan_id": plan.plan_id,
                 "node_id": hex::encode(node_id),
                 "path": node_path,
                 "agent_id": agent_id,
                 "provider_name": provider_name,
                 "frame_type": frame_type,
-                "force": force
+                "force": force,
+                "recursive": recursive,
+                "total_nodes": plan.total_nodes,
+                "total_levels": plan.total_levels
             }),
         );
+        if plan.total_nodes == 0 {
+            return Ok(
+                "Frame already exists for requested target.\nUse --force to generate a new frame."
+                    .to_string(),
+            );
+        }
 
-        // 7. Blocking generation
+        // 7. Blocking generation through orchestrator
         // Create runtime before calling get_or_create_queue() which needs it for queue.start()
         // Check if we're already in a runtime (shouldn't happen in CLI, but can in tests)
         let rt = if let Ok(_handle) = tokio::runtime::Handle::try_current() {
@@ -3142,26 +3153,244 @@ impl CliContext {
         let queue = self.get_or_create_queue(Some(session_id))?;
         // Drop guard before using block_on (can't block while in runtime context)
         drop(_guard);
+        let orchestrator = GenerationOrchestrator::new(Some(Arc::clone(&self.progress)));
+        let result = rt.block_on(async { orchestrator.execute(queue.as_ref(), plan).await })?;
+        if result.total_failed > 0 {
+            return Err(ApiError::GenerationFailed(format!(
+                "Generation completed with failures. generated={}, failed={}",
+                result.total_generated, result.total_failed
+            )));
+        }
+        Ok(format!(
+            "Generation completed: generated={}, failed={}",
+            result.total_generated, result.total_failed
+        ))
+    }
 
-        let adapter =
-            crate::tooling::adapter::ContextApiAdapter::with_queue(Arc::clone(&self.api), queue);
+    #[allow(clippy::too_many_arguments)]
+    fn build_generation_plan(
+        &self,
+        target_node_id: NodeID,
+        target_path: &std::path::Path,
+        is_directory_target: bool,
+        recursive: bool,
+        force: bool,
+        session_id: &str,
+        agent_id: &str,
+        provider_name: &str,
+        frame_type: &str,
+    ) -> Result<GenerationPlan, ApiError> {
+        if !recursive && is_directory_target && !force {
+            self.progress.emit_event_best_effort(
+                session_id,
+                "descendant_check_started",
+                json!({
+                    "node_id": hex::encode(target_node_id),
+                    "path": target_path.to_string_lossy(),
+                    "frame_type": frame_type,
+                }),
+            );
+            let missing = self.find_missing_descendant_heads(target_node_id, frame_type)?;
+            if !missing.is_empty() {
+                self.progress.emit_event_best_effort(
+                    session_id,
+                    "descendant_check_failed",
+                    json!({
+                        "node_id": hex::encode(target_node_id),
+                        "missing_count": missing.len(),
+                        "missing_paths": missing,
+                    }),
+                );
+                return Err(ApiError::GenerationFailed(
+                    "Directory descendants are missing required heads; run recursive generation or use --force.".to_string(),
+                ));
+            }
+            self.progress.emit_event_best_effort(
+                session_id,
+                "descendant_check_passed",
+                json!({
+                    "node_id": hex::encode(target_node_id),
+                    "path": target_path.to_string_lossy(),
+                    "frame_type": frame_type,
+                }),
+            );
+        }
 
-        // Create a dummy prompt (queue will generate the actual prompt from agent metadata)
-        let dummy_prompt = String::new();
+        let mut levels: Vec<Vec<GenerationItem>> = Vec::new();
+        if recursive {
+            let depth_levels = self.collect_subtree_levels(target_node_id)?;
+            for level in depth_levels {
+                let mut items = Vec::new();
+                for node_id in level {
+                    let record = self
+                        .api
+                        .node_store()
+                        .get(&node_id)
+                        .map_err(ApiError::from)?
+                        .ok_or_else(|| ApiError::NodeNotFound(node_id))?;
+                    if !force && self.api.get_head(&node_id, frame_type)?.is_some() {
+                        self.progress.emit_event_best_effort(
+                            session_id,
+                            "node_skipped",
+                            json!({
+                                "node_id": hex::encode(node_id),
+                                "path": record.path.to_string_lossy(),
+                                "agent_id": agent_id,
+                                "provider_name": provider_name,
+                                "frame_type": frame_type,
+                                "reason": "head_reuse",
+                            }),
+                        );
+                        continue;
+                    }
+                    items.push(GenerationItem {
+                        node_id,
+                        path: record.path.to_string_lossy().to_string(),
+                        node_type: match record.node_type {
+                            crate::store::NodeType::File { .. } => GenerationNodeType::File,
+                            crate::store::NodeType::Directory => GenerationNodeType::Directory,
+                        },
+                        agent_id: agent_id.to_string(),
+                        provider_name: provider_name.to_string(),
+                        frame_type: frame_type.to_string(),
+                        force,
+                    });
+                }
+                if !items.is_empty() {
+                    levels.push(items);
+                }
+            }
+        } else {
+            if !force && self.api.get_head(&target_node_id, frame_type)?.is_some() {
+                self.progress.emit_event_best_effort(
+                    session_id,
+                    "node_skipped",
+                    json!({
+                        "node_id": hex::encode(target_node_id),
+                        "path": target_path.to_string_lossy(),
+                        "agent_id": agent_id,
+                        "provider_name": provider_name,
+                        "frame_type": frame_type,
+                        "reason": "head_reuse",
+                    }),
+                );
+                return Ok(GenerationPlan {
+                    plan_id: format!(
+                        "plan-{}-{}",
+                        crate::progress::session::now_millis(),
+                        &hex::encode(target_node_id)[..8]
+                    ),
+                    source: format!("context generate {}", target_path.to_string_lossy()),
+                    session_id: Some(session_id.to_string()),
+                    levels: Vec::new(),
+                    priority: PlanPriority::Urgent,
+                    failure_policy: FailurePolicy::StopOnLevelFailure,
+                    target_path: target_path.to_string_lossy().to_string(),
+                    total_nodes: 0,
+                    total_levels: 0,
+                });
+            }
+            let target_record = self
+                .api
+                .node_store()
+                .get(&target_node_id)
+                .map_err(ApiError::from)?
+                .ok_or_else(|| ApiError::NodeNotFound(target_node_id))?;
+            levels.push(vec![GenerationItem {
+                node_id: target_node_id,
+                path: target_record.path.to_string_lossy().to_string(),
+                node_type: match target_record.node_type {
+                    crate::store::NodeType::File { .. } => GenerationNodeType::File,
+                    crate::store::NodeType::Directory => GenerationNodeType::Directory,
+                },
+                agent_id: agent_id.to_string(),
+                provider_name: provider_name.to_string(),
+                frame_type: frame_type.to_string(),
+                force,
+            }]);
+        }
 
-        let frame_id = rt.block_on(async {
-            adapter
-                .generate_frame(
-                    node_id,
-                    dummy_prompt,
-                    frame_type.clone(),
-                    agent_id.clone(),
-                    provider_name.clone(),
-                )
-                .await
-        })?;
+        let total_nodes: usize = levels.iter().map(std::vec::Vec::len).sum();
+        Ok(GenerationPlan {
+            plan_id: format!(
+                "plan-{}-{}",
+                crate::progress::session::now_millis(),
+                &hex::encode(target_node_id)[..8]
+            ),
+            source: format!("context generate {}", target_path.to_string_lossy()),
+            session_id: Some(session_id.to_string()),
+            total_levels: levels.len(),
+            levels,
+            priority: PlanPriority::Urgent,
+            failure_policy: FailurePolicy::StopOnLevelFailure,
+            target_path: target_path.to_string_lossy().to_string(),
+            total_nodes,
+        })
+    }
 
-        Ok(format!("Frame generated: {}", hex::encode(frame_id)))
+    fn find_missing_descendant_heads(
+        &self,
+        target_node_id: NodeID,
+        frame_type: &str,
+    ) -> Result<Vec<String>, ApiError> {
+        let mut missing = Vec::new();
+        let mut visited: HashSet<NodeID> = HashSet::new();
+        let mut queue = VecDeque::new();
+        let target_record = self
+            .api
+            .node_store()
+            .get(&target_node_id)
+            .map_err(ApiError::from)?
+            .ok_or_else(|| ApiError::NodeNotFound(target_node_id))?;
+        for child in target_record.children {
+            queue.push_back(child);
+        }
+
+        while let Some(node_id) = queue.pop_front() {
+            if !visited.insert(node_id) {
+                continue;
+            }
+            let record = self
+                .api
+                .node_store()
+                .get(&node_id)
+                .map_err(ApiError::from)?
+                .ok_or_else(|| ApiError::NodeNotFound(node_id))?;
+            if self.api.get_head(&node_id, frame_type)?.is_none() {
+                missing.push(record.path.to_string_lossy().to_string());
+            }
+            for child in record.children {
+                queue.push_back(child);
+            }
+        }
+        Ok(missing)
+    }
+
+    fn collect_subtree_levels(&self, target_node_id: NodeID) -> Result<Vec<Vec<NodeID>>, ApiError> {
+        let mut levels: HashMap<usize, Vec<NodeID>> = HashMap::new();
+        let mut visited: HashSet<NodeID> = HashSet::new();
+        let mut queue = VecDeque::new();
+        queue.push_back((target_node_id, 0usize));
+
+        while let Some((node_id, depth)) = queue.pop_front() {
+            if !visited.insert(node_id) {
+                continue;
+            }
+            levels.entry(depth).or_default().push(node_id);
+            let record = self
+                .api
+                .node_store()
+                .get(&node_id)
+                .map_err(ApiError::from)?
+                .ok_or_else(|| ApiError::NodeNotFound(node_id))?;
+            for child in record.children {
+                queue.push_back((child, depth + 1));
+            }
+        }
+
+        let mut ordered_depths: Vec<_> = levels.into_iter().collect();
+        ordered_depths.sort_by(|(a, _), (b, _)| b.cmp(a));
+        Ok(ordered_depths.into_iter().map(|(_, nodes)| nodes).collect())
     }
 
     /// Handle context get command

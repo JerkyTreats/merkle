@@ -54,31 +54,30 @@ pub struct QueueEventContext {
     pub progress: Arc<ProgressRuntime>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct GenerationRequestOptions {
+    pub force: bool,
+    pub plan_id: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct RequestIdentity {
     node_id: NodeID,
     agent_id: String,
-    provider_name: String,
     frame_type: String,
 }
 
 impl RequestIdentity {
-    fn new(node_id: NodeID, agent_id: &str, provider_name: &str, frame_type: &str) -> Self {
+    fn new(node_id: NodeID, agent_id: &str, frame_type: &str) -> Self {
         Self {
             node_id,
             agent_id: agent_id.to_string(),
-            provider_name: provider_name.to_string(),
             frame_type: frame_type.to_string(),
         }
     }
 
     fn from_request(request: &GenerationRequest) -> Self {
-        Self::new(
-            request.node_id,
-            &request.agent_id,
-            &request.provider_name,
-            &request.frame_type,
-        )
+        Self::new(request.node_id, &request.agent_id, &request.frame_type)
     }
 }
 
@@ -118,6 +117,8 @@ pub struct GenerationRequest {
     pub created_at: Instant,
     /// Optional completion channel for sync requests (not cloneable)
     pub completion_tx: Option<oneshot::Sender<Result<FrameID, ApiError>>>,
+    /// Additional request execution options
+    pub options: GenerationRequestOptions,
 }
 
 impl Clone for GenerationRequest {
@@ -132,6 +133,7 @@ impl Clone for GenerationRequest {
             retry_count: self.retry_count,
             created_at: self.created_at,
             completion_tx: None, // Don't clone completion channel
+            options: self.options.clone(),
         }
     }
 }
@@ -149,6 +151,13 @@ impl Ord for GenerationRequest {
     /// BinaryHeap is a max-heap, so higher priority should compare as Greater
     /// For same priority, older items (smaller timestamp) should be Greater (processed first)
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let self_plan_rank = if self.options.plan_id.is_some() { 1 } else { 0 };
+        let other_plan_rank = if other.options.plan_id.is_some() { 1 } else { 0 };
+        match self_plan_rank.cmp(&other_plan_rank) {
+            std::cmp::Ordering::Equal => {}
+            ordering => return ordering,
+        }
+
         match self.priority.cmp(&other.priority) {
             std::cmp::Ordering::Equal => {
                 // Older items (smaller timestamp) should be Greater (processed first)
@@ -331,8 +340,7 @@ impl FrameGenerationQueue {
         let resolved_frame_type = frame_type
             .clone()
             .unwrap_or_else(|| format!("context-{}", agent_id));
-        let identity =
-            RequestIdentity::new(node_id, &agent_id, &provider_name, &resolved_frame_type);
+        let identity = RequestIdentity::new(node_id, &agent_id, &resolved_frame_type);
 
         if let Some(existing_entry) = dedupe.get(&identity) {
             let existing_id = existing_entry.request_id;
@@ -378,6 +386,7 @@ impl FrameGenerationQueue {
             retry_count: 0,
             created_at: Instant::now(),
             completion_tx: None,
+            options: GenerationRequestOptions::default(),
         };
 
         // Push to priority queue (BinaryHeap maintains max-heap property)
@@ -432,13 +441,34 @@ impl FrameGenerationQueue {
         priority: Priority,
         timeout: Option<Duration>,
     ) -> Result<FrameID, ApiError> {
+        self.enqueue_and_wait_with_options(
+            node_id,
+            agent_id,
+            provider_name,
+            frame_type,
+            priority,
+            timeout,
+            GenerationRequestOptions::default(),
+        )
+        .await
+    }
+
+    pub async fn enqueue_and_wait_with_options(
+        &self,
+        node_id: NodeID,
+        agent_id: String,
+        provider_name: String,
+        frame_type: Option<String>,
+        priority: Priority,
+        timeout: Option<Duration>,
+        options: GenerationRequestOptions,
+    ) -> Result<FrameID, ApiError> {
         let (tx, rx) = oneshot::channel();
         let mut queue = self.queue.lock().await;
         let mut dedupe = self.dedupe_index.lock().await;
 
         let resolved_frame_type = frame_type.unwrap_or_else(|| format!("context-{}", agent_id));
-        let identity =
-            RequestIdentity::new(node_id, &agent_id, &provider_name, &resolved_frame_type);
+        let identity = RequestIdentity::new(node_id, &agent_id, &resolved_frame_type);
 
         if let Some(existing_entry) = dedupe.get_mut(&identity) {
             existing_entry.waiters.push(tx);
@@ -458,6 +488,26 @@ impl FrameGenerationQueue {
                 },
             );
             return self.wait_for_generation_completion(rx, timeout).await;
+        }
+
+        if !options.force {
+            if let Some(existing_head) = self.api.get_head(&node_id, &resolved_frame_type)? {
+                drop(dedupe);
+                drop(queue);
+                self.emit_queue_event(
+                    "request_deduplicated",
+                    QueueEventData {
+                        node_id: hex::encode(node_id),
+                        agent_id,
+                        provider_name,
+                        frame_type: resolved_frame_type,
+                        request_id: None,
+                        retry_count: None,
+                        duration_ms: None,
+                    },
+                );
+                return Ok(existing_head);
+            }
         }
 
         // Check queue size limit
@@ -485,6 +535,7 @@ impl FrameGenerationQueue {
             retry_count: 0,
             created_at: Instant::now(),
             completion_tx: None,
+            options,
         };
 
         // Push to priority queue (BinaryHeap maintains max-heap property)
@@ -543,7 +594,7 @@ impl FrameGenerationQueue {
 
         for (node_id, agent_id, provider_name, frame_type, priority) in requests {
             let frame_type = frame_type.unwrap_or_else(|| format!("context-{}", agent_id));
-            let identity = RequestIdentity::new(node_id, &agent_id, &provider_name, &frame_type);
+            let identity = RequestIdentity::new(node_id, &agent_id, &frame_type);
 
             if let Some(existing_id) = staged.get(&identity) {
                 request_ids.push(*existing_id);
@@ -590,6 +641,7 @@ impl FrameGenerationQueue {
                 retry_count: 0,
                 created_at: Instant::now(),
                 completion_tx: None,
+                options: GenerationRequestOptions::default(),
             };
             request_ids.push(request_id);
             staged.insert(identity.clone(), request_id);
@@ -977,6 +1029,12 @@ impl FrameGenerationQueue {
             attempt = request.retry_count + 1,
             "Processing generation request"
         );
+
+        if !request.options.force {
+            if let Some(existing_head) = api.get_head(&request.node_id, &request.frame_type)? {
+                return Ok(existing_head);
+            }
+        }
 
         // Get agent
         let agent = api.get_agent(&request.agent_id)?;

@@ -12,7 +12,8 @@
 use merkle::api::ContextApi;
 use merkle::error::ApiError;
 use merkle::frame::queue::{
-    FrameGenerationQueue, GenerationConfig, GenerationRequest, Priority, QueueEventContext,
+    FrameGenerationQueue, GenerationConfig, GenerationRequest, GenerationRequestOptions, Priority,
+    QueueEventContext,
 };
 use merkle::frame::storage::FrameStorage;
 use merkle::heads::HeadIndex;
@@ -399,6 +400,7 @@ async fn test_generation_request_ordering() {
         retry_count: 0,
         created_at: now,
         completion_tx: None,
+        options: GenerationRequestOptions::default(),
     };
 
     let req2 = GenerationRequest {
@@ -411,6 +413,7 @@ async fn test_generation_request_ordering() {
         retry_count: 0,
         created_at: now,
         completion_tx: None,
+        options: GenerationRequestOptions::default(),
     };
 
     // Higher priority should be greater
@@ -427,6 +430,7 @@ async fn test_generation_request_ordering() {
         retry_count: 0,
         created_at: now,
         completion_tx: None,
+        options: GenerationRequestOptions::default(),
     };
 
     let req4 = GenerationRequest {
@@ -439,6 +443,7 @@ async fn test_generation_request_ordering() {
         retry_count: 0,
         created_at: now + Duration::from_millis(100),
         completion_tx: None,
+        options: GenerationRequestOptions::default(),
     };
 
     // Same priority, older (req3) should be greater
