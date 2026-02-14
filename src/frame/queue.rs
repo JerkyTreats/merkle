@@ -6,11 +6,13 @@
 use crate::api::{ContextApi, ContextView};
 use crate::error::ApiError;
 use crate::frame::{Basis, Frame};
+use crate::progress::{ProgressRuntime, ProviderLifecycleEventData, QueueEventData, QueueStatsEventData};
 use crate::provider::ChatMessage;
 use crate::store::NodeRecord;
 use crate::types::{FrameID, NodeID};
 use hex;
 use parking_lot::RwLock;
+use serde_json::json;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -38,6 +40,16 @@ impl RequestId {
         static COUNTER: AtomicU64 = AtomicU64::new(1);
         RequestId(COUNTER.fetch_add(1, Ordering::Relaxed))
     }
+
+    pub fn as_u64(self) -> u64 {
+        self.0
+    }
+}
+
+#[derive(Clone)]
+pub struct QueueEventContext {
+    pub session_id: String,
+    pub progress: Arc<ProgressRuntime>,
 }
 
 /// Generation request
@@ -226,6 +238,8 @@ pub struct FrameGenerationQueue {
     running: Arc<RwLock<bool>>,
     /// Statistics
     stats: Arc<RwLock<QueueStats>>,
+    /// Optional observability context for queue and provider lifecycle events
+    event_context: Option<QueueEventContext>,
 }
 
 impl FrameGenerationQueue {
@@ -233,6 +247,14 @@ impl FrameGenerationQueue {
     pub fn new(
         api: Arc<ContextApi>,
         config: GenerationConfig,
+    ) -> Self {
+        Self::with_event_context(api, config, None)
+    }
+
+    pub fn with_event_context(
+        api: Arc<ContextApi>,
+        config: GenerationConfig,
+        event_context: Option<QueueEventContext>,
     ) -> Self {
         Self {
             queue: Arc::new(Mutex::new(BinaryHeap::new())),
@@ -243,6 +265,7 @@ impl FrameGenerationQueue {
             rate_limiters: Arc::new(RwLock::new(HashMap::new())),
             running: Arc::new(RwLock::new(false)),
             stats: Arc::new(RwLock::new(QueueStats::default())),
+            event_context,
         }
     }
 
@@ -257,6 +280,34 @@ impl FrameGenerationQueue {
     ) -> Result<RequestId, ApiError> {
         let request_id = RequestId::next();
         let mut queue = self.queue.lock().await;
+        let resolved_frame_type = frame_type
+            .clone()
+            .unwrap_or_else(|| format!("context-{}", agent_id));
+
+        if let Some(existing_id) = queue
+            .iter()
+            .find(|req| {
+                req.node_id == node_id
+                    && req.agent_id == agent_id
+                    && req.provider_name == provider_name
+                    && req.frame_type == resolved_frame_type
+            })
+            .map(|r| r.request_id)
+        {
+            self.emit_queue_event(
+                "request_deduplicated",
+                QueueEventData {
+                    node_id: hex::encode(node_id),
+                    agent_id,
+                    provider_name,
+                    frame_type: resolved_frame_type,
+                    request_id: Some(existing_id.as_u64()),
+                    retry_count: None,
+                    duration_ms: None,
+                },
+            );
+            return Ok(existing_id);
+        }
 
         // Check queue size limit
         if queue.len() >= self.config.max_queue_size {
@@ -271,14 +322,14 @@ impl FrameGenerationQueue {
         }
 
         // Use provided frame_type or default to "context-{agent_id}"
-        let frame_type = frame_type.unwrap_or_else(|| format!("context-{}", agent_id));
+        let frame_type = resolved_frame_type;
 
         let request = GenerationRequest {
             request_id,
             node_id,
             agent_id: agent_id.clone(),
             provider_name: provider_name.clone(),
-            frame_type,
+            frame_type: frame_type.clone(),
             priority,
             retry_count: 0,
             created_at: Instant::now(),
@@ -293,6 +344,7 @@ impl FrameGenerationQueue {
             let mut stats = self.stats.write();
             stats.pending += 1;
         }
+        self.emit_queue_stats_event();
 
         // Notify workers that a new item is available
         self.notify.notify_one();
@@ -305,6 +357,18 @@ impl FrameGenerationQueue {
             priority = ?priority,
             queue_size = queue.len(),
             "Enqueued generation request"
+        );
+        self.emit_queue_event(
+            "request_enqueued",
+            QueueEventData {
+                node_id: hex::encode(node_id),
+                agent_id: agent_id.clone(),
+                provider_name: provider_name.clone(),
+                frame_type: frame_type.clone(),
+                request_id: Some(request_id.as_u64()),
+                retry_count: Some(0),
+                duration_ms: None,
+            },
         );
 
         Ok(request_id)
@@ -345,7 +409,7 @@ impl FrameGenerationQueue {
             node_id,
             agent_id: agent_id.clone(),
             provider_name: provider_name.clone(),
-            frame_type,
+            frame_type: frame_type.clone(),
             priority,
             retry_count: 0,
             created_at: Instant::now(),
@@ -360,6 +424,7 @@ impl FrameGenerationQueue {
             let mut stats = self.stats.write();
             stats.pending += 1;
         }
+        self.emit_queue_stats_event();
 
         // Notify workers that a new item is available
         self.notify.notify_one();
@@ -372,6 +437,18 @@ impl FrameGenerationQueue {
             provider_name = %provider_name,
             priority = ?priority,
             "Enqueued sync generation request"
+        );
+        self.emit_queue_event(
+            "request_enqueued",
+            QueueEventData {
+                node_id: hex::encode(node_id),
+                agent_id: agent_id.clone(),
+                provider_name: provider_name.clone(),
+                frame_type: frame_type.clone(),
+                request_id: Some(request_id.as_u64()),
+                retry_count: Some(0),
+                duration_ms: None,
+            },
         );
 
         // Wait for completion
@@ -434,6 +511,7 @@ impl FrameGenerationQueue {
             let mut stats = self.stats.write();
             stats.pending += batch_size;
         }
+        self.emit_queue_stats_event();
 
         // Notify workers (multiple times for multiple items)
         let notify_count = batch_size.min(self.config.workers_per_agent);
@@ -473,6 +551,7 @@ impl FrameGenerationQueue {
             let rate_limiters = Arc::clone(&self.rate_limiters);
             let running = Arc::clone(&self.running);
             let stats = Arc::clone(&self.stats);
+            let event_context = self.event_context.clone();
 
             let handle = tokio::spawn(async move {
                 Self::worker_loop(
@@ -484,6 +563,7 @@ impl FrameGenerationQueue {
                     rate_limiters,
                     running,
                     stats,
+                    event_context,
                 ).await;
             });
 
@@ -557,6 +637,7 @@ impl FrameGenerationQueue {
         rate_limiters: Arc<RwLock<HashMap<String, AgentRateLimiter>>>,
         running: Arc<RwLock<bool>>,
         stats: Arc<RwLock<QueueStats>>,
+        event_context: Option<QueueEventContext>,
     ) {
         debug!(worker_id, "Worker started");
 
@@ -590,6 +671,20 @@ impl FrameGenerationQueue {
                 stats.pending = stats.pending.saturating_sub(1);
                 stats.processing += 1;
             }
+            Self::emit_queue_stats_event_static(stats.clone(), event_context.clone());
+            Self::emit_queue_event_static(
+                event_context.clone(),
+                "request_processing",
+                QueueEventData {
+                    node_id: hex::encode(request.node_id),
+                    agent_id: request.agent_id.clone(),
+                    provider_name: request.provider_name.clone(),
+                    frame_type: request.frame_type.clone(),
+                    request_id: Some(request.request_id.as_u64()),
+                    retry_count: Some(request.retry_count),
+                    duration_ms: None,
+                },
+            );
 
             // Get or create rate limiter for this agent
             // We need to clone the Arc references, not the limiter itself
@@ -646,6 +741,7 @@ impl FrameGenerationQueue {
                 &request,
                 &api,
                 &config,
+                event_context.clone(),
             ).await;
 
             // Determine if we should retry (before sending result to completion channel)
@@ -677,6 +773,7 @@ impl FrameGenerationQueue {
                     }
                 }
             };
+            Self::emit_queue_stats_event_static(stats.clone(), event_context.clone());
 
             // Notify completion channel if present (for sync requests)
             // Only send if not retrying (retries don't preserve completion channel)
@@ -688,6 +785,19 @@ impl FrameGenerationQueue {
             
             // Re-queue if needed (after dropping stats guard)
             if should_retry {
+                Self::emit_provider_event_static(
+                    event_context.clone(),
+                    "provider_request_retrying",
+                    ProviderLifecycleEventData {
+                        node_id: hex::encode(request.node_id),
+                        agent_id: request.agent_id.clone(),
+                        provider_name: request.provider_name.clone(),
+                        frame_type: request.frame_type.clone(),
+                        duration_ms: None,
+                        error: None,
+                        retry_count: Some(request.retry_count + 1),
+                    },
+                );
                 request.retry_count += 1;
                 // Add retry delay before re-queuing
                 sleep(Duration::from_millis(config.retry_delay_ms)).await;
@@ -706,6 +816,8 @@ impl FrameGenerationQueue {
                 // Update stats after re-queuing
                 let mut stats_guard = stats.write();
                 stats_guard.pending += 1;
+                drop(stats_guard);
+                Self::emit_queue_stats_event_static(stats.clone(), event_context.clone());
             }
         }
 
@@ -718,6 +830,7 @@ impl FrameGenerationQueue {
         request: &GenerationRequest,
         api: &ContextApi,
         _config: &GenerationConfig,
+        event_context: Option<QueueEventContext>,
     ) -> Result<FrameID, ApiError> {
         debug!(
             request_id = ?request.request_id,
@@ -816,12 +929,38 @@ impl FrameGenerationQueue {
 
         // Generate completion - THIS IS THE ONLY PLACE PROVIDERS ARE CALLED
         let start = Instant::now();
+        Self::emit_provider_event_static(
+            event_context.clone(),
+            "provider_request_sent",
+            ProviderLifecycleEventData {
+                node_id: hex::encode(request.node_id),
+                agent_id: request.agent_id.clone(),
+                provider_name: request.provider_name.clone(),
+                frame_type: request.frame_type.clone(),
+                duration_ms: None,
+                error: None,
+                retry_count: Some(request.retry_count),
+            },
+        );
         let response = match client.complete(
             messages,
             completion_options,
         ).await {
             Ok(r) => Ok(r),
             Err(e) => {
+                Self::emit_provider_event_static(
+                    event_context.clone(),
+                    "provider_request_failed",
+                    ProviderLifecycleEventData {
+                        node_id: hex::encode(request.node_id),
+                        agent_id: request.agent_id.clone(),
+                        provider_name: request.provider_name.clone(),
+                        frame_type: request.frame_type.clone(),
+                        duration_ms: Some(start.elapsed().as_millis()),
+                        error: Some(e.to_string()),
+                        retry_count: Some(request.retry_count),
+                    },
+                );
                 // Enhance error with available models if model not found
                 if let ApiError::ProviderModelNotFound(_) = e {
                     match client.list_models().await {
@@ -848,6 +987,19 @@ impl FrameGenerationQueue {
         }?;
 
         let duration = start.elapsed();
+        Self::emit_provider_event_static(
+            event_context,
+            "provider_response_received",
+            ProviderLifecycleEventData {
+                node_id: hex::encode(request.node_id),
+                agent_id: request.agent_id.clone(),
+                provider_name: request.provider_name.clone(),
+                frame_type: request.frame_type.clone(),
+                duration_ms: Some(duration.as_millis()),
+                error: None,
+                retry_count: Some(request.retry_count),
+            },
+        );
 
         // Create frame with generated content
         let basis = Basis::Node(request.node_id);
@@ -961,6 +1113,55 @@ impl FrameGenerationQueue {
             ApiError::ProviderRequestFailed(_) => true,
             ApiError::ProviderError(_) => true,
             _ => true, // Retry other errors by default
+        }
+    }
+
+    fn emit_queue_event(&self, event_type: &str, payload: QueueEventData) {
+        Self::emit_queue_event_static(self.event_context.clone(), event_type, payload);
+    }
+
+    fn emit_queue_event_static(
+        event_context: Option<QueueEventContext>,
+        event_type: &str,
+        payload: QueueEventData,
+    ) {
+        if let Some(ctx) = event_context {
+            ctx.progress
+                .emit_event_best_effort(&ctx.session_id, event_type, json!(payload));
+        }
+    }
+
+    fn emit_provider_event_static(
+        event_context: Option<QueueEventContext>,
+        event_type: &str,
+        payload: ProviderLifecycleEventData,
+    ) {
+        if let Some(ctx) = event_context {
+            ctx.progress
+                .emit_event_best_effort(&ctx.session_id, event_type, json!(payload));
+        }
+    }
+
+    fn emit_queue_stats_event(&self) {
+        Self::emit_queue_stats_event_static(self.stats.clone(), self.event_context.clone());
+    }
+
+    fn emit_queue_stats_event_static(
+        stats: Arc<RwLock<QueueStats>>,
+        event_context: Option<QueueEventContext>,
+    ) {
+        if let Some(ctx) = event_context {
+            let snapshot = stats.read().clone();
+            ctx.progress.emit_event_best_effort(
+                &ctx.session_id,
+                "queue_stats",
+                json!(QueueStatsEventData {
+                    pending: snapshot.pending,
+                    processing: snapshot.processing,
+                    completed: snapshot.completed,
+                    failed: snapshot.failed,
+                }),
+            );
         }
     }
 }

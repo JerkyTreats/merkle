@@ -994,6 +994,9 @@ provider_name = "test-ollama"
 
     #[test]
     fn test_xdg_config_path() {
+        // Serialize access to HOME to avoid race conditions in parallel test execution
+        let _guard = HOME_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+
         // Test that xdg_config_path constructs the correct path
         // We'll test this indirectly by checking the behavior of load()
         // First, save the original HOME
@@ -1022,7 +1025,7 @@ provider_name = "test-ollama"
     #[test]
     fn test_load_with_xdg_config() {
         // Serialize access to HOME to avoid race conditions in parallel test execution
-        let _guard = HOME_MUTEX.lock().unwrap();
+        let _guard = HOME_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         
         let temp_dir = TempDir::new().unwrap();
         let workspace_root = temp_dir.path();
@@ -1088,6 +1091,9 @@ endpoint = "http://localhost:11434"
 
     #[test]
     fn test_workspace_config_overrides_xdg_config() {
+        // Serialize access to HOME to avoid race conditions in parallel test execution
+        let _guard = HOME_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+
         let temp_dir = TempDir::new().unwrap();
         let workspace_root = temp_dir.path();
         
@@ -1148,7 +1154,7 @@ endpoint = "http://localhost:11434"
     #[test]
     fn test_load_without_xdg_config() {
         // Serialize access to HOME to avoid race conditions in parallel test execution
-        let _guard = HOME_MUTEX.lock().unwrap();
+        let _guard = HOME_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         
         let temp_dir = TempDir::new().unwrap();
         let workspace_root = temp_dir.path();
@@ -1186,7 +1192,7 @@ endpoint = "http://localhost:11434"
     #[test]
     fn test_load_without_home_env() {
         // Serialize access to HOME to avoid race conditions in parallel test execution
-        let _guard = HOME_MUTEX.lock().unwrap();
+        let _guard = HOME_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         
         let temp_dir = TempDir::new().unwrap();
         let workspace_root = temp_dir.path();

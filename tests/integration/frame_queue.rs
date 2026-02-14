@@ -11,9 +11,10 @@
 
 use merkle::api::ContextApi;
 use merkle::error::ApiError;
-use merkle::frame::queue::{FrameGenerationQueue, GenerationConfig, GenerationRequest, Priority};
+use merkle::frame::queue::{FrameGenerationQueue, GenerationConfig, GenerationRequest, Priority, QueueEventContext};
 use merkle::frame::storage::FrameStorage;
 use merkle::heads::HeadIndex;
+use merkle::progress::ProgressRuntime;
 use merkle::regeneration::BasisIndex;
 use merkle::store::persistence::SledNodeRecordStore;
 use merkle::types::Hash;
@@ -330,6 +331,43 @@ async fn test_concurrent_enqueue() {
 
     let stats = queue.stats();
     assert_eq!(stats.pending, 10);
+}
+
+#[tokio::test]
+async fn test_enqueue_emits_observability_events() {
+    let (api, temp_dir) = create_test_api();
+    let db_path = temp_dir.path().join("progress_db");
+    std::fs::create_dir_all(&db_path).unwrap();
+    let db = sled::open(&db_path).unwrap();
+    let progress = Arc::new(ProgressRuntime::new(db).unwrap());
+    let session_id = progress
+        .start_command_session("queue.test".to_string())
+        .unwrap();
+
+    let queue = FrameGenerationQueue::with_event_context(
+        Arc::new(api),
+        GenerationConfig::default(),
+        Some(QueueEventContext {
+            session_id: session_id.clone(),
+            progress: Arc::clone(&progress),
+        }),
+    );
+
+    queue
+        .enqueue(
+            Hash::from([42u8; 32]),
+            "agent1".to_string(),
+            "test-provider".to_string(),
+            Some("context-agent1".to_string()),
+            Priority::Normal,
+        )
+        .await
+        .unwrap();
+
+    progress.finish_command_session(&session_id, true, None).unwrap();
+    let events = progress.store().read_events(&session_id).unwrap();
+    assert!(events.iter().any(|e| e.event_type == "request_enqueued"));
+    assert!(events.iter().any(|e| e.event_type == "queue_stats"));
 }
 
 // Note: Full integration tests with actual frame generation would require

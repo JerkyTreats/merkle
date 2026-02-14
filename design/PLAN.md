@@ -57,27 +57,37 @@ This order keeps runtime contracts stable before UI integration.
 
 **Goal**: Migrate implemented features to event emission with stable payloads.
 
-**Status**: 🚧 In Progress
+**Status**: ✅ Completed
 
 | Task | Status |
 | --- | --- |
-| Migrate context generate command path | ⬜ Pending |
-| Migrate frame queue and provider lifecycle events | ⬜ Pending |
-| Migrate scan events | ⬜ Pending |
-| Migrate watch daemon events | ⬜ Pending |
-| Migrate regenerate and synthesize flows | ⬜ Pending |
-| Migrate context get summary events | ⬜ Pending |
-| Migrate workspace status and validate summaries | ⬜ Pending |
-| Migrate workspace mutation command summaries | ⬜ Pending |
-| Migrate agent and provider command summaries | ⬜ Pending |
-| Migrate init summary events | ⬜ Pending |
+| Migrate context generate command path | ✅ Completed |
+| Migrate frame queue and provider lifecycle events | ✅ Completed |
+| Migrate scan events | ✅ Completed |
+| Migrate watch daemon events | ✅ Completed |
+| Migrate regenerate and synthesize flows | ✅ Completed |
+| Migrate context get summary events | ✅ Completed |
+| Migrate workspace status and validate summaries | ✅ Completed |
+| Migrate workspace mutation command summaries | ✅ Completed |
+| Migrate agent and provider command summaries | ✅ Completed |
+| Migrate init summary events | ✅ Completed |
+
+**Progress Update:**
+
+- Added session scoped event emit helpers in `src/progress/session.rs`
+- Added typed event payload models in `src/progress/event.rs`
+- Added queue event context and provider lifecycle emission in `src/frame/queue.rs`
+- Migrated `context generate`, `scan`, `watch`, `regenerate`, `synthesize`, and `context get` paths in `src/tooling/cli.rs` and `src/tooling/watch.rs`
+- Added command summary emission for command families including workspace, agent, provider, and init
+- Expanded integration coverage in `tests/integration/progress_observability.rs` and `tests/integration/frame_queue.rs`
+- Verified with targeted integration test runs and full library test runs
 
 **Exit Criteria:**
 
-- P0 and P1 migrations are implemented from migration spec
-- Long running workflows emit useful progress events
-- Failure paths still emit terminal session state
-- Payload fields are stable and replay safe
+- ✅ P0 and P1 migrations are implemented from migration spec
+- ✅ Long running workflows emit useful progress events
+- ✅ Failure paths still emit terminal session state
+- ✅ Payload fields are stable and replay safe
 
 **Dependencies:**
 

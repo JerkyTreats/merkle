@@ -31,6 +31,10 @@ fn scan_emits_session_boundary_events() {
         assert_eq!(events.first().unwrap().seq, 1);
         assert_eq!(events.last().unwrap().event_type, "session_ended");
         assert!(events.windows(2).all(|w| w[1].seq == w[0].seq + 1));
+        assert!(events.iter().any(|e| e.event_type == "scan_started"));
+        assert!(events.iter().any(|e| e.event_type == "scan_progress"));
+        assert!(events.iter().any(|e| e.event_type == "scan_completed"));
+        assert!(events.iter().any(|e| e.event_type == "command_summary"));
     });
 }
 
@@ -71,6 +75,79 @@ fn failed_command_emits_session_end() {
         let events = runtime.store().read_events(&failed_session.session_id).unwrap();
         assert_eq!(events.first().unwrap().event_type, "session_started");
         assert_eq!(events.last().unwrap().event_type, "session_ended");
+        assert!(events.iter().any(|e| e.event_type == "command_summary"));
+    });
+}
+
+#[test]
+fn context_get_emits_summary_event() {
+    let temp_dir = TempDir::new().unwrap();
+    with_xdg_env(&temp_dir, || {
+        let workspace_root = temp_dir.path().join("workspace");
+        fs::create_dir_all(&workspace_root).unwrap();
+        let target = workspace_root.join("a.txt");
+        fs::write(&target, "hello").unwrap();
+
+        let cli = CliContext::new(workspace_root.clone(), None).unwrap();
+        cli.execute(&Commands::Scan { force: true }).unwrap();
+        cli.execute(&Commands::Context {
+            command: ContextCommands::Get {
+                node: None,
+                path: Some(target),
+                agent: None,
+                frame_type: None,
+                max_frames: 5,
+                ordering: "recency".to_string(),
+                combine: false,
+                separator: "\n".to_string(),
+                format: "json".to_string(),
+                include_metadata: false,
+                include_deleted: false,
+            },
+        })
+        .unwrap();
+
+        let runtime = cli.progress_runtime();
+        let sessions = runtime.store().list_sessions().unwrap();
+        let context_get_session = sessions
+            .iter()
+            .find(|s| s.command == "context.get")
+            .expect("context.get session should exist");
+
+        let events = runtime
+            .store()
+            .read_events(&context_get_session.session_id)
+            .unwrap();
+        assert!(events.iter().any(|e| e.event_type == "context_read_summary"));
+        assert!(events.iter().any(|e| e.event_type == "command_summary"));
+    });
+}
+
+#[test]
+fn regenerate_failure_emits_regeneration_failed_event() {
+    let temp_dir = TempDir::new().unwrap();
+    with_xdg_env(&temp_dir, || {
+        let workspace_root = temp_dir.path().join("workspace");
+        fs::create_dir_all(&workspace_root).unwrap();
+
+        let cli = CliContext::new(workspace_root, None).unwrap();
+        let node_id = hex::encode([7u8; 32]);
+        let result = cli.execute(&Commands::Regenerate {
+            node_id,
+            recursive: false,
+            agent_id: "missing-agent".to_string(),
+        });
+        assert!(result.is_err());
+
+        let runtime = cli.progress_runtime();
+        let sessions = runtime.store().list_sessions().unwrap();
+        let regen_session = sessions
+            .iter()
+            .find(|s| s.command == "regenerate")
+            .expect("regenerate session should exist");
+        let events = runtime.store().read_events(&regen_session.session_id).unwrap();
+        assert!(events.iter().any(|e| e.event_type == "regeneration_started"));
+        assert!(events.iter().any(|e| e.event_type == "regeneration_failed"));
     });
 }
 

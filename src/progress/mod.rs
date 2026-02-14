@@ -7,7 +7,16 @@ pub mod session;
 pub mod store;
 
 pub use bus::ProgressBus;
-pub use event::{ProgressEnvelope, ProgressEvent, SessionEndedData, SessionStartedData};
+pub use event::{
+    ProgressEnvelope,
+    ProgressEvent,
+    ProviderLifecycleEventData,
+    QueueEventData,
+    QueueStatsEventData,
+    SessionEndedData,
+    SessionStartedData,
+    SummaryEventData,
+};
 pub use ingestor::EventIngestor;
 pub use session::{
     command_name,

@@ -7,7 +7,9 @@ use crate::api::ContextApi;
 use crate::error::ApiError;
 use crate::ignore;
 use crate::frame::{FrameGenerationQueue, GenerationConfig};
+use crate::frame::queue::QueueEventContext;
 use crate::heads::HeadIndex;
+use crate::progress::ProgressRuntime;
 use crate::regeneration::BasisIndex;
 use crate::store::{NodeRecord, NodeRecordStore};
 use crate::tree::builder::TreeBuilder;
@@ -21,11 +23,12 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use parking_lot::RwLock;
+use serde_json::json;
 use tracing::{error, info, warn, debug};
 use hex;
 
 /// Watch mode configuration
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct WatchConfig {
     /// Workspace root directory
     pub workspace_root: PathBuf,
@@ -55,6 +58,10 @@ pub struct WatchConfig {
     pub auto_generate_frames: bool,
     /// Generation queue configuration
     pub generation_config: Option<GenerationConfig>,
+    /// Optional active observability session
+    pub session_id: Option<String>,
+    /// Optional progress runtime for event emission
+    pub progress: Option<Arc<ProgressRuntime>>,
 }
 
 impl Default for WatchConfig {
@@ -82,6 +89,8 @@ impl Default for WatchConfig {
             frame_batch_size: 50,
             auto_generate_frames: false,
             generation_config: None,
+            session_id: None,
+            progress: None,
         }
     }
 }
@@ -240,10 +249,17 @@ impl WatchDaemon {
 
         // Create generation queue if auto_generate_frames is enabled
         let generation_queue = if config.auto_generate_frames {
-            let gen_config = config.generation_config.clone().unwrap_or_default();
-            let queue = Arc::new(FrameGenerationQueue::new(
+            let queue_event_context = match (&config.session_id, &config.progress) {
+                (Some(session_id), Some(progress)) => Some(QueueEventContext {
+                    session_id: session_id.clone(),
+                    progress: Arc::clone(progress),
+                }),
+                _ => None,
+            };
+            let queue = Arc::new(FrameGenerationQueue::with_event_context(
                 Arc::clone(&api),
-                gen_config,
+                config.generation_config.clone().unwrap_or_default(),
+                queue_event_context,
             ));
             // Start the queue workers
             queue.start()?;
@@ -273,6 +289,9 @@ impl WatchDaemon {
 
         // Build initial tree
         info!("Building initial tree");
+        self.emit_event_best_effort("watch_started", json!({
+            "workspace": self.config.workspace_root.to_string_lossy().to_string()
+        }));
         self.build_initial_tree()?;
         info!("Initial tree built successfully");
 
@@ -433,6 +452,15 @@ impl WatchDaemon {
         }
 
         info!(event_count = events.len(), "Processing change events");
+        for event in &events {
+            let (kind, path) = match event {
+                ChangeEvent::Created(p) => ("created", p.to_string_lossy().to_string()),
+                ChangeEvent::Modified(p) => ("modified", p.to_string_lossy().to_string()),
+                ChangeEvent::Removed(p) => ("removed", p.to_string_lossy().to_string()),
+                ChangeEvent::Renamed { to, .. } => ("renamed", to.to_string_lossy().to_string()),
+            };
+            self.emit_event_best_effort("file_changed", json!({ "kind": kind, "path": path }));
+        }
 
         // Collect all affected paths
         let mut affected_paths = HashSet::new();
@@ -472,6 +500,10 @@ impl WatchDaemon {
             event_count = events.len(),
             affected_nodes = affected_nodes.len(),
             "Processed change events"
+        );
+        self.emit_event_best_effort(
+            "batch_processed",
+            json!({ "event_count": events.len(), "affected_nodes": affected_nodes.len() }),
         );
 
         Ok(())
@@ -626,6 +658,12 @@ impl WatchDaemon {
         );
 
         Ok(())
+    }
+
+    fn emit_event_best_effort(&self, event_type: &str, data: serde_json::Value) {
+        if let (Some(session_id), Some(progress)) = (&self.config.session_id, &self.config.progress) {
+            progress.emit_event_best_effort(session_id, event_type, data);
+        }
     }
 }
 

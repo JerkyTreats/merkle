@@ -6,10 +6,11 @@
 use crate::api::{ContextApi, ContextView};
 use crate::config::ConfigLoader;
 use crate::error::ApiError;
-use crate::ignore;
 use crate::frame::{FrameGenerationQueue, GenerationConfig};
+use crate::frame::queue::QueueEventContext;
+use crate::ignore;
 use crate::heads::HeadIndex;
-use crate::progress::{command_name, PrunePolicy, ProgressRuntime};
+use crate::progress::{command_name, PrunePolicy, ProgressRuntime, SummaryEventData};
 use crate::regeneration::BasisIndex;
 use crate::store::{NodeRecord, NodeRecordStore};
 use crate::store::persistence::SledNodeRecordStore;
@@ -22,6 +23,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
+use serde_json::json;
 use tracing::info;
 
 use hex;
@@ -642,11 +645,16 @@ impl CliContext {
     ///
     /// The queue is initialized lazily when needed for context generation commands.
     /// Creates a new queue each time (it's cheap to create, workers are started on first use).
-    fn get_or_create_queue(&self) -> Result<Arc<FrameGenerationQueue>, ApiError> {
+    fn get_or_create_queue(&self, session_id: Option<&str>) -> Result<Arc<FrameGenerationQueue>, ApiError> {
         let gen_config = GenerationConfig::default();
-        let queue = Arc::new(FrameGenerationQueue::new(
+        let event_context = session_id.map(|session| QueueEventContext {
+            session_id: session.to_string(),
+            progress: Arc::clone(&self.progress),
+        });
+        let queue = Arc::new(FrameGenerationQueue::with_event_context(
             Arc::clone(&self.api),
             gen_config,
+            event_context,
         ));
         
         // Start the queue workers
@@ -1012,10 +1020,17 @@ impl CliContext {
 
     /// Execute a CLI command
     pub fn execute(&self, command: &Commands) -> Result<String, ApiError> {
+        let started = Instant::now();
         let session_id = self
             .progress
             .start_command_session(command_name(command))?;
-        let result = self.execute_inner(command);
+        let result = self.execute_inner(command, &session_id);
+        self.emit_command_summary(
+            &session_id,
+            command,
+            result.as_ref(),
+            started.elapsed().as_millis(),
+        );
         let (ok, err) = match &result {
             Ok(_) => (true, None),
             Err(e) => (false, Some(e.to_string())),
@@ -1026,16 +1041,92 @@ impl CliContext {
         result
     }
 
-    fn execute_inner(&self, command: &Commands) -> Result<String, ApiError> {
+    fn execute_inner(&self, command: &Commands, session_id: &str) -> Result<String, ApiError> {
         match command {
             Commands::Synthesize { node_id, frame_type, agent_id } => {
                 let node_id = parse_node_id(node_id)?;
-                let frame_id = self.api.synthesize_branch(node_id, frame_type.clone(), agent_id.clone(), None)?;
+                self.progress.emit_event_best_effort(
+                    session_id,
+                    "synthesis_started",
+                    json!({
+                        "node_id": hex::encode(node_id),
+                        "frame_type": frame_type,
+                        "agent_id": agent_id
+                    }),
+                );
+                let started = Instant::now();
+                let frame_id = match self
+                    .api
+                    .synthesize_branch(node_id, frame_type.clone(), agent_id.clone(), None)
+                {
+                    Ok(frame_id) => frame_id,
+                    Err(err) => {
+                        self.progress.emit_event_best_effort(
+                            session_id,
+                            "synthesis_failed",
+                            json!({
+                                "node_id": hex::encode(node_id),
+                                "frame_type": frame_type,
+                                "agent_id": agent_id,
+                                "duration_ms": started.elapsed().as_millis(),
+                                "error": err.to_string(),
+                            }),
+                        );
+                        return Err(err);
+                    }
+                };
+                self.progress.emit_event_best_effort(
+                    session_id,
+                    "synthesis_completed",
+                    json!({
+                        "node_id": hex::encode(node_id),
+                        "frame_type": frame_type,
+                        "agent_id": agent_id,
+                        "duration_ms": started.elapsed().as_millis(),
+                    }),
+                );
                 Ok(format!("Synthesized frame: {}", hex::encode(frame_id)))
             }
             Commands::Regenerate { node_id, recursive, agent_id } => {
                 let node_id = parse_node_id(node_id)?;
-                let report = self.api.regenerate(node_id, *recursive, agent_id.clone())?;
+                self.progress.emit_event_best_effort(
+                    session_id,
+                    "regeneration_started",
+                    json!({
+                        "node_id": hex::encode(node_id),
+                        "recursive": recursive,
+                        "agent_id": agent_id
+                    }),
+                );
+                let started = Instant::now();
+                let report = match self.api.regenerate(node_id, *recursive, agent_id.clone()) {
+                    Ok(report) => report,
+                    Err(err) => {
+                        self.progress.emit_event_best_effort(
+                            session_id,
+                            "regeneration_failed",
+                            json!({
+                                "node_id": hex::encode(node_id),
+                                "recursive": recursive,
+                                "agent_id": agent_id,
+                                "duration_ms": started.elapsed().as_millis(),
+                                "error": err.to_string(),
+                            }),
+                        );
+                        return Err(err);
+                    }
+                };
+                self.progress.emit_event_best_effort(
+                    session_id,
+                    "regeneration_completed",
+                    json!({
+                        "node_id": hex::encode(node_id),
+                        "recursive": recursive,
+                        "agent_id": agent_id,
+                        "regenerated_count": report.regenerated_count,
+                        "duration_ms": started.elapsed().as_millis(),
+                    }),
+                );
                 Ok(format!(
                     "Regenerated {} frames in {}ms",
                     report.regenerated_count,
@@ -1043,6 +1134,12 @@ impl CliContext {
                 ))
             }
             Commands::Scan { force } => {
+                self.progress.emit_event_best_effort(
+                    session_id,
+                    "scan_started",
+                    json!({ "force": force }),
+                );
+                let scan_started = Instant::now();
                 // Load ignore patterns (built-in + .gitignore + ignore_list)
                 let ignore_patterns = ignore::load_ignore_patterns(&self.workspace_root)
                     .unwrap_or_else(|_| WalkerConfig::default().ignore_patterns);
@@ -1053,6 +1150,11 @@ impl CliContext {
                 };
                 let builder = TreeBuilder::new(self.workspace_root.clone()).with_walker_config(walker_config);
                 let tree = builder.build().map_err(|e| ApiError::StorageError(e))?;
+                self.progress.emit_event_best_effort(
+                    session_id,
+                    "scan_progress",
+                    json!({ "node_count": tree.nodes.len() }),
+                );
 
                 // If force is false, check if root node already exists
                 if !force {
@@ -1077,6 +1179,15 @@ impl CliContext {
                 );
 
                 let root_hex = hex::encode(tree.root_id);
+                self.progress.emit_event_best_effort(
+                    session_id,
+                    "scan_completed",
+                    json!({
+                        "force": force,
+                        "node_count": tree.nodes.len(),
+                        "duration_ms": scan_started.elapsed().as_millis(),
+                    }),
+                );
                 Ok(format!(
                     "Scanned {} nodes (root: {})",
                     tree.nodes.len(),
@@ -1151,7 +1262,7 @@ impl CliContext {
                 self.handle_init(*force, *list)
             }
             Commands::Context { command } => {
-                self.handle_context_command(command)
+                self.handle_context_command(command, session_id)
             }
             Commands::Watch {
                 debounce_ms,
@@ -1194,6 +1305,8 @@ impl CliContext {
                 watch_config.max_depth = *max_depth;
                 watch_config.agent_id = agent_id.clone();
                 watch_config.ignore_patterns = ignore_patterns;
+                watch_config.session_id = Some(session_id.to_string());
+                watch_config.progress = Some(self.progress.clone());
 
                 // Create watch daemon
                 let daemon = WatchDaemon::new(self.api.clone(), watch_config)?;
@@ -2378,7 +2491,7 @@ impl CliContext {
     }
 
     /// Handle context management commands
-    fn handle_context_command(&self, command: &ContextCommands) -> Result<String, ApiError> {
+    fn handle_context_command(&self, command: &ContextCommands, session_id: &str) -> Result<String, ApiError> {
         match command {
             ContextCommands::Generate {
                 node,
@@ -2401,6 +2514,7 @@ impl CliContext {
                     *force,
                     *sync,
                     *r#async,
+                    session_id,
                 )
             }
             ContextCommands::Get {
@@ -2428,6 +2542,7 @@ impl CliContext {
                     format,
                     *include_metadata,
                     *include_deleted,
+                    session_id,
                 )
             }
         }
@@ -2490,6 +2605,7 @@ impl CliContext {
         force: bool,
         _sync: bool,
         r#async: bool,
+        session_id: &str,
     ) -> Result<String, ApiError> {
         // 1. Path/NodeID resolution (mutually exclusive)
         let node_id = match (node, path) {
@@ -2549,12 +2665,35 @@ impl CliContext {
         // 6. Head frame check (unless --force)
         if !force {
             if let Some(head_frame_id) = self.api.get_head(&node_id, &frame_type)? {
+                self.progress.emit_event_best_effort(
+                    session_id,
+                    "node_skipped",
+                    json!({
+                        "node_id": hex::encode(node_id),
+                        "agent_id": agent_id,
+                        "provider_name": provider_name,
+                        "frame_type": frame_type,
+                        "reason": "head_reuse"
+                    }),
+                );
                 return Ok(format!(
                     "Frame already exists: {}\nUse --force to generate a new frame.",
                     hex::encode(head_frame_id)
                 ));
             }
         }
+        self.progress.emit_event_best_effort(
+            session_id,
+            "plan_constructed",
+            json!({
+                "node_id": hex::encode(node_id),
+                "agent_id": agent_id,
+                "provider_name": provider_name,
+                "frame_type": frame_type,
+                "force": force,
+                "async": r#async
+            }),
+        );
 
         // 7. Generation (sync or async)
         // Default is sync unless --async is explicitly specified
@@ -2577,7 +2716,7 @@ impl CliContext {
         
         // Enter runtime context for queue.start() which needs tokio::spawn
         let _guard = rt.enter();
-        let queue = self.get_or_create_queue()?;
+        let queue = self.get_or_create_queue(Some(session_id))?;
         // Drop guard before using block_on (can't block while in runtime context)
         drop(_guard);
         
@@ -2632,6 +2771,7 @@ impl CliContext {
         format: &str,
         include_metadata: bool,
         include_deleted: bool,
+        session_id: &str,
     ) -> Result<String, ApiError> {
         // 1. Path/NodeID resolution
         let node_id = match (node, path) {
@@ -2700,7 +2840,7 @@ impl CliContext {
         let context = self.api.get_node(node_id, view)?;
 
         // 4. Format output
-        match format {
+        let formatted = match format {
             "text" => {
                 format_context_text_output(&context, include_metadata, combine, separator, include_deleted)
             }
@@ -2713,7 +2853,40 @@ impl CliContext {
                     format
                 )))
             }
-        }
+        }?;
+        self.progress.emit_event_best_effort(
+            session_id,
+            "context_read_summary",
+            json!({
+                "node_id": hex::encode(node_id),
+                "frame_count": context.frames.len(),
+                "max_frames": max_frames,
+                "ordering": ordering,
+                "combine": combine,
+                "format": format
+            }),
+        );
+        Ok(formatted)
+    }
+
+    fn emit_command_summary(
+        &self,
+        session_id: &str,
+        command: &Commands,
+        result: Result<&String, &ApiError>,
+        duration_ms: u128,
+    ) {
+        let data = SummaryEventData {
+            command: command_name(command),
+            ok: result.is_ok(),
+            duration_ms,
+            message: match result {
+                Ok(output) => Some(output.clone()),
+                Err(err) => Some(err.to_string()),
+            },
+        };
+        self.progress
+            .emit_event_best_effort(session_id, "command_summary", json!(data));
     }
 }
 

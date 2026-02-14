@@ -6,6 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use serde_json::Value;
+use tracing::warn;
 
 use crate::error::{ApiError, StorageError};
 use crate::progress::bus::ProgressBus;
@@ -132,6 +134,31 @@ impl ProgressRuntime {
         }
         self.store.flush()?;
         Ok(())
+    }
+
+    pub fn emit_event(
+        &self,
+        session_id: &str,
+        event_type: &str,
+        data: Value,
+    ) -> Result<(), ApiError> {
+        self.bus
+            .emit(session_id.to_string(), event_type, data)
+            .map_err(to_api_error)?;
+        self.ingestor.drain()?;
+        self.store.flush()?;
+        Ok(())
+    }
+
+    pub fn emit_event_best_effort(&self, session_id: &str, event_type: &str, data: Value) {
+        if let Err(err) = self.emit_event(session_id, event_type, data) {
+            warn!(
+                session_id = %session_id,
+                event_type = %event_type,
+                error = %err,
+                "failed to emit progress event"
+            );
+        }
     }
 
     pub fn mark_interrupted_sessions(&self) -> Result<usize, ApiError> {
