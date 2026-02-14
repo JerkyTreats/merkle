@@ -4,13 +4,21 @@
 | --- | --- | --- | --- | --- | --- |
 | F1 | High | Async `context generate` can violate session terminal ordering and likely drop async work because command session closes before queue work lifecycle is complete. | `src/tooling/cli.rs`, `tests/integration/context_cli.rs`, `tests/integration/progress_observability.rs`, `design/observability/observability_spec.md:71` | [Q1](#q1) | Fixed |
 | F2 | High | Required command-specific summary event families are missing across most command surfaces; only generic `command_summary` is emitted. | `design/observability/feature_migration_spec.md:51`, `design/observability/feature_migration_spec.md:61`, `src/tooling/cli.rs:3177`, `src/tooling/cli.rs:3205`, `tests/integration/progress_observability.rs:135` | - | Fixed |
-| F3 | High | `provider test` command does not emit provider lifecycle events required by migration spec. | `design/observability/feature_migration_spec.md:199`, `src/tooling/cli.rs:2095` | - | Not fixed |
+| F3 | High | `provider test` command does not emit provider lifecycle events required by migration spec. | `design/observability/feature_migration_spec.md:199`, `src/tooling/cli.rs:2360`, `src/tooling/cli.rs:2385`, `src/tooling/cli.rs:2441`, `tests/integration/progress_observability.rs:315` | - | Fixed |
 | F4 | Medium | Queue dedupe is partial: checks only pending queue items and misses in-flight duplicates; sync enqueue path has no dedupe. | `src/frame/queue.rs:287`, `src/frame/queue.rs:377`, `design/observability/feature_migration_spec.md:96` | - | Not fixed |
 | F5 | Medium | `enqueue_batch` does not emit per-request `request_enqueued` events. | `src/frame/queue.rs:468`, `design/observability/feature_migration_spec.md:103` | - | Not fixed |
 | F6 | Medium | `scan_progress` is emitted once, not on batch cadence by node count. | `src/tooling/cli.rs:1153`, `design/observability/feature_migration_spec.md:119` | - | Not fixed |
 | F7 | Medium | Context-generate payloads omit required identity fields from spec, notably `path`. | `design/observability/feature_migration_spec.md:86`, `src/tooling/cli.rs:2673`, `src/tooling/cli.rs:2690` | - | Not fixed |
 | F8 | Low | Event timestamp format is numeric epoch millis, not ISO 8601 with milliseconds as specified. | `src/progress/event.rs:36`, `src/progress/event.rs:142`, `design/observability/observability_spec.md:77` | - | Not fixed |
 | F9 | Low | `command_summary` stores raw output/error text; this is not a stable metric-focused summary shape and can produce large payloads. | `src/tooling/cli.rs:2885`, `src/tooling/cli.rs:2887`, `design/observability/feature_migration_spec.md:166` | [Q2](#q2) | Not fixed |
+
+## Progress Snapshot (February 14, 2026)
+
+- Findings fixed: `3/9` (`F1`, `F2`, `F3`)
+- Findings remaining: `6/9` (`F4`, `F5`, `F6`, `F7`, `F8`, `F9`)
+- High-severity findings: `3/3 fixed`
+- Medium-severity findings: `0/4 fixed`
+- Low-severity findings: `0/2 fixed`
 
 ## Decisions Made
 

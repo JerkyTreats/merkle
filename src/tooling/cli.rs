@@ -10,7 +10,9 @@ use crate::frame::queue::QueueEventContext;
 use crate::frame::{FrameGenerationQueue, GenerationConfig};
 use crate::heads::HeadIndex;
 use crate::ignore;
-use crate::progress::{command_name, ProgressRuntime, PrunePolicy, SummaryEventData};
+use crate::progress::{
+    command_name, ProgressRuntime, ProviderLifecycleEventData, PrunePolicy, SummaryEventData,
+};
 use crate::regeneration::BasisIndex;
 use crate::store::persistence::SledNodeRecordStore;
 use crate::store::{NodeRecord, NodeRecordStore};
@@ -1360,7 +1362,7 @@ impl CliContext {
             ),
             Commands::Validate => self.run_workspace_validate("text"),
             Commands::Agent { command } => self.handle_agent_command(command),
-            Commands::Provider { command } => self.handle_provider_command(command),
+            Commands::Provider { command } => self.handle_provider_command(command, session_id),
             Commands::Init { force, list } => self.handle_init(*force, *list),
             Commands::Context { command } => self.handle_context_command(command, session_id),
             Commands::Watch {
@@ -1922,7 +1924,11 @@ impl CliContext {
     }
 
     /// Handle provider management commands
-    fn handle_provider_command(&self, command: &ProviderCommands) -> Result<String, ApiError> {
+    fn handle_provider_command(
+        &self,
+        command: &ProviderCommands,
+        session_id: &str,
+    ) -> Result<String, ApiError> {
         match command {
             ProviderCommands::Status {
                 format,
@@ -1952,7 +1958,7 @@ impl CliContext {
                 provider_name,
                 model,
                 timeout,
-            } => self.handle_provider_test(provider_name, model.as_deref(), *timeout),
+            } => self.handle_provider_test(provider_name, model.as_deref(), *timeout, session_id),
             ProviderCommands::Create {
                 provider_name,
                 type_,
@@ -2356,20 +2362,37 @@ impl CliContext {
         provider_name: &str,
         model_override: Option<&str>,
         timeout: u64,
+        session_id: &str,
     ) -> Result<String, ApiError> {
         let registry = self.api.provider_registry().read();
 
         // Get provider config
         let provider = registry.get_or_error(provider_name)?;
+        let model_to_check = model_override.unwrap_or(&provider.model).to_string();
 
         // Create client
         let client = registry.create_client(provider_name)?;
+        drop(registry);
 
         let mut output = format!("Testing provider: {}\n\n", provider_name);
 
         // Test connectivity
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| ApiError::ProviderError(format!("Failed to create runtime: {}", e)))?;
+
+        self.progress.emit_event_best_effort(
+            session_id,
+            "provider_request_sent",
+            json!(ProviderLifecycleEventData {
+                node_id: "provider_test".to_string(),
+                agent_id: "provider_test".to_string(),
+                provider_name: provider_name.to_string(),
+                frame_type: model_to_check.clone(),
+                duration_ms: None,
+                error: None,
+                retry_count: Some(0),
+            }),
+        );
 
         let start = std::time::Instant::now();
         match rt.block_on(async {
@@ -2381,6 +2404,19 @@ impl CliContext {
         }) {
             Ok(Ok(available_models)) => {
                 let elapsed = start.elapsed();
+                self.progress.emit_event_best_effort(
+                    session_id,
+                    "provider_response_received",
+                    json!(ProviderLifecycleEventData {
+                        node_id: "provider_test".to_string(),
+                        agent_id: "provider_test".to_string(),
+                        provider_name: provider_name.to_string(),
+                        frame_type: model_to_check.clone(),
+                        duration_ms: Some(elapsed.as_millis()),
+                        error: None,
+                        retry_count: Some(0),
+                    }),
+                );
                 output.push_str(&format!("✓ Provider client created\n"));
                 output.push_str(&format!(
                     "✓ API connectivity: OK ({}ms)\n",
@@ -2388,8 +2424,7 @@ impl CliContext {
                 ));
 
                 // Check model availability
-                let model_to_check = model_override.unwrap_or(&provider.model);
-                if available_models.iter().any(|m| m == model_to_check) {
+                if available_models.iter().any(|m| m == &model_to_check) {
                     output.push_str(&format!("✓ Model '{}' is available\n", model_to_check));
                 } else {
                     output.push_str(&format!("✗ Model '{}' not found\n", model_to_check));
@@ -2401,10 +2436,36 @@ impl CliContext {
                 }
             }
             Ok(Err(e)) => {
+                self.progress.emit_event_best_effort(
+                    session_id,
+                    "provider_request_failed",
+                    json!(ProviderLifecycleEventData {
+                        node_id: "provider_test".to_string(),
+                        agent_id: "provider_test".to_string(),
+                        provider_name: provider_name.to_string(),
+                        frame_type: model_to_check.clone(),
+                        duration_ms: Some(start.elapsed().as_millis()),
+                        error: Some(e.to_string()),
+                        retry_count: Some(0),
+                    }),
+                );
                 output.push_str(&format!("✗ API connectivity failed: {}\n", e));
                 return Ok(output);
             }
             Err(_) => {
+                self.progress.emit_event_best_effort(
+                    session_id,
+                    "provider_request_failed",
+                    json!(ProviderLifecycleEventData {
+                        node_id: "provider_test".to_string(),
+                        agent_id: "provider_test".to_string(),
+                        provider_name: provider_name.to_string(),
+                        frame_type: model_to_check.clone(),
+                        duration_ms: Some(start.elapsed().as_millis()),
+                        error: Some(format!("API connectivity timeout ({}s)", timeout)),
+                        retry_count: Some(0),
+                    }),
+                );
                 output.push_str(&format!("✗ API connectivity timeout ({}s)\n", timeout));
                 return Ok(output);
             }

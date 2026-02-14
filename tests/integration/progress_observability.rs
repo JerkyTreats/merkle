@@ -1,12 +1,30 @@
 use std::fs;
 
+use merkle::config::{xdg, ProviderConfig, ProviderType};
 use merkle::progress::{PrunePolicy, SessionStatus};
+use merkle::provider::CompletionOptions;
 use merkle::tooling::cli::{
     AgentCommands, CliContext, Commands, ContextCommands, ProviderCommands, WorkspaceCommands,
 };
 use tempfile::TempDir;
 
 use crate::integration::with_xdg_env;
+
+fn create_test_openai_provider(provider_name: &str, model: &str, endpoint: &str) {
+    let providers_dir = xdg::providers_dir().unwrap();
+    fs::create_dir_all(&providers_dir).unwrap();
+    let config_path = providers_dir.join(format!("{}.toml", provider_name));
+    let provider_config = ProviderConfig {
+        provider_name: Some(provider_name.to_string()),
+        provider_type: ProviderType::OpenAI,
+        model: model.to_string(),
+        api_key: Some("test-api-key".to_string()),
+        endpoint: Some(endpoint.to_string()),
+        default_options: CompletionOptions::default(),
+    };
+    let toml = toml::to_string_pretty(&provider_config).unwrap();
+    fs::write(config_path, toml).unwrap();
+}
 
 #[test]
 fn scan_emits_session_boundary_events() {
@@ -290,6 +308,54 @@ fn regenerate_failure_emits_regeneration_failed_event() {
             .iter()
             .any(|e| e.event_type == "regeneration_started"));
         assert!(events.iter().any(|e| e.event_type == "regeneration_failed"));
+    });
+}
+
+#[test]
+fn provider_test_failure_emits_provider_request_failed_event() {
+    let temp_dir = TempDir::new().unwrap();
+    with_xdg_env(&temp_dir, || {
+        let workspace_root = temp_dir.path().join("workspace");
+        fs::create_dir_all(&workspace_root).unwrap();
+
+        create_test_openai_provider("provider-test-fail", "gpt-4-test", "http://127.0.0.1:9");
+
+        let cli = CliContext::new(workspace_root, None).unwrap();
+        let result = cli.execute(&Commands::Provider {
+            command: ProviderCommands::Test {
+                provider_name: "provider-test-fail".to_string(),
+                model: Some("gpt-4-test".to_string()),
+                timeout: 1,
+            },
+        });
+        assert!(result.is_ok());
+
+        let runtime = cli.progress_runtime();
+        let sessions = runtime.store().list_sessions().unwrap();
+        let session = sessions
+            .iter()
+            .find(|s| s.command == "provider.test")
+            .expect("provider.test session should exist");
+        let events = runtime.store().read_events(&session.session_id).unwrap();
+
+        let sent_idx = events
+            .iter()
+            .position(|e| e.event_type == "provider_request_sent")
+            .expect("provider_request_sent should be emitted");
+        let failed_idx = events
+            .iter()
+            .position(|e| e.event_type == "provider_request_failed")
+            .expect("provider_request_failed should be emitted");
+        let ended_idx = events
+            .iter()
+            .position(|e| e.event_type == "session_ended")
+            .expect("session_ended should be emitted");
+
+        assert!(events
+            .iter()
+            .all(|e| e.event_type != "provider_response_received"));
+        assert!(sent_idx < failed_idx);
+        assert!(failed_idx < ended_idx);
     });
 }
 
