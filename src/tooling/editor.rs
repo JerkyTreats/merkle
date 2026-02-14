@@ -6,7 +6,7 @@
 use crate::api::ContextApi;
 use crate::error::ApiError;
 use crate::types::NodeID;
-use notify::{RecommendedWatcher, Watcher, RecursiveMode, Event, EventKind};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use tracing::error;
@@ -31,24 +31,31 @@ impl EditorHooks {
     ///
     /// Returns a channel receiver for change events and a watcher handle.
     /// The watcher will monitor the workspace and send events when files change.
-    pub fn watch(&self) -> Result<(mpsc::Receiver<notify::Result<Event>>, RecommendedWatcher), ApiError> {
+    pub fn watch(
+        &self,
+    ) -> Result<(mpsc::Receiver<notify::Result<Event>>, RecommendedWatcher), ApiError> {
         let (tx, rx) = mpsc::channel();
 
         let mut watcher = notify::recommended_watcher(move |res| {
             if let Err(e) = tx.send(res) {
                 error!("Error sending watch event: {}", e);
             }
-        }).map_err(|e| {
-            ApiError::StorageError(crate::error::StorageError::IoError(
-                std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create watcher: {}", e))
-            ))
+        })
+        .map_err(|e| {
+            ApiError::StorageError(crate::error::StorageError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to create watcher: {}", e),
+            )))
         })?;
 
-        watcher.watch(&self.workspace_root, RecursiveMode::Recursive).map_err(|e| {
-            ApiError::StorageError(crate::error::StorageError::IoError(
-                std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to watch directory: {}", e))
-            ))
-        })?;
+        watcher
+            .watch(&self.workspace_root, RecursiveMode::Recursive)
+            .map_err(|e| {
+                ApiError::StorageError(crate::error::StorageError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to watch directory: {}", e),
+                )))
+            })?;
 
         Ok((rx, watcher))
     }
@@ -100,13 +107,14 @@ mod tests {
         let node_store = Arc::new(SledNodeRecordStore::new(&store_path).unwrap());
         let frame_storage_path = temp_dir.path().join("frames");
         std::fs::create_dir_all(&frame_storage_path).unwrap();
-        let frame_storage = Arc::new(
-            crate::frame::storage::FrameStorage::new(&frame_storage_path).unwrap()
-        );
+        let frame_storage =
+            Arc::new(crate::frame::storage::FrameStorage::new(&frame_storage_path).unwrap());
         let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
         let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
         let agent_registry = Arc::new(parking_lot::RwLock::new(crate::agent::AgentRegistry::new()));
-        let provider_registry = Arc::new(parking_lot::RwLock::new(crate::provider::ProviderRegistry::new()));
+        let provider_registry = Arc::new(parking_lot::RwLock::new(
+            crate::provider::ProviderRegistry::new(),
+        ));
         let lock_manager = Arc::new(crate::concurrency::NodeLockManager::new());
 
         let api = ContextApi::new(

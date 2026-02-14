@@ -73,8 +73,10 @@ mod tests {
         let store = ProgressStore::shared(db).unwrap();
         let (bus, rx) = ProgressBus::new_pair();
         let mut ingestor = EventIngestor::new(store.clone(), rx);
-        bus.emit("s1", "session_started", serde_json::json!({})).unwrap();
-        bus.emit("s1", "session_ended", serde_json::json!({})).unwrap();
+        bus.emit("s1", "session_started", serde_json::json!({}))
+            .unwrap();
+        bus.emit("s1", "session_ended", serde_json::json!({}))
+            .unwrap();
         ingestor.ingest_pending().unwrap();
         let events = store.read_events("s1").unwrap();
         assert_eq!(events.len(), 2);

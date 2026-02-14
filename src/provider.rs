@@ -54,9 +54,9 @@ pub struct ChatMessage {
 /// Completion options
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompletionOptions {
-    pub temperature: Option<f32>,      // 0.0-2.0, default: 1.0
-    pub max_tokens: Option<u32>,       // Maximum tokens to generate
-    pub top_p: Option<f32>,           // Nucleus sampling
+    pub temperature: Option<f32>,       // 0.0-2.0, default: 1.0
+    pub max_tokens: Option<u32>,        // Maximum tokens to generate
+    pub top_p: Option<f32>,             // Nucleus sampling
     pub frequency_penalty: Option<f32>, // -2.0 to 2.0
     pub presence_penalty: Option<f32>,  // -2.0 to 2.0
     pub stop: Option<Vec<String>>,      // Stop sequences
@@ -187,7 +187,10 @@ fn map_http_error(error: reqwest::Error) -> ApiError {
             401 => ApiError::ProviderAuthFailed(format!("Authentication failed: {}", error)),
             429 => ApiError::ProviderRateLimit(format!("Rate limit exceeded: {}", error)),
             404 => ApiError::ProviderModelNotFound(format!("Model not found: {}", error)),
-            _ => ApiError::ProviderRequestFailed(format!("Request failed with status {}: {}", status, error)),
+            _ => ApiError::ProviderRequestFailed(format!(
+                "Request failed with status {}: {}",
+                status, error
+            )),
         }
     } else if error.is_timeout() {
         ApiError::ProviderRequestFailed(format!("Request timeout: {}", error))
@@ -263,22 +266,29 @@ impl ModelProviderClient for OpenAIClient {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(match status.as_u16() {
-                401 => ApiError::ProviderAuthFailed(format!("Authentication failed: {}", error_text)),
+                401 => {
+                    ApiError::ProviderAuthFailed(format!("Authentication failed: {}", error_text))
+                }
                 429 => ApiError::ProviderRateLimit(format!("Rate limit exceeded: {}", error_text)),
                 404 => ApiError::ProviderModelNotFound(format!("Model not found: {}", error_text)),
                 _ => ApiError::ProviderRequestFailed(format!("Request failed: {}", error_text)),
             });
         }
 
-        let completion: ChatCompletionResponse = response.json().await.map_err(|e| {
-            ApiError::ProviderError(format!("Failed to parse response: {}", e))
-        })?;
+        let completion: ChatCompletionResponse = response
+            .json()
+            .await
+            .map_err(|e| ApiError::ProviderError(format!("Failed to parse response: {}", e)))?;
 
-        let choice = completion.choices.first().ok_or_else(|| {
-            ApiError::ProviderError("No choices in response".to_string())
-        })?;
+        let choice = completion
+            .choices
+            .first()
+            .ok_or_else(|| ApiError::ProviderError("No choices in response".to_string()))?;
 
         let usage = completion.usage.unwrap_or(Usage {
             prompt_tokens: 0,
@@ -305,7 +315,9 @@ impl ModelProviderClient for OpenAIClient {
     ) -> Result<CompletionStream, ApiError> {
         // Streaming implementation would go here
         // For now, return an error indicating it's not implemented
-        Err(ApiError::ProviderError("Streaming not yet implemented for OpenAI".to_string()))
+        Err(ApiError::ProviderError(
+            "Streaming not yet implemented for OpenAI".to_string(),
+        ))
     }
 
     fn provider_name(&self) -> &str {
@@ -328,7 +340,10 @@ impl ModelProviderClient for OpenAIClient {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(ApiError::ProviderError(format!(
                 "Failed to list models: status {} - {}",
                 status, error_text
@@ -388,11 +403,13 @@ impl ModelProviderClient for AnthropicClient {
         let url = "https://api.anthropic.com/v1/messages";
 
         // Convert messages to Anthropic format
-        let system_message = messages.iter()
+        let system_message = messages
+            .iter()
             .find(|m| m.role == MessageRole::System)
             .map(|m| m.content.clone());
 
-        let user_messages: Vec<String> = messages.iter()
+        let user_messages: Vec<String> = messages
+            .iter()
             .filter(|m| m.role == MessageRole::User)
             .map(|m| m.content.clone())
             .collect();
@@ -407,9 +424,10 @@ impl ModelProviderClient for AnthropicClient {
         }
 
         if !user_messages.is_empty() {
-            request_body["messages"] = json!(user_messages.into_iter().map(|content| {
-                json!({"role": "user", "content": content})
-            }).collect::<Vec<_>>());
+            request_body["messages"] = json!(user_messages
+                .into_iter()
+                .map(|content| { json!({"role": "user", "content": content}) })
+                .collect::<Vec<_>>());
         }
 
         if let Some(temp) = options.temperature {
@@ -429,9 +447,14 @@ impl ModelProviderClient for AnthropicClient {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(match status.as_u16() {
-                401 => ApiError::ProviderAuthFailed(format!("Authentication failed: {}", error_text)),
+                401 => {
+                    ApiError::ProviderAuthFailed(format!("Authentication failed: {}", error_text))
+                }
                 429 => ApiError::ProviderRateLimit(format!("Rate limit exceeded: {}", error_text)),
                 404 => ApiError::ProviderModelNotFound(format!("Model not found: {}", error_text)),
                 _ => ApiError::ProviderRequestFailed(format!("Request failed: {}", error_text)),
@@ -456,11 +479,14 @@ impl ModelProviderClient for AnthropicClient {
             output_tokens: u32,
         }
 
-        let completion: AnthropicResponse = response.json().await.map_err(|e| {
-            ApiError::ProviderError(format!("Failed to parse response: {}", e))
-        })?;
+        let completion: AnthropicResponse = response
+            .json()
+            .await
+            .map_err(|e| ApiError::ProviderError(format!("Failed to parse response: {}", e)))?;
 
-        let content = completion.content.first()
+        let content = completion
+            .content
+            .first()
             .map(|c| c.text.clone())
             .unwrap_or_default();
 
@@ -486,7 +512,9 @@ impl ModelProviderClient for AnthropicClient {
         _messages: Vec<ChatMessage>,
         _options: CompletionOptions,
     ) -> Result<CompletionStream, ApiError> {
-        Err(ApiError::ProviderError("Streaming not yet implemented for Anthropic".to_string()))
+        Err(ApiError::ProviderError(
+            "Streaming not yet implemented for Anthropic".to_string(),
+        ))
     }
 
     fn provider_name(&self) -> &str {
@@ -501,7 +529,7 @@ impl ModelProviderClient for AnthropicClient {
         // Anthropic doesn't have a public models list endpoint
         // Return an error indicating this isn't supported
         Err(ApiError::ProviderError(
-            "Anthropic API does not provide a models list endpoint".to_string()
+            "Anthropic API does not provide a models list endpoint".to_string(),
         ))
     }
 }
@@ -569,20 +597,25 @@ impl ModelProviderClient for OllamaClient {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(ApiError::ProviderRequestFailed(format!(
                 "Request failed with status {}: {}",
                 status, error_text
             )));
         }
 
-        let completion: ChatCompletionResponse = response.json().await.map_err(|e| {
-            ApiError::ProviderError(format!("Failed to parse response: {}", e))
-        })?;
+        let completion: ChatCompletionResponse = response
+            .json()
+            .await
+            .map_err(|e| ApiError::ProviderError(format!("Failed to parse response: {}", e)))?;
 
-        let choice = completion.choices.first().ok_or_else(|| {
-            ApiError::ProviderError("No choices in response".to_string())
-        })?;
+        let choice = completion
+            .choices
+            .first()
+            .ok_or_else(|| ApiError::ProviderError("No choices in response".to_string()))?;
 
         let usage = completion.usage.unwrap_or(Usage {
             prompt_tokens: 0,
@@ -607,7 +640,9 @@ impl ModelProviderClient for OllamaClient {
         _messages: Vec<ChatMessage>,
         _options: CompletionOptions,
     ) -> Result<CompletionStream, ApiError> {
-        Err(ApiError::ProviderError("Streaming not yet implemented for Ollama".to_string()))
+        Err(ApiError::ProviderError(
+            "Streaming not yet implemented for Ollama".to_string(),
+        ))
     }
 
     fn provider_name(&self) -> &str {
@@ -620,16 +655,14 @@ impl ModelProviderClient for OllamaClient {
 
     async fn list_models(&self) -> Result<Vec<String>, ApiError> {
         let url = format!("{}/api/tags", self.base_url);
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .map_err(map_http_error)?;
+        let response = self.client.get(&url).send().await.map_err(map_http_error)?;
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(ApiError::ProviderError(format!(
                 "Failed to list models: status {} - {}",
                 status, error_text
@@ -710,7 +743,8 @@ impl ModelProviderClient for CustomLocalClient {
             .header("Content-Type", "application/json");
 
         if let Some(api_key) = &self.api_key {
-            request_builder = request_builder.header("Authorization", format!("Bearer {}", api_key));
+            request_builder =
+                request_builder.header("Authorization", format!("Bearer {}", api_key));
         }
 
         let response = request_builder
@@ -721,20 +755,25 @@ impl ModelProviderClient for CustomLocalClient {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(ApiError::ProviderRequestFailed(format!(
                 "Request failed with status {}: {}",
                 status, error_text
             )));
         }
 
-        let completion: ChatCompletionResponse = response.json().await.map_err(|e| {
-            ApiError::ProviderError(format!("Failed to parse response: {}", e))
-        })?;
+        let completion: ChatCompletionResponse = response
+            .json()
+            .await
+            .map_err(|e| ApiError::ProviderError(format!("Failed to parse response: {}", e)))?;
 
-        let choice = completion.choices.first().ok_or_else(|| {
-            ApiError::ProviderError("No choices in response".to_string())
-        })?;
+        let choice = completion
+            .choices
+            .first()
+            .ok_or_else(|| ApiError::ProviderError("No choices in response".to_string()))?;
 
         let usage = completion.usage.unwrap_or(Usage {
             prompt_tokens: 0,
@@ -759,7 +798,9 @@ impl ModelProviderClient for CustomLocalClient {
         _messages: Vec<ChatMessage>,
         _options: CompletionOptions,
     ) -> Result<CompletionStream, ApiError> {
-        Err(ApiError::ProviderError("Streaming not yet implemented for CustomLocal".to_string()))
+        Err(ApiError::ProviderError(
+            "Streaming not yet implemented for CustomLocal".to_string(),
+        ))
     }
 
     fn provider_name(&self) -> &str {
@@ -779,17 +820,18 @@ impl ModelProviderClient for CustomLocalClient {
             .header("Content-Type", "application/json");
 
         if let Some(api_key) = &self.api_key {
-            request_builder = request_builder.header("Authorization", format!("Bearer {}", api_key));
+            request_builder =
+                request_builder.header("Authorization", format!("Bearer {}", api_key));
         }
 
-        let response = request_builder
-            .send()
-            .await
-            .map_err(map_http_error)?;
+        let response = request_builder.send().await.map_err(map_http_error)?;
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(ApiError::ProviderError(format!(
                 "Failed to list models: status {} - {}",
                 status, error_text
@@ -821,32 +863,32 @@ impl ProviderFactory {
         provider: &ModelProvider,
     ) -> Result<Box<dyn ModelProviderClient>, ApiError> {
         match provider {
-            ModelProvider::OpenAI { model, api_key, base_url } => {
-                Ok(Box::new(OpenAIClient::new(
-                    model.clone(),
-                    api_key.clone(),
-                    base_url.clone(),
-                )?))
-            }
-            ModelProvider::Anthropic { model, api_key } => {
-                Ok(Box::new(AnthropicClient::new(
-                    model.clone(),
-                    api_key.clone(),
-                )?))
-            }
-            ModelProvider::Ollama { model, base_url } => {
-                Ok(Box::new(OllamaClient::new(
-                    model.clone(),
-                    base_url.clone(),
-                )?))
-            }
-            ModelProvider::LocalCustom { model, endpoint, api_key } => {
-                Ok(Box::new(CustomLocalClient::new(
-                    model.clone(),
-                    endpoint.clone(),
-                    api_key.clone(),
-                )?))
-            }
+            ModelProvider::OpenAI {
+                model,
+                api_key,
+                base_url,
+            } => Ok(Box::new(OpenAIClient::new(
+                model.clone(),
+                api_key.clone(),
+                base_url.clone(),
+            )?)),
+            ModelProvider::Anthropic { model, api_key } => Ok(Box::new(AnthropicClient::new(
+                model.clone(),
+                api_key.clone(),
+            )?)),
+            ModelProvider::Ollama { model, base_url } => Ok(Box::new(OllamaClient::new(
+                model.clone(),
+                base_url.clone(),
+            )?)),
+            ModelProvider::LocalCustom {
+                model,
+                endpoint,
+                api_key,
+            } => Ok(Box::new(CustomLocalClient::new(
+                model.clone(),
+                endpoint.clone(),
+                api_key.clone(),
+            )?)),
         }
     }
 }
@@ -870,7 +912,10 @@ impl ProviderRegistry {
     /// Load providers from configuration
     ///
     /// For Phase 1, loads from MerkleConfig. Phase 2 will add load_from_xdg().
-    pub fn load_from_config(&mut self, config: &crate::config::MerkleConfig) -> Result<(), ApiError> {
+    pub fn load_from_config(
+        &mut self,
+        config: &crate::config::MerkleConfig,
+    ) -> Result<(), ApiError> {
         for (name, provider_config) in &config.providers {
             let mut config_with_name = provider_config.clone();
             // Set provider_name if not already set
@@ -888,102 +933,94 @@ impl ProviderRegistry {
     /// Invalid configs are logged but don't stop loading of other providers.
     pub fn load_from_xdg(&mut self) -> Result<(), ApiError> {
         let providers_dir = crate::config::xdg::providers_dir()?;
-        
+
         if !providers_dir.exists() {
             // Directory doesn't exist yet - that's okay
             return Ok(());
         }
-        
-        let entries = std::fs::read_dir(&providers_dir)
-            .map_err(|e| ApiError::ConfigError(format!(
-                "Failed to read providers directory {}: {}", 
-                providers_dir.display(), e
-            )))?;
-        
+
+        let entries = std::fs::read_dir(&providers_dir).map_err(|e| {
+            ApiError::ConfigError(format!(
+                "Failed to read providers directory {}: {}",
+                providers_dir.display(),
+                e
+            ))
+        })?;
+
         for entry in entries {
             let entry = match entry {
                 Ok(e) => e,
                 Err(e) => {
                     tracing::warn!(
-                        "Failed to read directory entry in {}: {}", 
-                        providers_dir.display(), e
+                        "Failed to read directory entry in {}: {}",
+                        providers_dir.display(),
+                        e
                     );
                     continue;
                 }
             };
-            
+
             let path = entry.path();
-            
+
             // Only process .toml files
             if path.extension() != Some(std::ffi::OsStr::new("toml")) {
                 continue;
             }
-            
+
             // Extract provider name from filename
-            let provider_name = match path.file_stem()
-                .and_then(|s| s.to_str()) {
+            let provider_name = match path.file_stem().and_then(|s| s.to_str()) {
                 Some(name) => name,
                 None => {
-                    tracing::warn!(
-                        "Invalid provider filename (non-UTF8): {:?}", 
-                        path
-                    );
+                    tracing::warn!("Invalid provider filename (non-UTF8): {:?}", path);
                     continue;
                 }
             };
-            
+
             // Load and parse TOML
             let content = match std::fs::read_to_string(&path) {
                 Ok(c) => c,
                 Err(e) => {
-                    tracing::error!(
-                        "Failed to read provider config {}: {}", 
-                        path.display(), e
-                    );
+                    tracing::error!("Failed to read provider config {}: {}", path.display(), e);
                     continue;
                 }
             };
-            
+
             let provider_config: crate::config::ProviderConfig = match toml::from_str(&content) {
                 Ok(config) => config,
                 Err(e) => {
-                    tracing::error!(
-                        "Failed to parse provider config {}: {}", 
-                        path.display(), e
-                    );
+                    tracing::error!("Failed to parse provider config {}: {}", path.display(), e);
                     continue;
                 }
             };
-            
+
             // Validate provider_name matches filename
             if let Some(ref config_name) = provider_config.provider_name {
                 if config_name != provider_name {
                     tracing::warn!(
                         "Provider name mismatch in {}: filename={}, config={}",
-                        path.display(), provider_name, config_name
+                        path.display(),
+                        provider_name,
+                        config_name
                     );
                 }
             }
-            
+
             // Set provider_name from filename if not set
             let mut config = provider_config;
             if config.provider_name.is_none() {
                 config.provider_name = Some(provider_name.to_string());
             }
-            
+
             // Validate configuration
             if let Err(e) = config.validate() {
-                tracing::error!(
-                    "Invalid provider config {}: {}", 
-                    path.display(), e
-                );
+                tracing::error!("Invalid provider config {}: {}", path.display(), e);
                 continue; // Skip invalid configs but continue loading others
             }
-            
+
             // Insert or override (XDG configs override config.toml)
             self.providers.insert(provider_name.to_string(), config);
         }
-        
+
         Ok(())
     }
 
@@ -993,7 +1030,10 @@ impl ProviderRegistry {
     }
 
     /// Get a provider configuration by name or return an error
-    pub fn get_or_error(&self, provider_name: &str) -> Result<&crate::config::ProviderConfig, ApiError> {
+    pub fn get_or_error(
+        &self,
+        provider_name: &str,
+    ) -> Result<&crate::config::ProviderConfig, ApiError> {
         self.get(provider_name).ok_or_else(|| {
             ApiError::ProviderNotConfigured(format!("Provider not found: {}", provider_name))
         })
@@ -1008,16 +1048,23 @@ impl ProviderRegistry {
     ///
     /// Looks up the provider configuration, converts it to a ModelProvider,
     /// and creates the appropriate client implementation.
-    pub fn create_client(&self, provider_name: &str) -> Result<Box<dyn ModelProviderClient>, ApiError> {
+    pub fn create_client(
+        &self,
+        provider_name: &str,
+    ) -> Result<Box<dyn ModelProviderClient>, ApiError> {
         let provider_config = self.get_or_error(provider_name)?;
         let model_provider = provider_config.to_model_provider()?;
         ProviderFactory::create_client(&model_provider)
     }
 
     /// List providers filtered by type
-    pub fn list_by_type(&self, provider_type: Option<crate::config::ProviderType>) -> Vec<&crate::config::ProviderConfig> {
+    pub fn list_by_type(
+        &self,
+        provider_type: Option<crate::config::ProviderType>,
+    ) -> Vec<&crate::config::ProviderConfig> {
         if let Some(filter_type) = provider_type {
-            self.providers.values()
+            self.providers
+                .values()
                 .filter(|provider| provider.provider_type == filter_type)
                 .collect()
         } else {
@@ -1032,15 +1079,19 @@ impl ProviderRegistry {
     }
 
     /// Save provider configuration to XDG directory
-    pub fn save_provider_config(provider_name: &str, config: &crate::config::ProviderConfig) -> Result<(), ApiError> {
+    pub fn save_provider_config(
+        provider_name: &str,
+        config: &crate::config::ProviderConfig,
+    ) -> Result<(), ApiError> {
         let config_path = Self::get_provider_config_path(provider_name)?;
-        
+
         // Ensure providers directory exists
         let providers_dir = crate::config::xdg::providers_dir()?;
         std::fs::create_dir_all(&providers_dir).map_err(|e| {
             ApiError::ConfigError(format!(
                 "Failed to create providers directory {}: {}",
-                providers_dir.display(), e
+                providers_dir.display(),
+                e
             ))
         })?;
 
@@ -1059,7 +1110,8 @@ impl ProviderRegistry {
         std::fs::write(&config_path, toml_content).map_err(|e| {
             ApiError::ConfigError(format!(
                 "Failed to write provider config to {}: {}",
-                config_path.display(), e
+                config_path.display(),
+                e
             ))
         })?;
 
@@ -1069,7 +1121,7 @@ impl ProviderRegistry {
     /// Delete provider configuration file
     pub fn delete_provider_config(provider_name: &str) -> Result<(), ApiError> {
         let config_path = Self::get_provider_config_path(provider_name)?;
-        
+
         if !config_path.exists() {
             return Err(ApiError::ConfigError(format!(
                 "Provider config file not found: {}",
@@ -1080,7 +1132,8 @@ impl ProviderRegistry {
         std::fs::remove_file(&config_path).map_err(|e| {
             ApiError::ConfigError(format!(
                 "Failed to delete provider config file {}: {}",
-                config_path.display(), e
+                config_path.display(),
+                e
             ))
         })?;
 
@@ -1111,16 +1164,21 @@ impl ProviderRegistry {
 
         // Validate provider name matches filename
         let expected_filename = format!("{}.toml", provider_name);
-        if config_path.file_name()
+        if config_path
+            .file_name()
             .and_then(|n| n.to_str())
             .map(|n| n == expected_filename)
-            .unwrap_or(false) {
+            .unwrap_or(false)
+        {
             result.add_check("Provider name matches filename", true);
         } else {
             result.add_error(format!(
                 "Provider name '{}' doesn't match filename '{}'",
                 provider_name,
-                config_path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown")
+                config_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown")
             ));
         }
 
@@ -1164,7 +1222,7 @@ impl ProviderRegistry {
                         }
                         _ => false,
                     };
-                
+
                 if api_key_available {
                     let source = if provider_config.api_key.is_some() {
                         "from config"
@@ -1229,10 +1287,7 @@ impl ProviderRegistry {
             if top_p >= 0.0 && top_p <= 1.0 {
                 result.add_check("Top-p is in valid range (0.0-1.0)", true);
             } else {
-                result.add_error(format!(
-                    "Top-p must be between 0.0 and 1.0, got {}",
-                    top_p
-                ));
+                result.add_error(format!("Top-p must be between 0.0 and 1.0, got {}", top_p));
             }
         }
 
@@ -1344,7 +1399,9 @@ impl ModelProviderClient for MockProvider {
         _messages: Vec<ChatMessage>,
         _options: CompletionOptions,
     ) -> Result<CompletionStream, ApiError> {
-        Err(ApiError::ProviderError("Streaming not implemented for mock".to_string()))
+        Err(ApiError::ProviderError(
+            "Streaming not implemented for mock".to_string(),
+        ))
     }
 
     fn provider_name(&self) -> &str {
@@ -1365,8 +1422,8 @@ impl ModelProviderClient for MockProvider {
 mod tests {
     use super::*;
     use crate::config::{ProviderConfig, ProviderType};
-    use tempfile::TempDir;
     use std::sync::Mutex;
+    use tempfile::TempDir;
 
     // Mutex to serialize XDG_CONFIG_HOME environment variable access in tests
     static XDG_CONFIG_MUTEX: Mutex<()> = Mutex::new(());
@@ -1380,23 +1437,23 @@ mod tests {
         let original_xdg_config = std::env::var("XDG_CONFIG_HOME").ok();
         let test_config_home = test_dir.path().to_path_buf();
         std::env::set_var("XDG_CONFIG_HOME", test_config_home.to_str().unwrap());
-        
+
         let result = f();
-        
+
         // Restore original
         if let Some(orig) = original_xdg_config {
             std::env::set_var("XDG_CONFIG_HOME", orig);
         } else {
             std::env::remove_var("XDG_CONFIG_HOME");
         }
-        
+
         result
     }
 
     #[test]
     fn test_provider_registry_list_by_type() {
         let mut registry = ProviderRegistry::new();
-        
+
         let provider1 = ProviderConfig {
             provider_name: Some("test-openai".to_string()),
             provider_type: ProviderType::OpenAI,
@@ -1405,7 +1462,7 @@ mod tests {
             endpoint: None,
             default_options: CompletionOptions::default(),
         };
-        
+
         let provider2 = ProviderConfig {
             provider_name: Some("test-ollama".to_string()),
             provider_type: ProviderType::Ollama,
@@ -1414,7 +1471,7 @@ mod tests {
             endpoint: Some("http://localhost:11434".to_string()),
             default_options: CompletionOptions::default(),
         };
-        
+
         let provider3 = ProviderConfig {
             provider_name: Some("test-anthropic".to_string()),
             provider_type: ProviderType::Anthropic,
@@ -1423,20 +1480,32 @@ mod tests {
             endpoint: None,
             default_options: CompletionOptions::default(),
         };
-        
-        registry.providers.insert("test-openai".to_string(), provider1);
-        registry.providers.insert("test-ollama".to_string(), provider2);
-        registry.providers.insert("test-anthropic".to_string(), provider3);
-        
+
+        registry
+            .providers
+            .insert("test-openai".to_string(), provider1);
+        registry
+            .providers
+            .insert("test-ollama".to_string(), provider2);
+        registry
+            .providers
+            .insert("test-anthropic".to_string(), provider3);
+
         // Test filtering by type
         let openai_providers = registry.list_by_type(Some(ProviderType::OpenAI));
         assert_eq!(openai_providers.len(), 1);
-        assert_eq!(openai_providers[0].provider_name.as_deref(), Some("test-openai"));
-        
+        assert_eq!(
+            openai_providers[0].provider_name.as_deref(),
+            Some("test-openai")
+        );
+
         let ollama_providers = registry.list_by_type(Some(ProviderType::Ollama));
         assert_eq!(ollama_providers.len(), 1);
-        assert_eq!(ollama_providers[0].provider_name.as_deref(), Some("test-ollama"));
-        
+        assert_eq!(
+            ollama_providers[0].provider_name.as_deref(),
+            Some("test-ollama")
+        );
+
         // Test listing all
         let all_providers = registry.list_by_type(None);
         assert_eq!(all_providers.len(), 3);
@@ -1464,23 +1533,23 @@ mod tests {
                 endpoint: Some("http://localhost:11434".to_string()),
                 default_options: CompletionOptions::default(),
             };
-            
+
             // Save provider config
             ProviderRegistry::save_provider_config("test-provider", &provider_config).unwrap();
-            
+
             // Verify file exists
             let config_path = ProviderRegistry::get_provider_config_path("test-provider").unwrap();
             assert!(config_path.exists());
-            
+
             // Load and verify content
             let content = std::fs::read_to_string(&config_path).unwrap();
             assert!(content.contains("test-provider"));
             assert!(content.contains("ollama"));
             assert!(content.contains("llama2"));
-            
+
             // Delete provider config
             ProviderRegistry::delete_provider_config("test-provider").unwrap();
-            
+
             // Verify file is deleted
             assert!(!config_path.exists());
         });
@@ -1499,36 +1568,39 @@ mod tests {
                 endpoint: Some("http://localhost:11434".to_string()),
                 default_options: CompletionOptions::default(),
             };
-            
+
             ProviderRegistry::save_provider_config("test-provider", &provider_config).unwrap();
-            
+
             // Load registry and validate
             let mut registry = ProviderRegistry::new();
             registry.load_from_xdg().unwrap();
-            
+
             let result = registry.validate_provider("test-provider").unwrap();
-            
+
             // Should have some checks
             assert!(result.total_checks() > 0);
             // Should pass basic validation (model not empty, etc.)
-            assert!(result.checks.iter().any(|(desc, _)| desc.contains("Model is not empty")));
+            assert!(result
+                .checks
+                .iter()
+                .any(|(desc, _)| desc.contains("Model is not empty")));
         });
     }
 
     #[test]
     fn test_validation_result() {
         let mut result = ValidationResult::new("test-provider".to_string());
-        
+
         assert_eq!(result.provider_name, "test-provider");
         assert_eq!(result.total_checks(), 0);
         assert_eq!(result.passed_checks(), 0);
         assert!(result.is_valid());
-        
+
         result.add_check("Test check 1", true);
         result.add_check("Test check 2", false);
         result.add_error("Test error".to_string());
         result.add_warning("Test warning".to_string());
-        
+
         assert_eq!(result.total_checks(), 2);
         assert_eq!(result.passed_checks(), 1);
         assert_eq!(result.errors.len(), 1);
@@ -1575,11 +1647,17 @@ mod tests {
             content: "Test".to_string(),
         }];
 
-        let response1 = mock.complete(messages.clone(), CompletionOptions::default()).await.unwrap();
+        let response1 = mock
+            .complete(messages.clone(), CompletionOptions::default())
+            .await
+            .unwrap();
         assert_eq!(response1.content, "Response 1");
         assert_eq!(response1.model, "mock-model");
 
-        let response2 = mock.complete(messages, CompletionOptions::default()).await.unwrap();
+        let response2 = mock
+            .complete(messages, CompletionOptions::default())
+            .await
+            .unwrap();
         assert_eq!(response2.content, "Response 2");
     }
 

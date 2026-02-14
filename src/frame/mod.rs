@@ -29,8 +29,8 @@ pub enum Basis {
 pub struct Frame {
     pub frame_id: FrameID,
     pub basis: Basis,
-    pub content: Vec<u8>, // Blob
-    pub frame_type: String, // Frame type identifier
+    pub content: Vec<u8>,                  // Blob
+    pub frame_type: String,                // Frame type identifier
     pub metadata: HashMap<String, String>, // Non-hashed
     pub timestamp: std::time::SystemTime,
 }

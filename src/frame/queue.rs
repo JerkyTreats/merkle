@@ -6,7 +6,9 @@
 use crate::api::{ContextApi, ContextView};
 use crate::error::ApiError;
 use crate::frame::{Basis, Frame};
-use crate::progress::{ProgressRuntime, ProviderLifecycleEventData, QueueEventData, QueueStatsEventData};
+use crate::progress::{
+    ProgressRuntime, ProviderLifecycleEventData, QueueEventData, QueueStatsEventData,
+};
 use crate::provider::ChatMessage;
 use crate::store::NodeRecord;
 use crate::types::{FrameID, NodeID};
@@ -23,10 +25,10 @@ use tracing::{debug, error, info, warn};
 /// Priority level for generation requests
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Priority {
-    Low = 0,      // Existing files during initial scan
-    Normal = 1,   // Default priority
-    High = 2,     // New files in watch mode
-    Urgent = 3,   // User-initiated requests
+    Low = 0,    // Existing files during initial scan
+    Normal = 1, // Default priority
+    High = 2,   // New files in watch mode
+    Urgent = 3, // User-initiated requests
 }
 
 /// Request ID for tracking completion
@@ -185,7 +187,10 @@ impl AgentRateLimiter {
 
     async fn acquire(&self, agent_id: &str) -> Result<tokio::sync::SemaphorePermit<'_>, ApiError> {
         // Acquire semaphore (concurrency limit)
-        let permit = self.semaphore.acquire().await
+        let permit = self
+            .semaphore
+            .acquire()
+            .await
             .map_err(|_| ApiError::ProviderRateLimit("Semaphore closed".to_string()))?;
 
         // Check rate limit delay
@@ -203,12 +208,12 @@ impl AgentRateLimiter {
                     None
                 }
             };
-            
+
             // Sleep if needed (after dropping the guard)
             if let Some(duration) = sleep_duration {
                 sleep(duration).await;
             }
-            
+
             // Update last request time
             {
                 let mut last = self.last_request.write();
@@ -244,10 +249,7 @@ pub struct FrameGenerationQueue {
 
 impl FrameGenerationQueue {
     /// Create a new generation queue
-    pub fn new(
-        api: Arc<ContextApi>,
-        config: GenerationConfig,
-    ) -> Self {
+    pub fn new(api: Arc<ContextApi>, config: GenerationConfig) -> Self {
         Self::with_event_context(api, config, None)
     }
 
@@ -386,7 +388,7 @@ impl FrameGenerationQueue {
     ) -> Result<FrameID, ApiError> {
         let request_id = RequestId::next();
         let (tx, rx) = oneshot::channel();
-        
+
         let mut queue = self.queue.lock().await;
 
         // Check queue size limit
@@ -453,12 +455,10 @@ impl FrameGenerationQueue {
 
         // Wait for completion
         match timeout {
-            Some(timeout) => {
-                tokio::time::timeout(timeout, rx)
-                    .await
-                    .map_err(|_| ApiError::ConfigError("Timeout waiting for generation".to_string()))?
-                    .map_err(|_| ApiError::ConfigError("Completion channel closed".to_string()))?
-            }
+            Some(timeout) => tokio::time::timeout(timeout, rx)
+                .await
+                .map_err(|_| ApiError::ConfigError("Timeout waiting for generation".to_string()))?
+                .map_err(|_| ApiError::ConfigError("Completion channel closed".to_string()))?,
             None => rx
                 .await
                 .map_err(|_| ApiError::ConfigError("Completion channel closed".to_string()))?,
@@ -564,7 +564,8 @@ impl FrameGenerationQueue {
                     running,
                     stats,
                     event_context,
-                ).await;
+                )
+                .await;
             });
 
             workers.push(handle);
@@ -690,17 +691,16 @@ impl FrameGenerationQueue {
             // We need to clone the Arc references, not the limiter itself
             let (semaphore, last_request, min_delay) = {
                 let mut limiters = rate_limiters.write();
-                let limiter = limiters
-                    .entry(request.agent_id.clone())
-                    .or_insert_with(|| {
-                        AgentRateLimiter::new(
-                            config.max_concurrent_per_agent,
-                            config.rate_limit_ms,
-                        )
-                    });
-                (Arc::clone(&limiter.semaphore), Arc::clone(&limiter.last_request), limiter.min_delay)
+                let limiter = limiters.entry(request.agent_id.clone()).or_insert_with(|| {
+                    AgentRateLimiter::new(config.max_concurrent_per_agent, config.rate_limit_ms)
+                });
+                (
+                    Arc::clone(&limiter.semaphore),
+                    Arc::clone(&limiter.last_request),
+                    limiter.min_delay,
+                )
             };
-            
+
             // Create a temporary rate limiter for this request
             let rate_limiter = AgentRateLimiter {
                 semaphore,
@@ -737,12 +737,8 @@ impl FrameGenerationQueue {
             };
 
             // Process request
-            let result = Self::process_request(
-                &request,
-                &api,
-                &config,
-                event_context.clone(),
-            ).await;
+            let result =
+                Self::process_request(&request, &api, &config, event_context.clone()).await;
 
             // Determine if we should retry (before sending result to completion channel)
             let should_retry = {
@@ -782,7 +778,7 @@ impl FrameGenerationQueue {
                     let _ = tx.send(result);
                 }
             }
-            
+
             // Re-queue if needed (after dropping stats guard)
             if should_retry {
                 Self::emit_provider_event_static(
@@ -801,18 +797,18 @@ impl FrameGenerationQueue {
                 request.retry_count += 1;
                 // Add retry delay before re-queuing
                 sleep(Duration::from_millis(config.retry_delay_ms)).await;
-                
+
                 // Clone request for re-queuing (completion_tx already extracted above)
                 let mut retry_request = request.clone();
                 retry_request.completion_tx = None; // Don't retry sync requests - they should fail
-                
+
                 let mut queue_guard = queue.lock().await;
                 queue_guard.push(retry_request);
                 drop(queue_guard);
-                
+
                 // Notify workers that a retry is available
                 notify.notify_one();
-                
+
                 // Update stats after re-queuing
                 let mut stats_guard = stats.write();
                 stats_guard.pending += 1;
@@ -897,16 +893,16 @@ impl FrameGenerationQueue {
         let context = api.get_node(request.node_id, view)?;
 
         // Build messages for LLM
-        let mut messages = vec![
-            ChatMessage {
-                role: crate::provider::MessageRole::System,
-                content: system_prompt,
-            },
-        ];
+        let mut messages = vec![ChatMessage {
+            role: crate::provider::MessageRole::System,
+            content: system_prompt,
+        }];
 
         // Add context from existing frames
         if !context.frames.is_empty() {
-            let context_text: String = context.frames.iter()
+            let context_text: String = context
+                .frames
+                .iter()
                 .map(|f| String::from_utf8_lossy(&f.content))
                 .collect::<Vec<_>>()
                 .join("\n\n");
@@ -923,7 +919,7 @@ impl FrameGenerationQueue {
 
         // Resolve completion options: provider defaults > agent preferences (if any)
         let completion_options = provider_config.default_options.clone();
-        
+
         // Agent preferences from metadata (optional hints, not requirements)
         // For now, we just use provider defaults. Agent preferences can be added later if needed.
 
@@ -942,10 +938,7 @@ impl FrameGenerationQueue {
                 retry_count: Some(request.retry_count),
             },
         );
-        let response = match client.complete(
-            messages,
-            completion_options,
-        ).await {
+        let response = match client.complete(messages, completion_options).await {
             Ok(r) => Ok(r),
             Err(e) => {
                 Self::emit_provider_event_static(
@@ -1010,7 +1003,13 @@ impl FrameGenerationQueue {
         metadata.insert("provider_type".to_string(), provider_type_str.to_string());
         metadata.insert("prompt".to_string(), user_prompt);
 
-        let frame = Frame::new(basis, content, request.frame_type.clone(), request.agent_id.clone(), metadata)?;
+        let frame = Frame::new(
+            basis,
+            content,
+            request.frame_type.clone(),
+            request.agent_id.clone(),
+            metadata,
+        )?;
 
         // Store frame using put_frame
         let frame_id = api.put_frame(request.node_id, frame, request.agent_id.clone())?;
@@ -1028,7 +1027,10 @@ impl FrameGenerationQueue {
     }
 
     /// Validate that agent has all required prompts
-    pub fn validate_agent_prompts(agent: &crate::agent::AgentIdentity, node_record: &NodeRecord) -> Vec<String> {
+    pub fn validate_agent_prompts(
+        agent: &crate::agent::AgentIdentity,
+        node_record: &NodeRecord,
+    ) -> Vec<String> {
         let mut missing = Vec::new();
 
         if !agent.metadata.contains_key("system_prompt") {
@@ -1061,10 +1063,7 @@ impl FrameGenerationQueue {
             .metadata
             .get("system_prompt")
             .ok_or_else(|| {
-                ApiError::ConfigError(format!(
-                    "Agent '{}' missing system_prompt",
-                    agent.agent_id
-                ))
+                ApiError::ConfigError(format!("Agent '{}' missing system_prompt", agent.agent_id))
             })?
             .clone();
 
@@ -1091,10 +1090,13 @@ impl FrameGenerationQueue {
         // Replace placeholders in template
         let mut user_prompt = user_prompt_template
             .replace("{path}", &node_record.path.display().to_string())
-            .replace("{node_type}", match node_record.node_type {
-                crate::store::NodeType::File { .. } => "File",
-                crate::store::NodeType::Directory => "Directory",
-            });
+            .replace(
+                "{node_type}",
+                match node_record.node_type {
+                    crate::store::NodeType::File { .. } => "File",
+                    crate::store::NodeType::Directory => "Directory",
+                },
+            );
 
         // For file nodes, add file size if available
         if let crate::store::NodeType::File { size, .. } = node_record.node_type {
@@ -1165,4 +1167,3 @@ impl FrameGenerationQueue {
         }
     }
 }
-

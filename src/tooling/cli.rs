@@ -6,25 +6,25 @@
 use crate::api::{ContextApi, ContextView};
 use crate::config::ConfigLoader;
 use crate::error::ApiError;
-use crate::frame::{FrameGenerationQueue, GenerationConfig};
 use crate::frame::queue::QueueEventContext;
-use crate::ignore;
+use crate::frame::{FrameGenerationQueue, GenerationConfig};
 use crate::heads::HeadIndex;
-use crate::progress::{command_name, PrunePolicy, ProgressRuntime, SummaryEventData};
+use crate::ignore;
+use crate::progress::{command_name, ProgressRuntime, PrunePolicy, SummaryEventData};
 use crate::regeneration::BasisIndex;
-use crate::store::{NodeRecord, NodeRecordStore};
 use crate::store::persistence::SledNodeRecordStore;
+use crate::store::{NodeRecord, NodeRecordStore};
 use crate::tooling::adapter::AgentAdapter;
 use crate::tree::builder::TreeBuilder;
 use crate::tree::walker::WalkerConfig;
 use crate::types::{Hash, NodeID};
 use clap::{Parser, Subcommand};
+use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
-use serde_json::json;
 use tracing::info;
 
 use hex;
@@ -160,7 +160,7 @@ pub enum Commands {
         /// Force re-initialization (overwrite existing)
         #[arg(long)]
         force: bool,
-        
+
         /// List what would be initialized without creating
         #[arg(long)]
         list: bool,
@@ -445,27 +445,27 @@ pub enum ContextCommands {
         /// Target node by NodeID (hex string)
         #[arg(long, conflicts_with_all = ["path", "path_positional"])]
         node: Option<String>,
-        
+
         /// Target node by workspace-relative or absolute path
         #[arg(long, value_name = "PATH", conflicts_with = "node")]
         path: Option<PathBuf>,
-        
+
         /// Target path (positional; same as --path)
         #[arg(value_name = "PATH", index = 1, conflicts_with = "node")]
         path_positional: Option<PathBuf>,
-        
+
         /// Agent to use for generation
         #[arg(long)]
         agent: Option<String>,
-        
+
         /// Provider to use for generation (required)
         #[arg(long)]
         provider: Option<String>,
-        
+
         /// Frame type (defaults to context-<agent_id>)
         #[arg(long)]
         frame_type: Option<String>,
-        
+
         /// Generate even if head frame exists
         #[arg(long)]
         force: bool,
@@ -475,43 +475,43 @@ pub enum ContextCommands {
         /// Target node by NodeID (hex string)
         #[arg(long, conflicts_with = "path")]
         node: Option<String>,
-        
+
         /// Target node by workspace-relative or absolute path
         #[arg(long, conflicts_with = "node")]
         path: Option<PathBuf>,
-        
+
         /// Filter by agent ID
         #[arg(long)]
         agent: Option<String>,
-        
+
         /// Filter by frame type
         #[arg(long)]
         frame_type: Option<String>,
-        
+
         /// Maximum frames to return
         #[arg(long, default_value = "10")]
         max_frames: usize,
-        
+
         /// Ordering policy: recency or deterministic
         #[arg(long, default_value = "recency")]
         ordering: String,
-        
+
         /// Concatenate frame contents with separator
         #[arg(long)]
         combine: bool,
-        
+
         /// Separator used with --combine
         #[arg(long, default_value = "\n\n---\n\n")]
         separator: String,
-        
+
         /// Output format: text or json
         #[arg(long, default_value = "text")]
         format: String,
-        
+
         /// Include metadata fields in output
         #[arg(long)]
         include_metadata: bool,
-        
+
         /// Include frames marked deleted (tombstones)
         #[arg(long)]
         include_deleted: bool,
@@ -551,14 +551,14 @@ impl CliContext {
         } else {
             crate::config::ConfigLoader::load(&workspace_root)?
         };
-        
+
         // Resolve storage paths (will use XDG directories for default paths)
-        let (store_path, frame_storage_path) = config.system.storage.resolve_paths(&workspace_root)?;
-        
+        let (store_path, frame_storage_path) =
+            config.system.storage.resolve_paths(&workspace_root)?;
+
         // Initialize storage
-        std::fs::create_dir_all(&store_path).map_err(|e| {
-            ApiError::StorageError(crate::error::StorageError::IoError(e))
-        })?;
+        std::fs::create_dir_all(&store_path)
+            .map_err(|e| ApiError::StorageError(crate::error::StorageError::IoError(e)))?;
 
         let db = sled::open(&store_path).map_err(|e| {
             ApiError::StorageError(crate::error::StorageError::IoError(std::io::Error::new(
@@ -568,42 +568,45 @@ impl CliContext {
         })?;
         let node_store = Arc::new(SledNodeRecordStore::from_db(db.clone()));
         let progress = Arc::new(ProgressRuntime::new(db).map_err(ApiError::StorageError)?);
-        
-        std::fs::create_dir_all(&frame_storage_path).map_err(|e| {
-            ApiError::StorageError(crate::error::StorageError::IoError(e))
-        })?;
+
+        std::fs::create_dir_all(&frame_storage_path)
+            .map_err(|e| ApiError::StorageError(crate::error::StorageError::IoError(e)))?;
         let frame_storage = Arc::new(
             crate::frame::storage::FrameStorage::new(&frame_storage_path)
-                .map_err(|e| ApiError::StorageError(e))?
+                .map_err(|e| ApiError::StorageError(e))?,
         );
         // Load head index from disk, or create empty if not found
         let head_index_path = HeadIndex::persistence_path(&workspace_root);
         let head_index = Arc::new(parking_lot::RwLock::new(
-            HeadIndex::load_from_disk(&head_index_path)
-                .unwrap_or_else(|e| {
-                    tracing::warn!("Failed to load head index from disk: {}, starting with empty index", e);
-                    HeadIndex::new()
-                })
+            HeadIndex::load_from_disk(&head_index_path).unwrap_or_else(|e| {
+                tracing::warn!(
+                    "Failed to load head index from disk: {}, starting with empty index",
+                    e
+                );
+                HeadIndex::new()
+            }),
         ));
 
         // Load basis index from disk, or create empty if not found
         let basis_index_path = BasisIndex::persistence_path(&workspace_root);
         let basis_index = Arc::new(parking_lot::RwLock::new(
-            BasisIndex::load_from_disk(&basis_index_path)
-                .unwrap_or_else(|e| {
-                    tracing::warn!("Failed to load basis index from disk: {}, starting with empty index", e);
-                    BasisIndex::new()
-                })
+            BasisIndex::load_from_disk(&basis_index_path).unwrap_or_else(|e| {
+                tracing::warn!(
+                    "Failed to load basis index from disk: {}, starting with empty index",
+                    e
+                );
+                BasisIndex::new()
+            }),
         ));
         // Load agents and providers from config.toml first, then XDG (XDG overrides)
         let mut agent_registry = crate::agent::AgentRegistry::new();
         agent_registry.load_from_config(&config)?;
-        agent_registry.load_from_xdg()?;  // XDG agents override config.toml agents
-        
+        agent_registry.load_from_xdg()?; // XDG agents override config.toml agents
+
         let mut provider_registry = crate::provider::ProviderRegistry::new();
         provider_registry.load_from_config(&config)?;
-        provider_registry.load_from_xdg()?;  // XDG providers override config.toml providers
-        
+        provider_registry.load_from_xdg()?; // XDG providers override config.toml providers
+
         let agent_registry = Arc::new(parking_lot::RwLock::new(agent_registry));
         let provider_registry = Arc::new(parking_lot::RwLock::new(provider_registry));
         let lock_manager = Arc::new(crate::concurrency::NodeLockManager::new());
@@ -620,7 +623,8 @@ impl CliContext {
         );
 
         // Store resolved storage paths for later use
-        let (store_path, frame_storage_path) = config.system.storage.resolve_paths(&workspace_root)?;
+        let (store_path, frame_storage_path) =
+            config.system.storage.resolve_paths(&workspace_root)?;
 
         Ok(Self {
             api: Arc::new(api),
@@ -637,7 +641,10 @@ impl CliContext {
     ///
     /// The queue is initialized lazily when needed for context generation commands.
     /// Creates a new queue each time (it's cheap to create, workers are started on first use).
-    fn get_or_create_queue(&self, session_id: Option<&str>) -> Result<Arc<FrameGenerationQueue>, ApiError> {
+    fn get_or_create_queue(
+        &self,
+        session_id: Option<&str>,
+    ) -> Result<Arc<FrameGenerationQueue>, ApiError> {
         let gen_config = GenerationConfig::default();
         let event_context = session_id.map(|session| QueueEventContext {
             session_id: session.to_string(),
@@ -648,10 +655,10 @@ impl CliContext {
             gen_config,
             event_context,
         ));
-        
+
         // Start the queue workers
         queue.start()?;
-        
+
         Ok(queue)
     }
 
@@ -668,7 +675,8 @@ impl CliContext {
             ignore_patterns,
             max_depth: None,
         };
-        let builder = TreeBuilder::new(self.workspace_root.clone()).with_walker_config(walker_config);
+        let builder =
+            TreeBuilder::new(self.workspace_root.clone()).with_walker_config(walker_config);
         let root_hash = match builder.compute_root() {
             Ok(hash) => hash,
             Err(e) => {
@@ -683,14 +691,21 @@ impl CliContext {
                         "warnings": warnings
                     });
                     return Ok(serde_json::to_string_pretty(&out).map_err(|e| {
-                        ApiError::StorageError(crate::error::StorageError::InvalidPath(e.to_string()))
+                        ApiError::StorageError(crate::error::StorageError::InvalidPath(
+                            e.to_string(),
+                        ))
                     })?);
                 }
                 return Ok(format!("Validation failed:\n{}", errors.join("\n")));
             }
         };
 
-        let node_count = match self.api.node_store().get(&root_hash).map_err(ApiError::from)? {
+        let node_count = match self
+            .api
+            .node_store()
+            .get(&root_hash)
+            .map_err(ApiError::from)?
+        {
             Some(record) => {
                 if record.node_id != root_hash {
                     errors.push(format!(
@@ -699,10 +714,16 @@ impl CliContext {
                         hex::encode(root_hash)
                     ));
                 }
-                self.api.node_store().list_all().map_err(ApiError::from)?.len()
+                self.api
+                    .node_store()
+                    .list_all()
+                    .map_err(ApiError::from)?
+                    .len()
             }
             None => {
-                warnings.push("Root node not found in store - workspace may not be scanned".to_string());
+                warnings.push(
+                    "Root node not found in store - workspace may not be scanned".to_string(),
+                );
                 0
             }
         };
@@ -711,7 +732,13 @@ impl CliContext {
         for node_id in head_index.get_all_node_ids() {
             let frame_ids = head_index.get_all_heads_for_node(&node_id);
             for frame_id in frame_ids {
-                if self.api.frame_storage().get(&frame_id).map_err(ApiError::from)?.is_none() {
+                if self
+                    .api
+                    .frame_storage()
+                    .get(&frame_id)
+                    .map_err(ApiError::from)?
+                    .is_none()
+                {
                     warnings.push(format!(
                         "Head frame {} for node {} not found in storage",
                         hex::encode(frame_id),
@@ -725,7 +752,13 @@ impl CliContext {
         let basis_index = self.api.basis_index().read();
         for (_basis_hash, frame_ids) in basis_index.iter() {
             for frame_id in frame_ids {
-                if self.api.frame_storage().get(frame_id).map_err(ApiError::from)?.is_none() {
+                if self
+                    .api
+                    .frame_storage()
+                    .get(frame_id)
+                    .map_err(ApiError::from)?
+                    .is_none()
+                {
                     warnings.push(format!(
                         "Basis index frame {} not found in storage",
                         hex::encode(frame_id)
@@ -841,7 +874,10 @@ impl CliContext {
             false, // active only (find_by_path)
         )?;
         let store = self.api().node_store();
-        let record = store.get(&node_id).map_err(ApiError::from)?.ok_or_else(|| ApiError::NodeNotFound(node_id))?;
+        let record = store
+            .get(&node_id)
+            .map_err(ApiError::from)?
+            .ok_or_else(|| ApiError::NodeNotFound(node_id))?;
         if record.tombstoned_at.is_some() {
             return Ok("Already deleted.".to_string());
         }
@@ -850,9 +886,17 @@ impl CliContext {
             let n = set.len() as u64;
             let mut total_heads = 0u64;
             for nid in &set {
-                total_heads += self.api().head_index().read().get_all_heads_for_node(nid).len() as u64;
+                total_heads += self
+                    .api()
+                    .head_index()
+                    .read()
+                    .get_all_heads_for_node(nid)
+                    .len() as u64;
             }
-            return Ok(format!("Would delete {} nodes, {} head entries.", n, total_heads));
+            return Ok(format!(
+                "Would delete {} nodes, {} head entries.",
+                n, total_heads
+            ));
         }
         let result = self.api().tombstone_node(node_id)?;
         let path_for_ignore = if !no_ignore {
@@ -862,7 +906,10 @@ impl CliContext {
         } else {
             None
         };
-        let mut msg = format!("Deleted {} nodes, {} head entries.", result.nodes_tombstoned, result.head_entries_tombstoned);
+        let mut msg = format!(
+            "Deleted {} nodes, {} head entries.",
+            result.nodes_tombstoned, result.head_entries_tombstoned
+        );
         if let Some(p) = path_for_ignore {
             msg.push_str(&format!(" Added {} to ignore list.", p));
         }
@@ -883,7 +930,10 @@ impl CliContext {
             true, // include tombstoned (get_by_path)
         )?;
         let store = self.api().node_store();
-        let record = store.get(&node_id).map_err(ApiError::from)?.ok_or_else(|| ApiError::NodeNotFound(node_id))?;
+        let record = store
+            .get(&node_id)
+            .map_err(ApiError::from)?
+            .ok_or_else(|| ApiError::NodeNotFound(node_id))?;
         if record.tombstoned_at.is_none() {
             return Ok("Not deleted.".to_string());
         }
@@ -892,14 +942,25 @@ impl CliContext {
             let n = set.len() as u64;
             let mut total_heads = 0u64;
             for nid in &set {
-                total_heads += self.api().head_index().read().get_all_heads_for_node(nid).len() as u64;
+                total_heads += self
+                    .api()
+                    .head_index()
+                    .read()
+                    .get_all_heads_for_node(nid)
+                    .len() as u64;
             }
-            return Ok(format!("Would restore {} nodes, {} head entries.", n, total_heads));
+            return Ok(format!(
+                "Would restore {} nodes, {} head entries.",
+                n, total_heads
+            ));
         }
         let result = self.api().restore_node(node_id)?;
         let norm = ignore::normalize_workspace_relative(&self.workspace_root, &record.path)?;
         let _ = ignore::remove_from_ignore_list(&self.workspace_root, &record.path);
-        Ok(format!("Restored {} nodes, {} head entries. Removed {} from ignore list.", result.nodes_restored, result.head_entries_restored, norm))
+        Ok(format!(
+            "Restored {} nodes, {} head entries. Removed {} from ignore list.",
+            result.nodes_restored, result.head_entries_restored, norm
+        ))
     }
 
     fn run_workspace_compact(
@@ -909,7 +970,10 @@ impl CliContext {
         keep_frames: bool,
         dry_run: bool,
     ) -> Result<String, ApiError> {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let ttl_seconds = if all {
             0
         } else {
@@ -917,15 +981,29 @@ impl CliContext {
             ttl_days * 24 * 60 * 60
         };
         let cutoff = now.saturating_sub(ttl_seconds);
-        let node_ids = self.api().node_store().list_tombstoned(Some(cutoff)).map_err(ApiError::from)?;
+        let node_ids = self
+            .api()
+            .node_store()
+            .list_tombstoned(Some(cutoff))
+            .map_err(ApiError::from)?;
         if dry_run {
             let mut frames = 0u64;
             if !keep_frames {
                 for nid in &node_ids {
-                    frames += self.api().head_index().read().get_all_heads_for_node(nid).len() as u64;
+                    frames += self
+                        .api()
+                        .head_index()
+                        .read()
+                        .get_all_heads_for_node(nid)
+                        .len() as u64;
                 }
             }
-            let head_count: usize = self.api().head_index().read().heads.iter()
+            let head_count: usize = self
+                .api()
+                .head_index()
+                .read()
+                .heads
+                .iter()
                 .filter(|(_, e)| e.tombstoned_at.map_or(false, |ts| ts <= cutoff))
                 .count();
             return Ok(format!(
@@ -938,9 +1016,7 @@ impl CliContext {
         let result = self.api().compact(ttl_seconds, !keep_frames)?;
         Ok(format!(
             "Compacted {} nodes, {} head entries, {} frames.",
-            result.nodes_purged,
-            result.head_entries_purged,
-            result.frames_purged
+            result.nodes_purged, result.head_entries_purged, result.frames_purged
         ))
     }
 
@@ -950,13 +1026,23 @@ impl CliContext {
         format: &str,
     ) -> Result<String, ApiError> {
         let cutoff = older_than.map(|days| {
-            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
             now.saturating_sub(days * 24 * 60 * 60)
         });
-        let node_ids = self.api().node_store().list_tombstoned(cutoff).map_err(ApiError::from)?;
+        let node_ids = self
+            .api()
+            .node_store()
+            .list_tombstoned(cutoff)
+            .map_err(ApiError::from)?;
         let store = self.api().node_store();
         let mut rows: Vec<(String, String, u64, String)> = Vec::new();
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         for nid in &node_ids {
             if let Some(record) = store.get(nid).map_err(ApiError::from)? {
                 let ts = record.tombstoned_at.unwrap_or(0);
@@ -1013,9 +1099,7 @@ impl CliContext {
     /// Execute a CLI command
     pub fn execute(&self, command: &Commands) -> Result<String, ApiError> {
         let started = Instant::now();
-        let session_id = self
-            .progress
-            .start_command_session(command_name(command))?;
+        let session_id = self.progress.start_command_session(command_name(command))?;
         let result = self.execute_inner(command, &session_id);
         self.emit_command_summary(
             &session_id,
@@ -1035,7 +1119,11 @@ impl CliContext {
 
     fn execute_inner(&self, command: &Commands, session_id: &str) -> Result<String, ApiError> {
         match command {
-            Commands::Synthesize { node_id, frame_type, agent_id } => {
+            Commands::Synthesize {
+                node_id,
+                frame_type,
+                agent_id,
+            } => {
                 let node_id = parse_node_id(node_id)?;
                 self.progress.emit_event_best_effort(
                     session_id,
@@ -1047,10 +1135,12 @@ impl CliContext {
                     }),
                 );
                 let started = Instant::now();
-                let frame_id = match self
-                    .api
-                    .synthesize_branch(node_id, frame_type.clone(), agent_id.clone(), None)
-                {
+                let frame_id = match self.api.synthesize_branch(
+                    node_id,
+                    frame_type.clone(),
+                    agent_id.clone(),
+                    None,
+                ) {
                     Ok(frame_id) => frame_id,
                     Err(err) => {
                         self.progress.emit_event_best_effort(
@@ -1079,7 +1169,11 @@ impl CliContext {
                 );
                 Ok(format!("Synthesized frame: {}", hex::encode(frame_id)))
             }
-            Commands::Regenerate { node_id, recursive, agent_id } => {
+            Commands::Regenerate {
+                node_id,
+                recursive,
+                agent_id,
+            } => {
                 let node_id = parse_node_id(node_id)?;
                 self.progress.emit_event_best_effort(
                     session_id,
@@ -1121,8 +1215,7 @@ impl CliContext {
                 );
                 Ok(format!(
                     "Regenerated {} frames in {}ms",
-                    report.regenerated_count,
-                    report.duration_ms
+                    report.regenerated_count, report.duration_ms
                 ))
             }
             Commands::Scan { force } => {
@@ -1140,7 +1233,8 @@ impl CliContext {
                     ignore_patterns,
                     max_depth: None,
                 };
-                let builder = TreeBuilder::new(self.workspace_root.clone()).with_walker_config(walker_config);
+                let builder =
+                    TreeBuilder::new(self.workspace_root.clone()).with_walker_config(walker_config);
                 let tree = builder.build().map_err(|e| ApiError::StorageError(e))?;
                 self.progress.emit_event_best_effort(
                     session_id,
@@ -1150,7 +1244,13 @@ impl CliContext {
 
                 // If force is false, check if root node already exists
                 if !force {
-                    if self.api.node_store().get(&tree.root_id).map_err(ApiError::from)?.is_some() {
+                    if self
+                        .api
+                        .node_store()
+                        .get(&tree.root_id)
+                        .map_err(ApiError::from)?
+                        .is_some()
+                    {
                         let root_hex = hex::encode(tree.root_id);
                         return Ok(format!(
                             "Tree already exists (root: {}). Use --force to rebuild.",
@@ -1161,7 +1261,8 @@ impl CliContext {
 
                 // Populate store with all nodes from tree
                 let store = self.api.node_store().as_ref() as &dyn NodeRecordStore;
-                NodeRecord::populate_store_from_tree(store, &tree).map_err(ApiError::StorageError)?;
+                NodeRecord::populate_store_from_tree(store, &tree)
+                    .map_err(ApiError::StorageError)?;
                 store.flush().map_err(|e| ApiError::StorageError(e))?;
 
                 // When .gitignore node hash changed, sync it into ignore_list
@@ -1211,18 +1312,33 @@ impl CliContext {
                     }
                 }
                 WorkspaceCommands::Validate { format } => self.run_workspace_validate(format),
-                WorkspaceCommands::Ignore { path, dry_run, format } => {
-                    self.run_workspace_ignore(path.as_deref(), *dry_run, format)
-                }
-                WorkspaceCommands::Delete { path, node, dry_run, no_ignore } => {
-                    self.run_workspace_delete(path.as_deref(), node.as_deref(), *dry_run, *no_ignore)
-                }
-                WorkspaceCommands::Restore { path, node, dry_run } => {
-                    self.run_workspace_restore(path.as_deref(), node.as_deref(), *dry_run)
-                }
-                WorkspaceCommands::Compact { ttl, all, keep_frames, dry_run } => {
-                    self.run_workspace_compact(*ttl, *all, *keep_frames, *dry_run)
-                }
+                WorkspaceCommands::Ignore {
+                    path,
+                    dry_run,
+                    format,
+                } => self.run_workspace_ignore(path.as_deref(), *dry_run, format),
+                WorkspaceCommands::Delete {
+                    path,
+                    node,
+                    dry_run,
+                    no_ignore,
+                } => self.run_workspace_delete(
+                    path.as_deref(),
+                    node.as_deref(),
+                    *dry_run,
+                    *no_ignore,
+                ),
+                WorkspaceCommands::Restore {
+                    path,
+                    node,
+                    dry_run,
+                } => self.run_workspace_restore(path.as_deref(), node.as_deref(), *dry_run),
+                WorkspaceCommands::Compact {
+                    ttl,
+                    all,
+                    keep_frames,
+                    dry_run,
+                } => self.run_workspace_compact(*ttl, *all, *keep_frames, *dry_run),
                 WorkspaceCommands::ListDeleted { older_than, format } => {
                     self.run_workspace_list_deleted(*older_than, format)
                 }
@@ -1234,29 +1350,19 @@ impl CliContext {
                 providers_only,
                 breakdown,
                 test_connectivity,
-            } => {
-                self.handle_unified_status(
-                    format.clone(),
-                    *workspace_only,
-                    *agents_only,
-                    *providers_only,
-                    *breakdown,
-                    *test_connectivity,
-                )
-            }
+            } => self.handle_unified_status(
+                format.clone(),
+                *workspace_only,
+                *agents_only,
+                *providers_only,
+                *breakdown,
+                *test_connectivity,
+            ),
             Commands::Validate => self.run_workspace_validate("text"),
-            Commands::Agent { command } => {
-                self.handle_agent_command(command)
-            }
-            Commands::Provider { command } => {
-                self.handle_provider_command(command)
-            }
-            Commands::Init { force, list } => {
-                self.handle_init(*force, *list)
-            }
-            Commands::Context { command } => {
-                self.handle_context_command(command, session_id)
-            }
+            Commands::Agent { command } => self.handle_agent_command(command),
+            Commands::Provider { command } => self.handle_provider_command(command),
+            Commands::Init { force, list } => self.handle_init(*force, *list),
+            Commands::Context { command } => self.handle_context_command(command, session_id),
             Commands::Watch {
                 debounce_ms,
                 batch_window_ms,
@@ -1270,19 +1376,26 @@ impl CliContext {
                 // Load configuration to register agents
                 let config = if let Some(ref config_path) = self.config_path {
                     // Load from specified config file
-                    ConfigLoader::load_from_file(config_path)
-                        .map_err(|e| ApiError::ConfigError(format!("Failed to load config from {}: {}", config_path.display(), e)))?
+                    ConfigLoader::load_from_file(config_path).map_err(|e| {
+                        ApiError::ConfigError(format!(
+                            "Failed to load config from {}: {}",
+                            config_path.display(),
+                            e
+                        ))
+                    })?
                 } else {
                     // Load from default locations
-                    ConfigLoader::load(&self.workspace_root)
-                        .map_err(|e| ApiError::ConfigError(format!("Failed to load config: {}", e)))?
+                    ConfigLoader::load(&self.workspace_root).map_err(|e| {
+                        ApiError::ConfigError(format!("Failed to load config: {}", e))
+                    })?
                 };
 
                 // Load agents from config into registry
                 {
                     let mut registry = self.api.agent_registry().write();
-                    registry.load_from_config(&config)
-                        .map_err(|e| ApiError::ConfigError(format!("Failed to load agents from config: {}", e)))?;
+                    registry.load_from_config(&config).map_err(|e| {
+                        ApiError::ConfigError(format!("Failed to load agents from config: {}", e))
+                    })?;
                 }
 
                 // Load ignore patterns (same sources as scan: built-in + .gitignore + ignore_list)
@@ -1316,34 +1429,56 @@ impl CliContext {
     /// Handle agent management commands
     fn handle_agent_command(&self, command: &AgentCommands) -> Result<String, ApiError> {
         match command {
-            AgentCommands::Status { format } => {
-                self.handle_agent_status(format.clone())
-            }
+            AgentCommands::Status { format } => self.handle_agent_status(format.clone()),
             AgentCommands::List { format, role } => {
                 self.handle_agent_list(format.clone(), role.as_deref())
             }
-            AgentCommands::Show { agent_id, format, include_prompt } => {
-                self.handle_agent_show(agent_id, format.clone(), *include_prompt)
-            }
-            AgentCommands::Validate { agent_id, all, verbose } => {
-                self.handle_agent_validate(agent_id.as_deref(), *all, *verbose)
-            }
-            AgentCommands::Create { agent_id, role, prompt_path, interactive, non_interactive } => {
-                self.handle_agent_create(agent_id, role.as_deref(), prompt_path.as_deref(), *interactive, *non_interactive)
-            }
-            AgentCommands::Edit { agent_id, prompt_path, role, editor } => {
-                self.handle_agent_edit(agent_id, prompt_path.as_deref(), role.as_deref(), editor.as_deref())
-            }
-            AgentCommands::Remove { agent_id, force } => {
-                self.handle_agent_remove(agent_id, *force)
-            }
+            AgentCommands::Show {
+                agent_id,
+                format,
+                include_prompt,
+            } => self.handle_agent_show(agent_id, format.clone(), *include_prompt),
+            AgentCommands::Validate {
+                agent_id,
+                all,
+                verbose,
+            } => self.handle_agent_validate(agent_id.as_deref(), *all, *verbose),
+            AgentCommands::Create {
+                agent_id,
+                role,
+                prompt_path,
+                interactive,
+                non_interactive,
+            } => self.handle_agent_create(
+                agent_id,
+                role.as_deref(),
+                prompt_path.as_deref(),
+                *interactive,
+                *non_interactive,
+            ),
+            AgentCommands::Edit {
+                agent_id,
+                prompt_path,
+                role,
+                editor,
+            } => self.handle_agent_edit(
+                agent_id,
+                prompt_path.as_deref(),
+                role.as_deref(),
+                editor.as_deref(),
+            ),
+            AgentCommands::Remove { agent_id, force } => self.handle_agent_remove(agent_id, *force),
         }
     }
 
     /// Handle agent list command
-    fn handle_agent_list(&self, format: String, role_filter: Option<&str>) -> Result<String, ApiError> {
+    fn handle_agent_list(
+        &self,
+        format: String,
+        role_filter: Option<&str>,
+    ) -> Result<String, ApiError> {
         let registry = self.api.agent_registry().read();
-        
+
         // Parse role filter
         let role = if let Some(role_str) = role_filter {
             match role_str {
@@ -1362,7 +1497,7 @@ impl CliContext {
         };
 
         let agents = registry.list_by_role(role);
-        
+
         match format.as_str() {
             "json" => Ok(format_agent_list_json(&agents)),
             "text" | _ => Ok(format_agent_list_text(&agents)),
@@ -1370,11 +1505,16 @@ impl CliContext {
     }
 
     /// Handle agent show command
-    fn handle_agent_show(&self, agent_id: &str, format: String, include_prompt: bool) -> Result<String, ApiError> {
+    fn handle_agent_show(
+        &self,
+        agent_id: &str,
+        format: String,
+        include_prompt: bool,
+    ) -> Result<String, ApiError> {
         let registry = self.api.agent_registry().read();
-        
+
         let agent = registry.get_or_error(agent_id)?;
-        
+
         // Load prompt content if requested
         let prompt_content = if include_prompt {
             agent.metadata.get("system_prompt").cloned()
@@ -1389,29 +1529,35 @@ impl CliContext {
     }
 
     /// Handle agent validate command
-    fn handle_agent_validate(&self, agent_id: Option<&str>, all: bool, verbose: bool) -> Result<String, ApiError> {
+    fn handle_agent_validate(
+        &self,
+        agent_id: Option<&str>,
+        all: bool,
+        verbose: bool,
+    ) -> Result<String, ApiError> {
         let registry = self.api.agent_registry().read();
-        
+
         if all {
             // Validate all agents
             let agents = registry.list_all();
             if agents.is_empty() {
                 return Ok("No agents found to validate.".to_string());
             }
-            
+
             let mut results: Vec<(String, crate::agent::ValidationResult)> = Vec::new();
             for agent in agents {
                 match registry.validate_agent(&agent.agent_id) {
                     Ok(result) => results.push((agent.agent_id.clone(), result)),
                     Err(e) => {
                         // Create a validation result with error
-                        let mut error_result = crate::agent::ValidationResult::new(agent.agent_id.clone());
+                        let mut error_result =
+                            crate::agent::ValidationResult::new(agent.agent_id.clone());
                         error_result.add_error(format!("Failed to validate: {}", e));
                         results.push((agent.agent_id.clone(), error_result));
                     }
                 }
             }
-            
+
             Ok(format_validation_results_all(&results, verbose))
         } else {
             // Validate single agent
@@ -1441,9 +1587,11 @@ impl CliContext {
         } else {
             // Non-interactive mode
             let role = role.ok_or_else(|| {
-                ApiError::ConfigError("Role is required in non-interactive mode. Use --role <role>".to_string())
+                ApiError::ConfigError(
+                    "Role is required in non-interactive mode. Use --role <role>".to_string(),
+                )
             })?;
-            
+
             let parsed_role = match role {
                 "Reader" => crate::agent::AgentRole::Reader,
                 "Writer" => crate::agent::AgentRole::Writer,
@@ -1485,11 +1633,17 @@ impl CliContext {
                 // Add default templates if not provided
                 agent_config.metadata.insert(
                     "user_prompt_file".to_string(),
-                    format!("Analyze the file at {{path}} using the system prompt from {}", prompt_path),
+                    format!(
+                        "Analyze the file at {{path}} using the system prompt from {}",
+                        prompt_path
+                    ),
                 );
                 agent_config.metadata.insert(
                     "user_prompt_directory".to_string(),
-                    format!("Analyze the directory at {{path}} using the system prompt from {}", prompt_path),
+                    format!(
+                        "Analyze the directory at {{path}} using the system prompt from {}",
+                        prompt_path
+                    ),
                 );
             }
         }
@@ -1511,8 +1665,11 @@ impl CliContext {
     }
 
     /// Interactive agent creation
-    fn create_agent_interactive(&self, _agent_id: &str) -> Result<(crate::agent::AgentRole, Option<String>), ApiError> {
-        use dialoguer::{Select, Input};
+    fn create_agent_interactive(
+        &self,
+        _agent_id: &str,
+    ) -> Result<(crate::agent::AgentRole, Option<String>), ApiError> {
+        use dialoguer::{Input, Select};
 
         // Prompt for role
         let role_selection = Select::new()
@@ -1564,7 +1721,7 @@ impl CliContext {
             // Load existing config
             let content = std::fs::read_to_string(&config_path)
                 .map_err(|e| ApiError::ConfigError(format!("Failed to read config: {}", e)))?;
-            
+
             let mut agent_config: crate::config::AgentConfig = toml::from_str(&content)
                 .map_err(|e| ApiError::ConfigError(format!("Failed to parse config: {}", e)))?;
 
@@ -1609,7 +1766,7 @@ impl CliContext {
         use std::process::Command;
 
         let config_path = crate::agent::AgentRegistry::get_agent_config_path(agent_id)?;
-        
+
         // Load existing config
         let content = std::fs::read_to_string(&config_path)
             .map_err(|e| ApiError::ConfigError(format!("Failed to read config: {}", e)))?;
@@ -1617,7 +1774,7 @@ impl CliContext {
         // Create temp file in system temp directory
         let temp_dir = std::env::temp_dir();
         let temp_path = temp_dir.join(format!("merkle-agent-{}.toml", agent_id));
-        
+
         std::fs::write(&temp_path, content.as_bytes())
             .map_err(|e| ApiError::ConfigError(format!("Failed to write temp file: {}", e)))?;
 
@@ -1625,10 +1782,11 @@ impl CliContext {
         let editor_cmd = if let Some(ed) = editor {
             ed.to_string()
         } else {
-            std::env::var("EDITOR")
-                .map_err(|_| ApiError::ConfigError(
-                    "No editor specified and $EDITOR not set. Use --editor <editor>".to_string()
-                ))?
+            std::env::var("EDITOR").map_err(|_| {
+                ApiError::ConfigError(
+                    "No editor specified and $EDITOR not set. Use --editor <editor>".to_string(),
+                )
+            })?
         };
 
         // Open editor
@@ -1638,7 +1796,9 @@ impl CliContext {
             .map_err(|e| ApiError::ConfigError(format!("Failed to open editor: {}", e)))?;
 
         if !status.success() {
-            return Err(ApiError::ConfigError("Editor exited with non-zero status".to_string()));
+            return Err(ApiError::ConfigError(
+                "Editor exited with non-zero status".to_string(),
+            ));
         }
 
         // Read edited content
@@ -1681,7 +1841,7 @@ impl CliContext {
                 .with_prompt(format!("Remove agent '{}'?", agent_id))
                 .interact()
                 .map_err(|e| ApiError::ConfigError(format!("Failed to get user input: {}", e)))?;
-            
+
             if !confirmed {
                 return Ok("Removal cancelled".to_string());
             }
@@ -1694,12 +1854,18 @@ impl CliContext {
         // Note: Agent will be removed from registry on next load_from_xdg() call
         // since the config file no longer exists
 
-        Ok(format!("Removed agent: {}\nConfiguration file deleted: {}", agent_id, config_path.display()))
+        Ok(format!(
+            "Removed agent: {}\nConfiguration file deleted: {}",
+            agent_id,
+            config_path.display()
+        ))
     }
 
     /// Handle agent status command
     fn handle_agent_status(&self, format: String) -> Result<String, ApiError> {
-        use crate::workspace_status::{AgentStatusEntry, AgentStatusOutput, format_agent_status_text};
+        use crate::workspace_status::{
+            format_agent_status_text, AgentStatusEntry, AgentStatusOutput,
+        };
 
         let registry = self.api.agent_registry().read();
         let agents = registry.list_all();
@@ -1710,7 +1876,10 @@ impl CliContext {
                     agents: empty,
                     total: 0,
                     valid_count: 0,
-                }).map_err(|e| ApiError::StorageError(crate::error::StorageError::InvalidPath(e.to_string())))?)
+                })
+                .map_err(|e| {
+                    ApiError::StorageError(crate::error::StorageError::InvalidPath(e.to_string()))
+                })?)
             } else {
                 Ok(format_agent_status_text(&empty))
             };
@@ -1726,7 +1895,9 @@ impl CliContext {
                 crate::agent::AgentRole::Writer => "Writer",
                 crate::agent::AgentRole::Synthesis => "Synthesis",
             };
-            let prompt_path_exists = result.checks.iter()
+            let prompt_path_exists = result
+                .checks
+                .iter()
                 .any(|(desc, passed)| desc == "Prompt file exists" && *passed);
             entries.push(AgentStatusEntry {
                 agent_id: agent.agent_id.clone(),
@@ -1741,7 +1912,10 @@ impl CliContext {
                 agents: entries.clone(),
                 total: entries.len(),
                 valid_count,
-            }).map_err(|e| ApiError::StorageError(crate::error::StorageError::InvalidPath(e.to_string())))?)
+            })
+            .map_err(|e| {
+                ApiError::StorageError(crate::error::StorageError::InvalidPath(e.to_string()))
+            })?)
         } else {
             Ok(format_agent_status_text(&entries))
         }
@@ -1750,37 +1924,80 @@ impl CliContext {
     /// Handle provider management commands
     fn handle_provider_command(&self, command: &ProviderCommands) -> Result<String, ApiError> {
         match command {
-            ProviderCommands::Status { format, test_connectivity } => {
-                self.handle_provider_status(format.clone(), *test_connectivity)
-            }
-            ProviderCommands::List { format, type_filter } => {
-                self.handle_provider_list(format.clone(), type_filter.as_deref())
-            }
-            ProviderCommands::Show { provider_name, format, include_credentials } => {
-                self.handle_provider_show(provider_name, format.clone(), *include_credentials)
-            }
-            ProviderCommands::Validate { provider_name, test_connectivity, check_model, verbose } => {
-                self.handle_provider_validate(provider_name, *test_connectivity, *check_model, *verbose)
-            }
-            ProviderCommands::Test { provider_name, model, timeout } => {
-                self.handle_provider_test(provider_name, model.as_deref(), *timeout)
-            }
-            ProviderCommands::Create { provider_name, type_, model, endpoint, api_key, interactive, non_interactive } => {
-                self.handle_provider_create(provider_name, type_.as_deref(), model.as_deref(), endpoint.as_deref(), api_key.as_deref(), *interactive, *non_interactive)
-            }
-            ProviderCommands::Edit { provider_name, model, endpoint, api_key, editor } => {
-                self.handle_provider_edit(provider_name, model.as_deref(), endpoint.as_deref(), api_key.as_deref(), editor.as_deref())
-            }
-            ProviderCommands::Remove { provider_name, force } => {
-                self.handle_provider_remove(provider_name, *force)
-            }
+            ProviderCommands::Status {
+                format,
+                test_connectivity,
+            } => self.handle_provider_status(format.clone(), *test_connectivity),
+            ProviderCommands::List {
+                format,
+                type_filter,
+            } => self.handle_provider_list(format.clone(), type_filter.as_deref()),
+            ProviderCommands::Show {
+                provider_name,
+                format,
+                include_credentials,
+            } => self.handle_provider_show(provider_name, format.clone(), *include_credentials),
+            ProviderCommands::Validate {
+                provider_name,
+                test_connectivity,
+                check_model,
+                verbose,
+            } => self.handle_provider_validate(
+                provider_name,
+                *test_connectivity,
+                *check_model,
+                *verbose,
+            ),
+            ProviderCommands::Test {
+                provider_name,
+                model,
+                timeout,
+            } => self.handle_provider_test(provider_name, model.as_deref(), *timeout),
+            ProviderCommands::Create {
+                provider_name,
+                type_,
+                model,
+                endpoint,
+                api_key,
+                interactive,
+                non_interactive,
+            } => self.handle_provider_create(
+                provider_name,
+                type_.as_deref(),
+                model.as_deref(),
+                endpoint.as_deref(),
+                api_key.as_deref(),
+                *interactive,
+                *non_interactive,
+            ),
+            ProviderCommands::Edit {
+                provider_name,
+                model,
+                endpoint,
+                api_key,
+                editor,
+            } => self.handle_provider_edit(
+                provider_name,
+                model.as_deref(),
+                endpoint.as_deref(),
+                api_key.as_deref(),
+                editor.as_deref(),
+            ),
+            ProviderCommands::Remove {
+                provider_name,
+                force,
+            } => self.handle_provider_remove(provider_name, *force),
         }
     }
 
     /// Handle provider list command
-    fn handle_provider_list(&self, format: String, type_filter: Option<&str>) -> Result<String, ApiError> {
+    fn handle_provider_list(
+        &self,
+        format: String,
+        type_filter: Option<&str>,
+    ) -> Result<String, ApiError> {
         let registry = self.api.provider_registry().read();
-        
+
         // Parse type filter
         let provider_type = if let Some(type_str) = type_filter {
             match type_str {
@@ -1800,7 +2017,7 @@ impl CliContext {
         };
 
         let providers = registry.list_by_type(provider_type);
-        
+
         match format.as_str() {
             "json" => Ok(format_provider_list_json(&providers)),
             "text" | _ => Ok(format_provider_list_text(&providers)),
@@ -1808,11 +2025,16 @@ impl CliContext {
     }
 
     /// Handle provider show command
-    fn handle_provider_show(&self, provider_name: &str, format: String, include_credentials: bool) -> Result<String, ApiError> {
+    fn handle_provider_show(
+        &self,
+        provider_name: &str,
+        format: String,
+        include_credentials: bool,
+    ) -> Result<String, ApiError> {
         let registry = self.api.provider_registry().read();
-        
+
         let provider = registry.get_or_error(provider_name)?;
-        
+
         // Resolve API key status
         let api_key_status = if include_credentials {
             Some(self.resolve_api_key_status(provider))
@@ -1821,8 +2043,14 @@ impl CliContext {
         };
 
         match format.as_str() {
-            "json" => Ok(format_provider_show_json(provider, api_key_status.as_deref())),
-            "text" | _ => Ok(format_provider_show_text(provider, api_key_status.as_deref())),
+            "json" => Ok(format_provider_show_json(
+                provider,
+                api_key_status.as_deref(),
+            )),
+            "text" | _ => Ok(format_provider_show_text(
+                provider,
+                api_key_status.as_deref(),
+            )),
         }
     }
 
@@ -1854,7 +2082,13 @@ impl CliContext {
     }
 
     /// Handle provider validate command (single provider per provider_validate_spec)
-    fn handle_provider_validate(&self, provider_name: &str, test_connectivity: bool, check_model: bool, verbose: bool) -> Result<String, ApiError> {
+    fn handle_provider_validate(
+        &self,
+        provider_name: &str,
+        test_connectivity: bool,
+        check_model: bool,
+        verbose: bool,
+    ) -> Result<String, ApiError> {
         let registry = self.api.provider_registry().read();
         let mut result = registry.validate_provider(provider_name)?;
 
@@ -1862,15 +2096,19 @@ impl CliContext {
             match registry.create_client(provider_name) {
                 Ok(client) => {
                     result.add_check("Provider client created", true);
-                    let rt = tokio::runtime::Runtime::new()
-                        .map_err(|e| ApiError::ProviderError(format!("Failed to create runtime: {}", e)))?;
+                    let rt = tokio::runtime::Runtime::new().map_err(|e| {
+                        ApiError::ProviderError(format!("Failed to create runtime: {}", e))
+                    })?;
                     match rt.block_on(client.list_models()) {
                         Ok(available_models) => {
                             result.add_check("API connectivity: OK", true);
                             if check_model {
                                 let provider = registry.get_or_error(provider_name)?;
                                 if available_models.iter().any(|m| m == &provider.model) {
-                                    result.add_check(&format!("Model '{}' is available", provider.model), true);
+                                    result.add_check(
+                                        &format!("Model '{}' is available", provider.model),
+                                        true,
+                                    );
                                 } else {
                                     result.add_error(format!(
                                         "Model '{}' not found. Available models: {}",
@@ -1895,8 +2133,14 @@ impl CliContext {
     }
 
     /// Handle provider status command
-    fn handle_provider_status(&self, format: String, test_connectivity: bool) -> Result<String, ApiError> {
-        use crate::workspace_status::{ProviderStatusEntry, ProviderStatusOutput, format_provider_status_text};
+    fn handle_provider_status(
+        &self,
+        format: String,
+        test_connectivity: bool,
+    ) -> Result<String, ApiError> {
+        use crate::workspace_status::{
+            format_provider_status_text, ProviderStatusEntry, ProviderStatusOutput,
+        };
 
         let registry = self.api.provider_registry().read();
         let providers = registry.list_all();
@@ -1906,14 +2150,21 @@ impl CliContext {
                 Ok(serde_json::to_string_pretty(&ProviderStatusOutput {
                     providers: empty,
                     total: 0,
-                }).map_err(|e| ApiError::StorageError(crate::error::StorageError::InvalidPath(e.to_string())))?)
+                })
+                .map_err(|e| {
+                    ApiError::StorageError(crate::error::StorageError::InvalidPath(e.to_string()))
+                })?)
             } else {
                 Ok(format_provider_status_text(&empty, false))
             };
         }
         let mut entries: Vec<ProviderStatusEntry> = Vec::new();
         for provider in providers {
-            let provider_name = provider.provider_name.as_deref().unwrap_or("unknown").to_string();
+            let provider_name = provider
+                .provider_name
+                .as_deref()
+                .unwrap_or("unknown")
+                .to_string();
             let type_str = match provider.provider_type {
                 crate::config::ProviderType::OpenAI => "openai",
                 crate::config::ProviderType::Anthropic => "anthropic",
@@ -1923,8 +2174,9 @@ impl CliContext {
             let connectivity = if test_connectivity {
                 match registry.create_client(&provider_name) {
                     Ok(client) => {
-                        let rt = tokio::runtime::Runtime::new()
-                            .map_err(|e| ApiError::ProviderError(format!("Failed to create runtime: {}", e)))?;
+                        let rt = tokio::runtime::Runtime::new().map_err(|e| {
+                            ApiError::ProviderError(format!("Failed to create runtime: {}", e))
+                        })?;
                         match rt.block_on(client.list_models()) {
                             Ok(_) => Some("ok".to_string()),
                             Err(_) => Some("fail".to_string()),
@@ -1946,7 +2198,10 @@ impl CliContext {
             Ok(serde_json::to_string_pretty(&ProviderStatusOutput {
                 providers: entries.clone(),
                 total: entries.len(),
-            }).map_err(|e| ApiError::StorageError(crate::error::StorageError::InvalidPath(e.to_string())))?)
+            })
+            .map_err(|e| {
+                ApiError::StorageError(crate::error::StorageError::InvalidPath(e.to_string()))
+            })?)
         } else {
             Ok(format_provider_status_text(&entries, test_connectivity))
         }
@@ -1963,8 +2218,8 @@ impl CliContext {
         test_connectivity: bool,
     ) -> Result<String, ApiError> {
         use crate::workspace_status::{
-            AgentStatusEntry, AgentStatusOutput, ProviderStatusEntry, ProviderStatusOutput,
-            UnifiedStatusOutput, build_workspace_status, format_unified_status_text,
+            build_workspace_status, format_unified_status_text, AgentStatusEntry,
+            AgentStatusOutput, ProviderStatusEntry, ProviderStatusOutput, UnifiedStatusOutput,
         };
 
         // Determine which sections to include
@@ -2006,7 +2261,9 @@ impl CliContext {
                     crate::agent::AgentRole::Reader => "Reader",
                     crate::agent::AgentRole::Synthesis => "Synthesis",
                 };
-                let prompt_path_exists = result.checks.iter()
+                let prompt_path_exists = result
+                    .checks
+                    .iter()
                     .any(|(desc, passed)| desc == "Prompt file exists" && *passed);
                 entries.push(AgentStatusEntry {
                     agent_id: agent.agent_id.clone(),
@@ -2032,7 +2289,11 @@ impl CliContext {
             let total = providers_list.len();
             let mut entries: Vec<ProviderStatusEntry> = Vec::new();
             for provider in providers_list {
-                let provider_name = provider.provider_name.as_deref().unwrap_or("unknown").to_string();
+                let provider_name = provider
+                    .provider_name
+                    .as_deref()
+                    .unwrap_or("unknown")
+                    .to_string();
                 let type_str = match provider.provider_type {
                     crate::config::ProviderType::OpenAI => "openai",
                     crate::config::ProviderType::Anthropic => "anthropic",
@@ -2042,8 +2303,9 @@ impl CliContext {
                 let connectivity = if test_connectivity {
                     match registry.create_client(&provider_name) {
                         Ok(client) => {
-                            let rt = tokio::runtime::Runtime::new()
-                                .map_err(|e| ApiError::ProviderError(format!("Failed to create runtime: {}", e)))?;
+                            let rt = tokio::runtime::Runtime::new().map_err(|e| {
+                                ApiError::ProviderError(format!("Failed to create runtime: {}", e))
+                            })?;
                             match rt.block_on(client.list_models()) {
                                 Ok(_) => Some("ok".to_string()),
                                 Err(_) => Some("fail".to_string()),
@@ -2076,48 +2338,65 @@ impl CliContext {
         };
 
         if format == "json" {
-            serde_json::to_string_pretty(&unified)
-                .map_err(|e| ApiError::StorageError(crate::error::StorageError::InvalidPath(e.to_string())))
+            serde_json::to_string_pretty(&unified).map_err(|e| {
+                ApiError::StorageError(crate::error::StorageError::InvalidPath(e.to_string()))
+            })
         } else {
-            Ok(format_unified_status_text(&unified, breakdown, test_connectivity))
+            Ok(format_unified_status_text(
+                &unified,
+                breakdown,
+                test_connectivity,
+            ))
         }
     }
 
     /// Handle provider test command
-    fn handle_provider_test(&self, provider_name: &str, model_override: Option<&str>, timeout: u64) -> Result<String, ApiError> {
+    fn handle_provider_test(
+        &self,
+        provider_name: &str,
+        model_override: Option<&str>,
+        timeout: u64,
+    ) -> Result<String, ApiError> {
         let registry = self.api.provider_registry().read();
-        
+
         // Get provider config
         let provider = registry.get_or_error(provider_name)?;
-        
+
         // Create client
         let client = registry.create_client(provider_name)?;
-        
+
         let mut output = format!("Testing provider: {}\n\n", provider_name);
-        
+
         // Test connectivity
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| ApiError::ProviderError(format!("Failed to create runtime: {}", e)))?;
-        
+
         let start = std::time::Instant::now();
         match rt.block_on(async {
             tokio::time::timeout(
                 std::time::Duration::from_secs(timeout),
-                client.list_models()
-            ).await
+                client.list_models(),
+            )
+            .await
         }) {
             Ok(Ok(available_models)) => {
                 let elapsed = start.elapsed();
                 output.push_str(&format!("✓ Provider client created\n"));
-                output.push_str(&format!("✓ API connectivity: OK ({}ms)\n", elapsed.as_millis()));
-                
+                output.push_str(&format!(
+                    "✓ API connectivity: OK ({}ms)\n",
+                    elapsed.as_millis()
+                ));
+
                 // Check model availability
                 let model_to_check = model_override.unwrap_or(&provider.model);
                 if available_models.iter().any(|m| m == model_to_check) {
                     output.push_str(&format!("✓ Model '{}' is available\n", model_to_check));
                 } else {
                     output.push_str(&format!("✗ Model '{}' not found\n", model_to_check));
-                    output.push_str(&format!("Available models: {}\n", available_models.join(", ")));
+                    output.push_str(&format!(
+                        "Available models: {}\n",
+                        available_models.join(", ")
+                    ));
                     return Ok(output);
                 }
             }
@@ -2149,34 +2428,47 @@ impl CliContext {
         // Determine mode
         let is_interactive = interactive || (!non_interactive && type_.is_none());
 
-        let (provider_type, final_model, final_endpoint, final_api_key, default_options) = if is_interactive {
-            // Interactive mode
-            self.create_provider_interactive()?
-        } else {
-            // Non-interactive mode
-            let type_str = type_.ok_or_else(|| {
-                ApiError::ConfigError("Provider type is required in non-interactive mode. Use --type <type>".to_string())
-            })?;
-            
-            let parsed_type = match type_str {
-                "openai" => crate::config::ProviderType::OpenAI,
-                "anthropic" => crate::config::ProviderType::Anthropic,
-                "ollama" => crate::config::ProviderType::Ollama,
-                "local" => crate::config::ProviderType::LocalCustom,
-                _ => {
-                    return Err(ApiError::ConfigError(format!(
+        let (provider_type, final_model, final_endpoint, final_api_key, default_options) =
+            if is_interactive {
+                // Interactive mode
+                self.create_provider_interactive()?
+            } else {
+                // Non-interactive mode
+                let type_str = type_.ok_or_else(|| {
+                    ApiError::ConfigError(
+                        "Provider type is required in non-interactive mode. Use --type <type>"
+                            .to_string(),
+                    )
+                })?;
+
+                let parsed_type = match type_str {
+                    "openai" => crate::config::ProviderType::OpenAI,
+                    "anthropic" => crate::config::ProviderType::Anthropic,
+                    "ollama" => crate::config::ProviderType::Ollama,
+                    "local" => crate::config::ProviderType::LocalCustom,
+                    _ => {
+                        return Err(ApiError::ConfigError(format!(
                         "Invalid provider type: {}. Must be openai, anthropic, ollama, or local",
                         type_str
                     )));
-                }
+                    }
+                };
+
+                let model_name = model.ok_or_else(|| {
+                    ApiError::ConfigError(
+                        "Model is required in non-interactive mode. Use --model <model>"
+                            .to_string(),
+                    )
+                })?;
+
+                (
+                    parsed_type,
+                    model_name.to_string(),
+                    endpoint.map(|s| s.to_string()),
+                    api_key.map(|s| s.to_string()),
+                    crate::provider::CompletionOptions::default(),
+                )
             };
-
-            let model_name = model.ok_or_else(|| {
-                ApiError::ConfigError("Model is required in non-interactive mode. Use --model <model>".to_string())
-            })?;
-
-            (parsed_type, model_name.to_string(), endpoint.map(|s| s.to_string()), api_key.map(|s| s.to_string()), crate::provider::CompletionOptions::default())
-        };
 
         // Create provider config
         let provider_config = crate::config::ProviderConfig {
@@ -2205,8 +2497,19 @@ impl CliContext {
     }
 
     /// Interactive provider creation
-    fn create_provider_interactive(&self) -> Result<(crate::config::ProviderType, String, Option<String>, Option<String>, crate::provider::CompletionOptions), ApiError> {
-        use dialoguer::{Select, Input};
+    fn create_provider_interactive(
+        &self,
+    ) -> Result<
+        (
+            crate::config::ProviderType,
+            String,
+            Option<String>,
+            Option<String>,
+            crate::provider::CompletionOptions,
+        ),
+        ApiError,
+    > {
+        use dialoguer::{Input, Select};
 
         // Prompt for provider type
         let type_selection = Select::new()
@@ -2235,15 +2538,19 @@ impl CliContext {
             crate::config::ProviderType::OpenAI => Some("https://api.openai.com/v1".to_string()),
             crate::config::ProviderType::Ollama => Some("http://localhost:11434".to_string()),
             crate::config::ProviderType::LocalCustom => None, // Required
-            crate::config::ProviderType::Anthropic => None, // No custom endpoint needed
+            crate::config::ProviderType::Anthropic => None,   // No custom endpoint needed
         };
 
         let endpoint = if provider_type == crate::config::ProviderType::LocalCustom {
             // Required for local
-            Some(Input::new()
-                .with_prompt("Endpoint URL (required)")
-                .interact_text()
-                .map_err(|e| ApiError::ConfigError(format!("Failed to get user input: {}", e)))?)
+            Some(
+                Input::new()
+                    .with_prompt("Endpoint URL (required)")
+                    .interact_text()
+                    .map_err(|e| {
+                        ApiError::ConfigError(format!("Failed to get user input: {}", e))
+                    })?,
+            )
         } else if let Some(default) = default_endpoint {
             // Optional with default
             let input: String = Input::new()
@@ -2263,21 +2570,26 @@ impl CliContext {
             _ => "",
         };
 
-        let api_key = if provider_type == crate::config::ProviderType::Ollama || provider_type == crate::config::ProviderType::LocalCustom {
+        let api_key = if provider_type == crate::config::ProviderType::Ollama
+            || provider_type == crate::config::ProviderType::LocalCustom
+        {
             None
         } else {
             let prompt = if !env_var.is_empty() {
-                format!("API key (optional, will use {} env var if not set)", env_var)
+                format!(
+                    "API key (optional, will use {} env var if not set)",
+                    env_var
+                )
             } else {
                 "API key (optional)".to_string()
             };
-            
+
             let input: String = Input::new()
                 .with_prompt(prompt)
                 .allow_empty(true)
                 .interact_text()
                 .map_err(|e| ApiError::ConfigError(format!("Failed to get user input: {}", e)))?;
-            
+
             if input.is_empty() {
                 None
             } else {
@@ -2298,7 +2610,7 @@ impl CliContext {
                 .allow_empty(true)
                 .interact_text()
                 .map_err(|e| ApiError::ConfigError(format!("Failed to get user input: {}", e)))?;
-            
+
             if input.is_empty() {
                 None
             } else {
@@ -2330,14 +2642,15 @@ impl CliContext {
             registry.get_or_error(provider_name)?;
         }
 
-        let config_path = crate::provider::ProviderRegistry::get_provider_config_path(provider_name)?;
+        let config_path =
+            crate::provider::ProviderRegistry::get_provider_config_path(provider_name)?;
 
         // If flags provided, do flag-based editing
         if model.is_some() || endpoint.is_some() || api_key.is_some() {
             // Load existing config
             let content = std::fs::read_to_string(&config_path)
                 .map_err(|e| ApiError::ConfigError(format!("Failed to read config: {}", e)))?;
-            
+
             let mut provider_config: crate::config::ProviderConfig = toml::from_str(&content)
                 .map_err(|e| ApiError::ConfigError(format!("Failed to parse config: {}", e)))?;
 
@@ -2355,7 +2668,10 @@ impl CliContext {
             }
 
             // Save updated config
-            crate::provider::ProviderRegistry::save_provider_config(provider_name, &provider_config)?;
+            crate::provider::ProviderRegistry::save_provider_config(
+                provider_name,
+                &provider_config,
+            )?;
         } else {
             // Editor-based editing
             self.edit_provider_with_editor(provider_name, editor)?;
@@ -2371,11 +2687,16 @@ impl CliContext {
     }
 
     /// Edit provider config with external editor
-    fn edit_provider_with_editor(&self, provider_name: &str, editor: Option<&str>) -> Result<(), ApiError> {
+    fn edit_provider_with_editor(
+        &self,
+        provider_name: &str,
+        editor: Option<&str>,
+    ) -> Result<(), ApiError> {
         use std::process::Command;
 
-        let config_path = crate::provider::ProviderRegistry::get_provider_config_path(provider_name)?;
-        
+        let config_path =
+            crate::provider::ProviderRegistry::get_provider_config_path(provider_name)?;
+
         // Load existing config
         let content = std::fs::read_to_string(&config_path)
             .map_err(|e| ApiError::ConfigError(format!("Failed to read config: {}", e)))?;
@@ -2383,7 +2704,7 @@ impl CliContext {
         // Create temp file in system temp directory
         let temp_dir = std::env::temp_dir();
         let temp_path = temp_dir.join(format!("merkle-provider-{}.toml", provider_name));
-        
+
         std::fs::write(&temp_path, content.as_bytes())
             .map_err(|e| ApiError::ConfigError(format!("Failed to write temp file: {}", e)))?;
 
@@ -2391,10 +2712,11 @@ impl CliContext {
         let editor_cmd = if let Some(ed) = editor {
             ed.to_string()
         } else {
-            std::env::var("EDITOR")
-                .map_err(|_| ApiError::ConfigError(
-                    "No editor specified and $EDITOR not set. Use --editor <editor>".to_string()
-                ))?
+            std::env::var("EDITOR").map_err(|_| {
+                ApiError::ConfigError(
+                    "No editor specified and $EDITOR not set. Use --editor <editor>".to_string(),
+                )
+            })?
         };
 
         // Open editor
@@ -2404,7 +2726,9 @@ impl CliContext {
             .map_err(|e| ApiError::ConfigError(format!("Failed to open editor: {}", e)))?;
 
         if !status.success() {
-            return Err(ApiError::ConfigError("Editor exited with non-zero status".to_string()));
+            return Err(ApiError::ConfigError(
+                "Editor exited with non-zero status".to_string(),
+            ));
         }
 
         // Read edited content
@@ -2446,10 +2770,14 @@ impl CliContext {
         {
             let registry = self.api.provider_registry().read();
             let provider = registry.get_or_error(provider_name)?;
-            if provider.provider_type == crate::config::ProviderType::OpenAI || 
-               provider.provider_type == crate::config::ProviderType::Anthropic {
+            if provider.provider_type == crate::config::ProviderType::OpenAI
+                || provider.provider_type == crate::config::ProviderType::Anthropic
+            {
                 // Warn for cloud providers
-                eprintln!("Warning: Provider '{}' may be in use by agents.", provider_name);
+                eprintln!(
+                    "Warning: Provider '{}' may be in use by agents.",
+                    provider_name
+                );
             }
         }
 
@@ -2460,17 +2788,22 @@ impl CliContext {
                 .with_prompt(format!("Remove provider '{}'?", provider_name))
                 .interact()
                 .map_err(|e| ApiError::ConfigError(format!("Failed to get user input: {}", e)))?;
-            
+
             if !confirmed {
                 return Ok("Removal cancelled".to_string());
             }
         }
 
         // Delete config file
-        let config_path = crate::provider::ProviderRegistry::get_provider_config_path(provider_name)?;
+        let config_path =
+            crate::provider::ProviderRegistry::get_provider_config_path(provider_name)?;
         crate::provider::ProviderRegistry::delete_provider_config(provider_name)?;
 
-        Ok(format!("Removed provider: {}\nConfiguration file deleted: {}", provider_name, config_path.display()))
+        Ok(format!(
+            "Removed provider: {}\nConfiguration file deleted: {}",
+            provider_name,
+            config_path.display()
+        ))
     }
 
     /// Handle init command
@@ -2485,7 +2818,11 @@ impl CliContext {
     }
 
     /// Handle context management commands
-    fn handle_context_command(&self, command: &ContextCommands, session_id: &str) -> Result<String, ApiError> {
+    fn handle_context_command(
+        &self,
+        command: &ContextCommands,
+        session_id: &str,
+    ) -> Result<String, ApiError> {
         match command {
             ContextCommands::Generate {
                 node,
@@ -2519,22 +2856,20 @@ impl CliContext {
                 format,
                 include_metadata,
                 include_deleted,
-            } => {
-                self.handle_context_get(
-                    node.as_deref(),
-                    path.as_ref(),
-                    agent.as_deref(),
-                    frame_type.as_deref(),
-                    *max_frames,
-                    ordering,
-                    *combine,
-                    separator,
-                    format,
-                    *include_metadata,
-                    *include_deleted,
-                    session_id,
-                )
-            }
+            } => self.handle_context_get(
+                node.as_deref(),
+                path.as_ref(),
+                agent.as_deref(),
+                frame_type.as_deref(),
+                *max_frames,
+                ordering,
+                *combine,
+                separator,
+                format,
+                *include_metadata,
+                *include_deleted,
+                session_id,
+            ),
         }
     }
 
@@ -2607,7 +2942,7 @@ impl CliContext {
             }
             (Some(_), Some(_)) => {
                 return Err(ApiError::ConfigError(
-                    "Cannot specify both --node and --path. Use one or the other.".to_string()
+                    "Cannot specify both --node and --path. Use one or the other.".to_string(),
                 ));
             }
             (None, None) => {
@@ -2624,14 +2959,17 @@ impl CliContext {
         let provider_name = self.resolve_provider_name(provider)?;
 
         // 4. Frame type resolution
-        let frame_type = frame_type.map(|s| s.to_string())
+        let frame_type = frame_type
+            .map(|s| s.to_string())
             .unwrap_or_else(|| format!("context-{}", agent_id));
 
         // 5. Agent validation
         let agent = self.api.get_agent(&agent_id)?;
-        
+
         // Verify agent has Writer or Synthesis role
-        if agent.role != crate::agent::AgentRole::Writer && agent.role != crate::agent::AgentRole::Synthesis {
+        if agent.role != crate::agent::AgentRole::Writer
+            && agent.role != crate::agent::AgentRole::Synthesis
+        {
             return Err(ApiError::Unauthorized(format!(
                 "Agent '{}' has role {:?}, but only Writer or Synthesis agents can generate frames.",
                 agent_id, agent.role
@@ -2639,9 +2977,13 @@ impl CliContext {
         }
 
         // Verify node exists
-        let _node_record = self.api.node_store().get(&node_id).map_err(ApiError::from)?
+        let _node_record = self
+            .api
+            .node_store()
+            .get(&node_id)
+            .map_err(ApiError::from)?
             .ok_or_else(|| ApiError::NodeNotFound(node_id))?;
-        
+
         // Check if agent has system_prompt in metadata
         if !agent.metadata.contains_key("system_prompt") {
             return Err(ApiError::ConfigError(format!(
@@ -2697,31 +3039,31 @@ impl CliContext {
             tokio::runtime::Runtime::new()
                 .map_err(|e| ApiError::ProviderError(format!("Failed to create runtime: {}", e)))?
         };
-        
+
         // Enter runtime context for queue.start() which needs tokio::spawn
         let _guard = rt.enter();
         let queue = self.get_or_create_queue(Some(session_id))?;
         // Drop guard before using block_on (can't block while in runtime context)
         drop(_guard);
 
-        let adapter = crate::tooling::adapter::ContextApiAdapter::with_queue(
-            Arc::clone(&self.api),
-            queue,
-        );
-        
+        let adapter =
+            crate::tooling::adapter::ContextApiAdapter::with_queue(Arc::clone(&self.api), queue);
+
         // Create a dummy prompt (queue will generate the actual prompt from agent metadata)
         let dummy_prompt = String::new();
-        
+
         let frame_id = rt.block_on(async {
-            adapter.generate_frame(
-                node_id,
-                dummy_prompt,
-                frame_type.clone(),
-                agent_id.clone(),
-                provider_name.clone(),
-            ).await
+            adapter
+                .generate_frame(
+                    node_id,
+                    dummy_prompt,
+                    frame_type.clone(),
+                    agent_id.clone(),
+                    provider_name.clone(),
+                )
+                .await
         })?;
-        
+
         Ok(format!("Frame generated: {}", hex::encode(frame_id)))
     }
 
@@ -2743,20 +3085,16 @@ impl CliContext {
     ) -> Result<String, ApiError> {
         // 1. Path/NodeID resolution
         let node_id = match (node, path) {
-            (Some(node_str), None) => {
-                parse_node_id(node_str)?
-            }
-            (None, Some(path)) => {
-                resolve_path_to_node_id(&self.api, path, &self.workspace_root)?
-            }
+            (Some(node_str), None) => parse_node_id(node_str)?,
+            (None, Some(path)) => resolve_path_to_node_id(&self.api, path, &self.workspace_root)?,
             (Some(_), Some(_)) => {
                 return Err(ApiError::ConfigError(
-                    "Cannot specify both --node and --path. Use one or the other.".to_string()
+                    "Cannot specify both --node and --path. Use one or the other.".to_string(),
                 ));
             }
             (None, None) => {
                 return Err(ApiError::ConfigError(
-                    "Must specify either --node <node_id> or --path <path>.".to_string()
+                    "Must specify either --node <node_id> or --path <path>.".to_string(),
                 ));
             }
         };
@@ -2773,8 +3111,7 @@ impl CliContext {
             }
         };
 
-        let mut builder = ContextView::builder()
-            .max_frames(max_frames);
+        let mut builder = ContextView::builder().max_frames(max_frames);
 
         // Set ordering
         match ordering_policy {
@@ -2809,18 +3146,18 @@ impl CliContext {
 
         // 4. Format output
         let formatted = match format {
-            "text" => {
-                format_context_text_output(&context, include_metadata, combine, separator, include_deleted)
-            }
-            "json" => {
-                format_context_json_output(&context, include_metadata, include_deleted)
-            }
-            _ => {
-                Err(ApiError::ConfigError(format!(
-                    "Invalid format: '{}'. Must be 'text' or 'json'.",
-                    format
-                )))
-            }
+            "text" => format_context_text_output(
+                &context,
+                include_metadata,
+                combine,
+                separator,
+                include_deleted,
+            ),
+            "json" => format_context_json_output(&context, include_metadata, include_deleted),
+            _ => Err(ApiError::ConfigError(format!(
+                "Invalid format: '{}'. Must be 'text' or 'json'.",
+                format
+            ))),
         }?;
         self.progress.emit_event_best_effort(
             session_id,
@@ -2871,18 +3208,24 @@ fn format_agent_list_text(agents: &[&crate::agent::AgentIdentity]) -> String {
             crate::agent::AgentRole::Writer => "Writer",
             crate::agent::AgentRole::Synthesis => "Synthesis",
         };
-        
-        let prompt_path = agent.metadata.get("system_prompt")
+
+        let prompt_path = agent
+            .metadata
+            .get("system_prompt")
             .and_then(|_| {
                 // Try to get the original path from config
-                let config_path = crate::agent::AgentRegistry::get_agent_config_path(&agent.agent_id).ok()?;
+                let config_path =
+                    crate::agent::AgentRegistry::get_agent_config_path(&agent.agent_id).ok()?;
                 let content = std::fs::read_to_string(&config_path).ok()?;
                 let config: crate::config::AgentConfig = toml::from_str(&content).ok()?;
                 config.system_prompt_path
             })
             .unwrap_or_else(|| "[inline prompt]".to_string());
 
-        output.push_str(&format!("  {:<20} {:<10} {}\n", agent.agent_id, role_str, prompt_path));
+        output.push_str(&format!(
+            "  {:<20} {:<10} {}\n",
+            agent.agent_id, role_str, prompt_path
+        ));
     }
 
     output.push_str(&format!("\nTotal: {} agent(s)\n\nNote: Agents are provider-agnostic. Providers are selected at runtime.", agents.len()));
@@ -2893,26 +3236,32 @@ fn format_agent_list_text(agents: &[&crate::agent::AgentIdentity]) -> String {
 fn format_agent_list_json(agents: &[&crate::agent::AgentIdentity]) -> String {
     use serde_json::json;
 
-    let agent_list: Vec<_> = agents.iter().map(|agent| {
-        let prompt_path = agent.metadata.get("system_prompt")
-            .and_then(|_| {
-                let config_path = crate::agent::AgentRegistry::get_agent_config_path(&agent.agent_id).ok()?;
-                let content = std::fs::read_to_string(&config_path).ok()?;
-                let config: crate::config::AgentConfig = toml::from_str(&content).ok()?;
-                config.system_prompt_path
-            })
-            .unwrap_or_else(|| "[inline prompt]".to_string());
+    let agent_list: Vec<_> = agents
+        .iter()
+        .map(|agent| {
+            let prompt_path = agent
+                .metadata
+                .get("system_prompt")
+                .and_then(|_| {
+                    let config_path =
+                        crate::agent::AgentRegistry::get_agent_config_path(&agent.agent_id).ok()?;
+                    let content = std::fs::read_to_string(&config_path).ok()?;
+                    let config: crate::config::AgentConfig = toml::from_str(&content).ok()?;
+                    config.system_prompt_path
+                })
+                .unwrap_or_else(|| "[inline prompt]".to_string());
 
-        json!({
-            "agent_id": agent.agent_id,
-            "role": match agent.role {
-                crate::agent::AgentRole::Reader => "Reader",
-                crate::agent::AgentRole::Writer => "Writer",
-                crate::agent::AgentRole::Synthesis => "Synthesis",
-            },
-            "system_prompt_path": prompt_path,
+            json!({
+                "agent_id": agent.agent_id,
+                "role": match agent.role {
+                    crate::agent::AgentRole::Reader => "Reader",
+                    crate::agent::AgentRole::Writer => "Writer",
+                    crate::agent::AgentRole::Synthesis => "Synthesis",
+                },
+                "system_prompt_path": prompt_path,
+            })
         })
-    }).collect();
+        .collect();
 
     let result = json!({
         "agents": agent_list,
@@ -2923,13 +3272,19 @@ fn format_agent_list_json(agents: &[&crate::agent::AgentIdentity]) -> String {
 }
 
 /// Format agent show as text
-fn format_agent_show_text(agent: &crate::agent::AgentIdentity, prompt_content: Option<&str>) -> String {
+fn format_agent_show_text(
+    agent: &crate::agent::AgentIdentity,
+    prompt_content: Option<&str>,
+) -> String {
     let mut output = format!("Agent: {}\n", agent.agent_id);
     output.push_str(&format!("Role: {:?}\n", agent.role));
 
-    let prompt_path = agent.metadata.get("system_prompt")
+    let prompt_path = agent
+        .metadata
+        .get("system_prompt")
         .and_then(|_| {
-            let config_path = crate::agent::AgentRegistry::get_agent_config_path(&agent.agent_id).ok()?;
+            let config_path =
+                crate::agent::AgentRegistry::get_agent_config_path(&agent.agent_id).ok()?;
             let content = std::fs::read_to_string(&config_path).ok()?;
             let config: crate::config::AgentConfig = toml::from_str(&content).ok()?;
             config.system_prompt_path
@@ -2956,12 +3311,18 @@ fn format_agent_show_text(agent: &crate::agent::AgentIdentity, prompt_content: O
 }
 
 /// Format agent show as JSON
-fn format_agent_show_json(agent: &crate::agent::AgentIdentity, prompt_content: Option<&str>) -> String {
+fn format_agent_show_json(
+    agent: &crate::agent::AgentIdentity,
+    prompt_content: Option<&str>,
+) -> String {
     use serde_json::json;
 
-    let prompt_path = agent.metadata.get("system_prompt")
+    let prompt_path = agent
+        .metadata
+        .get("system_prompt")
         .and_then(|_| {
-            let config_path = crate::agent::AgentRegistry::get_agent_config_path(&agent.agent_id).ok()?;
+            let config_path =
+                crate::agent::AgentRegistry::get_agent_config_path(&agent.agent_id).ok()?;
             let content = std::fs::read_to_string(&config_path).ok()?;
             let config: crate::config::AgentConfig = toml::from_str(&content).ok()?;
             config.system_prompt_path
@@ -3021,17 +3382,26 @@ fn format_validation_result(result: &crate::agent::ValidationResult, verbose: bo
     }
 
     if verbose {
-        output.push_str(&format!("Validation summary: {}/{} checks passed\n", 
-            result.passed_checks(), result.total_checks()));
+        output.push_str(&format!(
+            "Validation summary: {}/{} checks passed\n",
+            result.passed_checks(),
+            result.total_checks()
+        ));
         if !result.errors.is_empty() {
             output.push_str(&format!("Errors found: {}\n", result.errors.len()));
         }
     } else {
         if result.is_valid() {
-            output.push_str(&format!("Validation passed: {}/{} checks\n", 
-                result.passed_checks(), result.total_checks()));
+            output.push_str(&format!(
+                "Validation passed: {}/{} checks\n",
+                result.passed_checks(),
+                result.total_checks()
+            ));
         } else {
-            output.push_str(&format!("Validation failed: {} error(s) found\n", result.errors.len()));
+            output.push_str(&format!(
+                "Validation failed: {} error(s) found\n",
+                result.errors.len()
+            ));
         }
     }
 
@@ -3039,18 +3409,25 @@ fn format_validation_result(result: &crate::agent::ValidationResult, verbose: bo
 }
 
 /// Format multiple validation results (for --all)
-fn format_validation_results_all(results: &[(String, crate::agent::ValidationResult)], verbose: bool) -> String {
+fn format_validation_results_all(
+    results: &[(String, crate::agent::ValidationResult)],
+    verbose: bool,
+) -> String {
     let mut output = String::from("Validating all agents:\n\n");
-    
+
     let mut valid_count = 0;
     let mut invalid_count = 0;
-    
+
     for (agent_id, result) in results {
         if result.is_valid() {
             valid_count += 1;
             if verbose {
-                output.push_str(&format!("✓ {}: All checks passed ({}/{} checks)\n", 
-                    agent_id, result.passed_checks(), result.total_checks()));
+                output.push_str(&format!(
+                    "✓ {}: All checks passed ({}/{} checks)\n",
+                    agent_id,
+                    result.passed_checks(),
+                    result.total_checks()
+                ));
             } else {
                 output.push_str(&format!("✓ {}: Valid\n", agent_id));
             }
@@ -3070,17 +3447,22 @@ fn format_validation_results_all(results: &[(String, crate::agent::ValidationRes
             }
         }
     }
-    
-    output.push_str(&format!("\nSummary: {} valid, {} invalid (out of {} total)\n", 
-        valid_count, invalid_count, results.len()));
-    
+
+    output.push_str(&format!(
+        "\nSummary: {} valid, {} invalid (out of {} total)\n",
+        valid_count,
+        invalid_count,
+        results.len()
+    ));
+
     output
 }
 
 /// Format provider list as text
 fn format_provider_list_text(providers: &[&crate::config::ProviderConfig]) -> String {
     if providers.is_empty() {
-        return "No providers found.\n\nUse 'merkle provider create' to add a provider.".to_string();
+        return "No providers found.\n\nUse 'merkle provider create' to add a provider."
+            .to_string();
     }
 
     let mut output = String::from("Available Providers:\n");
@@ -3091,12 +3473,14 @@ fn format_provider_list_text(providers: &[&crate::config::ProviderConfig]) -> St
             crate::config::ProviderType::Ollama => "ollama",
             crate::config::ProviderType::LocalCustom => "local",
         };
-        
+
         let endpoint_str = provider.endpoint.as_deref().unwrap_or("(default endpoint)");
         let provider_name = provider.provider_name.as_deref().unwrap_or("unknown");
-        
-        output.push_str(&format!("  {:<20} {:<10} {:<20} {}\n", 
-            provider_name, type_str, provider.model, endpoint_str));
+
+        output.push_str(&format!(
+            "  {:<20} {:<10} {:<20} {}\n",
+            provider_name, type_str, provider.model, endpoint_str
+        ));
     }
 
     output.push_str(&format!("\nTotal: {} provider(s)\n", providers.len()));
@@ -3107,21 +3491,24 @@ fn format_provider_list_text(providers: &[&crate::config::ProviderConfig]) -> St
 fn format_provider_list_json(providers: &[&crate::config::ProviderConfig]) -> String {
     use serde_json::json;
 
-    let provider_list: Vec<_> = providers.iter().map(|provider| {
-        let type_str = match provider.provider_type {
-            crate::config::ProviderType::OpenAI => "openai",
-            crate::config::ProviderType::Anthropic => "anthropic",
-            crate::config::ProviderType::Ollama => "ollama",
-            crate::config::ProviderType::LocalCustom => "local",
-        };
-        
-        json!({
-            "provider_name": provider.provider_name.as_deref().unwrap_or("unknown"),
-            "provider_type": type_str,
-            "model": provider.model,
-            "endpoint": provider.endpoint,
+    let provider_list: Vec<_> = providers
+        .iter()
+        .map(|provider| {
+            let type_str = match provider.provider_type {
+                crate::config::ProviderType::OpenAI => "openai",
+                crate::config::ProviderType::Anthropic => "anthropic",
+                crate::config::ProviderType::Ollama => "ollama",
+                crate::config::ProviderType::LocalCustom => "local",
+            };
+
+            json!({
+                "provider_name": provider.provider_name.as_deref().unwrap_or("unknown"),
+                "provider_type": type_str,
+                "model": provider.model,
+                "endpoint": provider.endpoint,
+            })
         })
-    }).collect();
+        .collect();
 
     let result = json!({
         "providers": provider_list,
@@ -3132,9 +3519,15 @@ fn format_provider_list_json(providers: &[&crate::config::ProviderConfig]) -> St
 }
 
 /// Format provider show as text
-fn format_provider_show_text(provider: &crate::config::ProviderConfig, api_key_status: Option<&str>) -> String {
-    let mut output = format!("Provider: {}\n", provider.provider_name.as_deref().unwrap_or("unknown"));
-    
+fn format_provider_show_text(
+    provider: &crate::config::ProviderConfig,
+    api_key_status: Option<&str>,
+) -> String {
+    let mut output = format!(
+        "Provider: {}\n",
+        provider.provider_name.as_deref().unwrap_or("unknown")
+    );
+
     let type_str = match provider.provider_type {
         crate::config::ProviderType::OpenAI => "openai",
         crate::config::ProviderType::Anthropic => "anthropic",
@@ -3143,7 +3536,7 @@ fn format_provider_show_text(provider: &crate::config::ProviderConfig, api_key_s
     };
     output.push_str(&format!("Type: {}\n", type_str));
     output.push_str(&format!("Model: {}\n", provider.model));
-    
+
     if let Some(endpoint) = &provider.endpoint {
         output.push_str(&format!("Endpoint: {}\n", endpoint));
     } else {
@@ -3178,7 +3571,10 @@ fn format_provider_show_text(provider: &crate::config::ProviderConfig, api_key_s
 }
 
 /// Format provider show as JSON
-fn format_provider_show_json(provider: &crate::config::ProviderConfig, api_key_status: Option<&str>) -> String {
+fn format_provider_show_json(
+    provider: &crate::config::ProviderConfig,
+    api_key_status: Option<&str>,
+) -> String {
     use serde_json::json;
 
     let type_str = match provider.provider_type {
@@ -3188,14 +3584,12 @@ fn format_provider_show_json(provider: &crate::config::ProviderConfig, api_key_s
         crate::config::ProviderType::LocalCustom => "local",
     };
 
-    let api_key_status_str = api_key_status.map(|s| {
-        match s {
-            s if s.contains("from config") => "set_from_config",
-            s if s.contains("from environment") => "set_from_env",
-            s if s.contains("Not set") => "not_set",
-            s if s.contains("Not required") => "not_required",
-            _ => "unknown",
-        }
+    let api_key_status_str = api_key_status.map(|s| match s {
+        s if s.contains("from config") => "set_from_config",
+        s if s.contains("from environment") => "set_from_env",
+        s if s.contains("Not set") => "not_set",
+        s if s.contains("Not required") => "not_required",
+        _ => "unknown",
     });
 
     let default_options = json!({
@@ -3220,7 +3614,10 @@ fn format_provider_show_json(provider: &crate::config::ProviderConfig, api_key_s
 }
 
 /// Format provider validation result
-fn format_provider_validation_result(result: &crate::provider::ValidationResult, verbose: bool) -> String {
+fn format_provider_validation_result(
+    result: &crate::provider::ValidationResult,
+    verbose: bool,
+) -> String {
     let mut output = format!("Validating provider: {}\n\n", result.provider_name);
 
     if result.errors.is_empty() && result.checks.iter().all(|(_, passed)| *passed) {
@@ -3251,8 +3648,13 @@ fn format_provider_validation_result(result: &crate::provider::ValidationResult,
             }
         }
 
-        output.push_str(&format!("\nValidation {}: {}/{} checks passed, {} errors found\n",
-            if result.is_valid() { "passed" } else { "failed" },
+        output.push_str(&format!(
+            "\nValidation {}: {}/{} checks passed, {} errors found\n",
+            if result.is_valid() {
+                "passed"
+            } else {
+                "failed"
+            },
             result.passed_checks(),
             result.total_checks(),
             result.errors.len()
@@ -3281,8 +3683,15 @@ fn format_context_text_output(
     let frames: Vec<&crate::frame::Frame> = if include_deleted {
         context.frames.iter().collect()
     } else {
-        context.frames.iter()
-            .filter(|f| !f.metadata.get("deleted").map(|v| v == "true").unwrap_or(false))
+        context
+            .frames
+            .iter()
+            .filter(|f| {
+                !f.metadata
+                    .get("deleted")
+                    .map(|v| v == "true")
+                    .unwrap_or(false)
+            })
             .collect()
     };
 
@@ -3296,7 +3705,8 @@ fn format_context_text_output(
 
     if combine {
         // Concatenate all frame contents
-        let texts: Vec<String> = frames.iter()
+        let texts: Vec<String> = frames
+            .iter()
             .filter_map(|f| f.text_content().ok())
             .collect();
         Ok(texts.join(separator))
@@ -3312,7 +3722,7 @@ fn format_context_text_output(
 
         for (i, frame) in frames.iter().enumerate() {
             output.push_str(&format!("--- Frame {} ---\n", i + 1));
-            
+
             if include_metadata {
                 output.push_str(&format!("Frame ID: {}\n", hex::encode(frame.frame_id)));
                 output.push_str(&format!("Frame Type: {}\n", frame.frame_type));
@@ -3355,34 +3765,44 @@ fn format_context_json_output(
     let frames: Vec<&crate::frame::Frame> = if include_deleted {
         context.frames.iter().collect()
     } else {
-        context.frames.iter()
-            .filter(|f| !f.metadata.get("deleted").map(|v| v == "true").unwrap_or(false))
+        context
+            .frames
+            .iter()
+            .filter(|f| {
+                !f.metadata
+                    .get("deleted")
+                    .map(|v| v == "true")
+                    .unwrap_or(false)
+            })
             .collect()
     };
 
-    let frames_json: Vec<serde_json::Value> = frames.iter().map(|frame| {
-        let mut frame_obj = json!({
-            "frame_id": hex::encode(frame.frame_id),
-            "frame_type": frame.frame_type,
-            "timestamp": frame.timestamp,
-        });
+    let frames_json: Vec<serde_json::Value> = frames
+        .iter()
+        .map(|frame| {
+            let mut frame_obj = json!({
+                "frame_id": hex::encode(frame.frame_id),
+                "frame_type": frame.frame_type,
+                "timestamp": frame.timestamp,
+            });
 
-        if include_metadata {
-            if let Some(agent_id) = frame.agent_id() {
-                frame_obj["agent_id"] = json!(agent_id);
+            if include_metadata {
+                if let Some(agent_id) = frame.agent_id() {
+                    frame_obj["agent_id"] = json!(agent_id);
+                }
+                frame_obj["metadata"] = json!(frame.metadata);
             }
-            frame_obj["metadata"] = json!(frame.metadata);
-        }
 
-        if let Ok(text) = frame.text_content() {
-            frame_obj["content"] = json!(text);
-        } else {
-            frame_obj["content"] = json!(null);
-            frame_obj["content_binary"] = json!(true);
-        }
+            if let Ok(text) = frame.text_content() {
+                frame_obj["content"] = json!(text);
+            } else {
+                frame_obj["content"] = json!(null);
+                frame_obj["content_binary"] = json!(true);
+            }
 
-        frame_obj
-    }).collect();
+            frame_obj
+        })
+        .collect();
 
     let result = json!({
         "node_id": hex::encode(context.node_id),
@@ -3418,13 +3838,13 @@ mod tests {
         let node_store = Arc::new(SledNodeRecordStore::new(&store_path).unwrap());
         let frame_storage_path = temp_dir.path().join("frames");
         std::fs::create_dir_all(&frame_storage_path).unwrap();
-        let frame_storage = Arc::new(
-            FrameStorage::new(&frame_storage_path).unwrap()
-        );
+        let frame_storage = Arc::new(FrameStorage::new(&frame_storage_path).unwrap());
         let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
         let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
         let agent_registry = Arc::new(parking_lot::RwLock::new(crate::agent::AgentRegistry::new()));
-        let provider_registry = Arc::new(parking_lot::RwLock::new(crate::provider::ProviderRegistry::new()));
+        let provider_registry = Arc::new(parking_lot::RwLock::new(
+            crate::provider::ProviderRegistry::new(),
+        ));
         let lock_manager = Arc::new(crate::concurrency::NodeLockManager::new());
 
         let api = ContextApi::new(
@@ -3460,7 +3880,7 @@ mod tests {
     fn test_parse_node_id_invalid() {
         // Invalid hex
         assert!(parse_node_id("not-hex").is_err());
-        
+
         // Wrong length
         let short_hex = hex::encode([1u8; 16]);
         assert!(parse_node_id(&short_hex).is_err());
@@ -3470,14 +3890,14 @@ mod tests {
     fn test_resolve_path_to_node_id() {
         let (api, temp_dir) = create_test_api();
         let workspace_root = temp_dir.path().to_path_buf();
-        
+
         // Create a test node record
         let node_id: NodeID = [1u8; 32];
         let test_path = workspace_root.join("test.txt");
         std::fs::write(&test_path, "test content").unwrap();
-        
+
         let canonical_path = crate::tree::path::canonicalize_path(&test_path).unwrap();
-        
+
         let record = crate::store::NodeRecord {
             node_id,
             path: canonical_path.clone(),
@@ -3491,9 +3911,9 @@ mod tests {
             metadata: std::collections::HashMap::new(),
             tombstoned_at: None,
         };
-        
+
         api.node_store().put(&record).unwrap();
-        
+
         // Test path resolution
         let resolved = resolve_path_to_node_id(&api, &test_path, &workspace_root).unwrap();
         assert_eq!(resolved, node_id);
@@ -3503,11 +3923,11 @@ mod tests {
     fn test_resolve_path_to_node_id_not_found() {
         let (api, temp_dir) = create_test_api();
         let workspace_root = temp_dir.path().to_path_buf();
-        
+
         // Create the file but don't add it to the store
         let test_path = workspace_root.join("nonexistent.txt");
         std::fs::write(&test_path, "test content").unwrap();
-        
+
         let result = resolve_path_to_node_id(&api, &test_path, &workspace_root);
         assert!(result.is_err());
         match result {
@@ -3539,7 +3959,8 @@ mod tests {
             "type1".to_string(),
             "agent1".to_string(),
             std::collections::HashMap::new(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let frame2 = crate::frame::Frame::new(
             crate::frame::Basis::Node(node_id),
@@ -3547,7 +3968,8 @@ mod tests {
             "type2".to_string(),
             "agent2".to_string(),
             std::collections::HashMap::new(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let context = crate::api::NodeContext {
             node_id,
@@ -3585,7 +4007,8 @@ mod tests {
             "test".to_string(),
             "agent1".to_string(),
             std::collections::HashMap::new(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let context = crate::api::NodeContext {
             node_id,
@@ -3607,9 +4030,8 @@ fn parse_node_id(s: &str) -> Result<NodeID, ApiError> {
     let s = s.strip_prefix("0x").unwrap_or(s);
 
     // Parse hex string to bytes
-    let bytes = hex::decode(s).map_err(|e| {
-        ApiError::InvalidFrame(format!("Invalid hex string: {}", e))
-    })?;
+    let bytes =
+        hex::decode(s).map_err(|e| ApiError::InvalidFrame(format!("Invalid hex string: {}", e)))?;
 
     if bytes.len() != 32 {
         return Err(ApiError::InvalidFrame(format!(
@@ -3655,20 +4077,30 @@ fn resolve_workspace_node_id(
             let record = if include_tombstoned {
                 store.get_by_path(&canonical_path).map_err(ApiError::from)?
             } else {
-                store.find_by_path(&canonical_path).map_err(ApiError::from)?
+                store
+                    .find_by_path(&canonical_path)
+                    .map_err(ApiError::from)?
             };
-            record.map(|r| r.node_id).ok_or_else(|| ApiError::PathNotInTree(canonical_path))
+            record
+                .map(|r| r.node_id)
+                .ok_or_else(|| ApiError::PathNotInTree(canonical_path))
         }
         (None, Some(hex_str)) => {
-            let bytes = hex::decode(hex_str.trim_start_matches("0x")).map_err(|_| {
-                ApiError::ConfigError(format!("Invalid node ID hex: {}", hex_str))
-            })?;
+            let bytes = hex::decode(hex_str.trim_start_matches("0x"))
+                .map_err(|_| ApiError::ConfigError(format!("Invalid node ID hex: {}", hex_str)))?;
             if bytes.len() != 32 {
-                return Err(ApiError::ConfigError("Node ID must be 32 bytes (64 hex chars).".to_string()));
+                return Err(ApiError::ConfigError(
+                    "Node ID must be 32 bytes (64 hex chars).".to_string(),
+                ));
             }
             let mut node_id = [0u8; 32];
             node_id.copy_from_slice(&bytes);
-            if api.node_store().get(&node_id).map_err(ApiError::from)?.is_none() {
+            if api
+                .node_store()
+                .get(&node_id)
+                .map_err(ApiError::from)?
+                .is_none()
+            {
                 return Err(ApiError::NodeNotFound(node_id));
             }
             Ok(node_id)
@@ -3686,12 +4118,11 @@ fn resolve_workspace_node_id(
 fn count_frame_files(path: &PathBuf) -> Result<usize, ApiError> {
     let mut count = 0;
     if path.is_dir() {
-        for entry in fs::read_dir(path).map_err(|e| {
-            ApiError::StorageError(crate::error::StorageError::IoError(e))
-        })? {
-            let entry = entry.map_err(|e| {
-                ApiError::StorageError(crate::error::StorageError::IoError(e))
-            })?;
+        for entry in fs::read_dir(path)
+            .map_err(|e| ApiError::StorageError(crate::error::StorageError::IoError(e)))?
+        {
+            let entry = entry
+                .map_err(|e| ApiError::StorageError(crate::error::StorageError::IoError(e)))?;
             let path = entry.path();
             if path.is_dir() {
                 // Recursively count in subdirectories
@@ -3707,7 +4138,7 @@ fn count_frame_files(path: &PathBuf) -> Result<usize, ApiError> {
 /// Format initialization preview
 fn format_init_preview(preview: &crate::init::InitPreview) -> String {
     let mut output = String::from("Initialization Preview:\n\n");
-    
+
     if !preview.prompts.is_empty() {
         output.push_str("Would create prompts:\n");
         for prompt in &preview.prompts {
@@ -3715,7 +4146,7 @@ fn format_init_preview(preview: &crate::init::InitPreview) -> String {
         }
         output.push('\n');
     }
-    
+
     if !preview.agents.is_empty() {
         output.push_str("Would create agents:\n");
         for agent in &preview.agents {
@@ -3723,27 +4154,27 @@ fn format_init_preview(preview: &crate::init::InitPreview) -> String {
         }
         output.push('\n');
     }
-    
+
     if preview.prompts.is_empty() && preview.agents.is_empty() {
         output.push_str("All default agents and prompts already exist.\n");
     } else {
         output.push_str("Run 'merkle init' to perform initialization.\n");
     }
-    
+
     output
 }
 
 /// Format initialization summary
 fn format_init_summary(summary: &crate::init::InitSummary, force: bool) -> String {
     let mut output = String::from("Initializing Merkle configuration...\n\n");
-    
+
     // Prompts section
     if !summary.prompts.created.is_empty() || !summary.prompts.skipped.is_empty() {
         let prompts_dir = crate::config::xdg::prompts_dir()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| "~/.config/merkle/prompts/".to_string());
         output.push_str(&format!("Created prompts directory: {}\n", prompts_dir));
-        
+
         for prompt in &summary.prompts.created {
             if force {
                 output.push_str(&format!("  ✓ {} (overwritten)\n", prompt));
@@ -3756,14 +4187,14 @@ fn format_init_summary(summary: &crate::init::InitSummary, force: bool) -> Strin
         }
         output.push('\n');
     }
-    
+
     // Agents section
     if !summary.agents.created.is_empty() || !summary.agents.skipped.is_empty() {
         let agents_dir = crate::config::xdg::agents_dir()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| "~/.config/merkle/agents/".to_string());
         output.push_str(&format!("Created agents directory: {}\n", agents_dir));
-        
+
         for agent in &summary.agents.created {
             let role_str = match agent.as_str() {
                 "reader" => "Reader",
@@ -3773,7 +4204,10 @@ fn format_init_summary(summary: &crate::init::InitSummary, force: bool) -> Strin
                 _ => "Unknown",
             };
             if force {
-                output.push_str(&format!("  ✓ {}.toml ({}) (overwritten)\n", agent, role_str));
+                output.push_str(&format!(
+                    "  ✓ {}.toml ({}) (overwritten)\n",
+                    agent, role_str
+                ));
             } else {
                 output.push_str(&format!("  ✓ {}.toml ({})\n", agent, role_str));
             }
@@ -3786,11 +4220,14 @@ fn format_init_summary(summary: &crate::init::InitSummary, force: bool) -> Strin
                 "synthesis-agent" => "Synthesis",
                 _ => "Unknown",
             };
-            output.push_str(&format!("  ⊘ {}.toml ({}) (already exists, skipped)\n", agent, role_str));
+            output.push_str(&format!(
+                "  ⊘ {}.toml ({}) (already exists, skipped)\n",
+                agent, role_str
+            ));
         }
         output.push('\n');
     }
-    
+
     // Errors section
     if !summary.prompts.errors.is_empty() || !summary.agents.errors.is_empty() {
         output.push_str("Errors:\n");
@@ -3802,9 +4239,13 @@ fn format_init_summary(summary: &crate::init::InitSummary, force: bool) -> Strin
         }
         output.push('\n');
     }
-    
+
     // Validation section
-    let all_valid = summary.validation.results.iter().all(|(_, is_valid, _)| *is_valid);
+    let all_valid = summary
+        .validation
+        .results
+        .iter()
+        .all(|(_, is_valid, _)| *is_valid);
     if all_valid {
         output.push_str("Validation:\n");
         output.push_str("  ✓ All agents validated successfully\n\n");
@@ -3822,7 +4263,7 @@ fn format_init_summary(summary: &crate::init::InitSummary, force: bool) -> Strin
         }
         output.push('\n');
     }
-    
+
     if summary.prompts.created.is_empty() && summary.agents.created.is_empty() && !force {
         output.push_str("All default agents already exist. Use --force to re-initialize.\n");
     } else {
@@ -3831,6 +4272,6 @@ fn format_init_summary(summary: &crate::init::InitSummary, force: bool) -> Strin
         output.push_str("  - merkle agent show <id>     # View agent details\n");
         output.push_str("  - merkle context generate    # Generate context frames\n");
     }
-    
+
     output
 }

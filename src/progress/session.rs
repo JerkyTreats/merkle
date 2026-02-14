@@ -13,7 +13,9 @@ use crate::error::{ApiError, StorageError};
 use crate::progress::bus::ProgressBus;
 use crate::progress::ingestor::{EventIngestor, SharedIngestor};
 use crate::progress::store::{ProgressStore, SessionMeta, SessionRecord};
-use crate::tooling::cli::{AgentCommands, Commands, ContextCommands, ProviderCommands, WorkspaceCommands};
+use crate::tooling::cli::{
+    AgentCommands, Commands, ContextCommands, ProviderCommands, WorkspaceCommands,
+};
 
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -64,7 +66,11 @@ impl ProgressRuntime {
         let store = ProgressStore::shared(db)?;
         let (bus, rx) = ProgressBus::new_pair();
         let ingestor = SharedIngestor::new(EventIngestor::new(store.clone(), rx));
-        Ok(Self { store, bus, ingestor })
+        Ok(Self {
+            store,
+            bus,
+            ingestor,
+        })
     }
 
     pub fn start_command_session(&self, command: String) -> Result<String, ApiError> {
@@ -118,10 +124,11 @@ impl ProgressRuntime {
             )
             .map_err(to_api_error)?;
         self.ingestor.drain()?;
-        let mut record = self
-            .store
-            .get_session(session_id)?
-            .ok_or_else(|| ApiError::StorageError(StorageError::InvalidPath("session record missing".to_string())))?;
+        let mut record = self.store.get_session(session_id)?.ok_or_else(|| {
+            ApiError::StorageError(StorageError::InvalidPath(
+                "session record missing".to_string(),
+            ))
+        })?;
         record.status = status;
         record.status_text = status.as_str().to_string();
         record.ended_at_ms = Some(now_millis());
@@ -255,7 +262,9 @@ fn agent_command_name(command: &AgentCommands) -> &'static str {
     }
 }
 
-fn to_api_error(err: std::sync::mpsc::SendError<crate::progress::event::ProgressEnvelope>) -> ApiError {
+fn to_api_error(
+    err: std::sync::mpsc::SendError<crate::progress::event::ProgressEnvelope>,
+) -> ApiError {
     ApiError::StorageError(StorageError::IoError(std::io::Error::new(
         std::io::ErrorKind::Other,
         err.to_string(),

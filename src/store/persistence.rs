@@ -131,12 +131,14 @@ impl NodeRecordStore for SledNodeRecordStore {
             ))
         })?;
 
-        self.db.insert(path_key.as_bytes(), path_value).map_err(|e| {
-            StorageError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to store path mapping: {}", e),
-            ))
-        })?;
+        self.db
+            .insert(path_key.as_bytes(), path_value)
+            .map_err(|e| {
+                StorageError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to store path mapping: {}", e),
+                ))
+            })?;
 
         Ok(())
     }
@@ -508,7 +510,10 @@ mod tests {
         // Verify update
         let retrieved = store.get(&node_id).unwrap().unwrap();
         assert_eq!(retrieved.path, record2.path);
-        assert_eq!(retrieved.path, std::path::PathBuf::from("/test/file_updated.txt"));
+        assert_eq!(
+            retrieved.path,
+            std::path::PathBuf::from("/test/file_updated.txt")
+        );
     }
 
     #[test]
@@ -520,7 +525,10 @@ mod tests {
         let record = NodeRecord {
             node_id,
             path: path.clone(),
-            node_type: NodeType::File { size: 100, content_hash: [2u8; 32] },
+            node_type: NodeType::File {
+                size: 100,
+                content_hash: [2u8; 32],
+            },
             children: vec![],
             parent: None,
             frame_set_root: None,
@@ -531,7 +539,12 @@ mod tests {
         assert!(store.find_by_path(&path).unwrap().is_some());
         let updated = store.tombstone(&node_id).unwrap();
         assert!(updated.tombstoned_at.is_some());
-        assert!(store.get(&node_id).unwrap().unwrap().tombstoned_at.is_some());
+        assert!(store
+            .get(&node_id)
+            .unwrap()
+            .unwrap()
+            .tombstoned_at
+            .is_some());
         assert!(store.find_by_path(&path).unwrap().is_none());
         assert!(store.get_by_path(&path).unwrap().is_some());
     }
@@ -545,7 +558,10 @@ mod tests {
         let record = NodeRecord {
             node_id,
             path: path.clone(),
-            node_type: NodeType::File { size: 100, content_hash: [2u8; 32] },
+            node_type: NodeType::File {
+                size: 100,
+                content_hash: [2u8; 32],
+            },
             children: vec![],
             parent: None,
             frame_set_root: None,
@@ -555,7 +571,12 @@ mod tests {
         store.put(&record).unwrap();
         store.tombstone(&node_id).unwrap();
         store.restore(&node_id).unwrap();
-        assert!(store.get(&node_id).unwrap().unwrap().tombstoned_at.is_none());
+        assert!(store
+            .get(&node_id)
+            .unwrap()
+            .unwrap()
+            .tombstoned_at
+            .is_none());
         assert!(store.find_by_path(&path).unwrap().is_some());
     }
 
@@ -568,7 +589,10 @@ mod tests {
         let record = NodeRecord {
             node_id,
             path: path.clone(),
-            node_type: NodeType::File { size: 100, content_hash: [2u8; 32] },
+            node_type: NodeType::File {
+                size: 100,
+                content_hash: [2u8; 32],
+            },
             children: vec![],
             parent: None,
             frame_set_root: None,
@@ -590,7 +614,10 @@ mod tests {
         let r1 = NodeRecord {
             node_id: [1u8; 32],
             path: std::path::PathBuf::from("/a"),
-            node_type: NodeType::File { size: 0, content_hash: [0u8; 32] },
+            node_type: NodeType::File {
+                size: 0,
+                content_hash: [0u8; 32],
+            },
             children: vec![],
             parent: None,
             frame_set_root: None,
@@ -600,7 +627,10 @@ mod tests {
         let r2 = NodeRecord {
             node_id: [2u8; 32],
             path: std::path::PathBuf::from("/b"),
-            node_type: NodeType::File { size: 0, content_hash: [0u8; 32] },
+            node_type: NodeType::File {
+                size: 0,
+                content_hash: [0u8; 32],
+            },
             children: vec![],
             parent: None,
             frame_set_root: None,
@@ -624,7 +654,10 @@ mod tests {
         let valid = NodeRecord {
             node_id: [1u8; 32],
             path: std::path::PathBuf::from("/ok"),
-            node_type: NodeType::File { size: 10, content_hash: [2u8; 32] },
+            node_type: NodeType::File {
+                size: 10,
+                content_hash: [2u8; 32],
+            },
             children: vec![],
             parent: None,
             frame_set_root: None,
@@ -649,7 +682,10 @@ mod tests {
         let active = NodeRecord {
             node_id: [1u8; 32],
             path: std::path::PathBuf::from("/a"),
-            node_type: NodeType::File { size: 0, content_hash: [0u8; 32] },
+            node_type: NodeType::File {
+                size: 0,
+                content_hash: [0u8; 32],
+            },
             children: vec![],
             parent: None,
             frame_set_root: None,
@@ -659,7 +695,10 @@ mod tests {
         let tombstoned = NodeRecord {
             node_id: [2u8; 32],
             path: std::path::PathBuf::from("/b"),
-            node_type: NodeType::File { size: 0, content_hash: [0u8; 32] },
+            node_type: NodeType::File {
+                size: 0,
+                content_hash: [0u8; 32],
+            },
             children: vec![],
             parent: None,
             frame_set_root: None,
@@ -682,7 +721,10 @@ mod tests {
         let valid = NodeRecord {
             node_id: [1u8; 32],
             path: std::path::PathBuf::from("/ok"),
-            node_type: NodeType::File { size: 10, content_hash: [2u8; 32] },
+            node_type: NodeType::File {
+                size: 10,
+                content_hash: [2u8; 32],
+            },
             children: vec![],
             parent: None,
             frame_set_root: None,

@@ -11,7 +11,7 @@ pub mod editor;
 pub mod watch;
 
 pub use adapter::{AgentAdapter, ContextApiAdapter};
-pub use ci::{CiIntegration, BatchOperation, BatchReport};
+pub use ci::{BatchOperation, BatchReport, CiIntegration};
 pub use cli::{Cli, CliContext, Commands};
 pub use editor::EditorHooks;
 pub use watch::{WatchConfig, WatchDaemon};

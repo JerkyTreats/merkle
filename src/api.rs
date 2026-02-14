@@ -4,24 +4,24 @@
 //! Implements GetNode and PutFrame APIs as specified in Phase 2B.
 
 use crate::agent::AgentRegistry;
-use crate::composition::{CompositionPolicy, compose_frames};
+use crate::composition::{compose_frames, CompositionPolicy};
 use crate::concurrency::NodeLockManager;
 use crate::error::ApiError;
-use crate::frame::{Basis, Frame, FrameMerkleSet, FrameStorage, FrameGenerationQueue};
 use crate::frame::id::compute_basis_hash;
+use crate::frame::{Basis, Frame, FrameGenerationQueue, FrameMerkleSet, FrameStorage};
 use crate::heads::HeadIndex;
-use crate::regeneration::{BasisIndex, RegenerationReport, regenerate_node};
+use crate::regeneration::{regenerate_node, BasisIndex, RegenerationReport};
 use crate::store::{NodeRecord, NodeRecordStore};
 use crate::synthesis::{collect_child_frames, synthesize_content, SynthesisBasis, SynthesisPolicy};
 use crate::types::{FrameID, NodeID};
 use crate::views::{get_context_view, ViewPolicy};
+use hex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info, instrument, warn};
-use hex;
 
 /// Result of a tombstone operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,7 +88,7 @@ impl ContextView {
     /// # Example
     /// ```rust
     /// use merkle::api::ContextView;
-    /// 
+    ///
     /// let view = ContextView::builder()
     ///     .max_frames(20)
     ///     .recent()
@@ -158,7 +158,9 @@ impl ContextViewBuilder {
     pub fn build(self) -> ContextView {
         ContextView {
             max_frames: self.max_frames.unwrap_or(100),
-            ordering: self.ordering.unwrap_or(crate::views::OrderingPolicy::Recency),
+            ordering: self
+                .ordering
+                .unwrap_or(crate::views::OrderingPolicy::Recency),
             filters: self.filters,
         }
     }
@@ -252,16 +254,17 @@ impl NodeContext {
     /// Provides an iterator over valid UTF-8 text content from frames.
     /// Filters out frames with invalid UTF-8.
     pub fn text_iter(&self) -> impl Iterator<Item = String> + '_ {
-        self.frames
-            .iter()
-            .filter_map(|f| f.text_content().ok())
+        self.frames.iter().filter_map(|f| f.text_content().ok())
     }
 
     /// Get frames filtered by type
     ///
     /// Returns all frames matching the specified type.
     pub fn filter_by_type(&self, frame_type: &str) -> Vec<&Frame> {
-        self.frames.iter().filter(|f| f.is_type(frame_type)).collect()
+        self.frames
+            .iter()
+            .filter(|f| f.is_type(frame_type))
+            .collect()
     }
 }
 
@@ -341,18 +344,18 @@ impl ContextApi {
             {
                 let head_index = self.head_index.read();
                 let path = HeadIndex::persistence_path(workspace_root);
-                head_index.save_to_disk(&path).map_err(|e| {
-                    ApiError::StorageError(e)
-                })?;
+                head_index
+                    .save_to_disk(&path)
+                    .map_err(|e| ApiError::StorageError(e))?;
             }
 
             // Persist basis index
             {
                 let basis_index = self.basis_index.read();
                 let path = BasisIndex::persistence_path(workspace_root);
-                basis_index.save_to_disk(&path).map_err(|e| {
-                    ApiError::StorageError(e)
-                })?;
+                basis_index
+                    .save_to_disk(&path)
+                    .map_err(|e| ApiError::StorageError(e))?;
             }
         }
         Ok(())
@@ -426,11 +429,7 @@ impl ContextApi {
         // Retrieve full frame objects
         let mut frames = Vec::new();
         for frame_id in selected_frame_ids {
-            if let Some(frame) = self
-                .frame_storage
-                .get(&frame_id)
-                .map_err(ApiError::from)?
-            {
+            if let Some(frame) = self.frame_storage.get(&frame_id).map_err(ApiError::from)? {
                 frames.push(frame);
             }
         }
@@ -486,9 +485,7 @@ impl ContextApi {
         // Verify agent exists and has write permission
         let agent = {
             let registry = self.agent_registry.read();
-            registry
-                .get_or_error(&agent_id)?
-                .clone() // Clone to release lock
+            registry.get_or_error(&agent_id)?.clone() // Clone to release lock
         };
 
         // Verify agent can write
@@ -546,9 +543,7 @@ impl ContextApi {
         let _guard = lock.write();
 
         // Store frame
-        self.frame_storage
-            .store(&frame)
-            .map_err(ApiError::from)?;
+        self.frame_storage.store(&frame).map_err(ApiError::from)?;
 
         // Update frame set (get or create)
         // TODO: In a full implementation, we'd retrieve the FrameMerkleSet from storage
@@ -677,11 +672,7 @@ impl ContextApi {
     }
 
     /// Compact tombstoned records older than TTL. Optionally purge frame blobs.
-    pub fn compact(
-        &self,
-        ttl_seconds: u64,
-        purge_frames: bool,
-    ) -> Result<CompactResult, ApiError> {
+    pub fn compact(&self, ttl_seconds: u64, purge_frames: bool) -> Result<CompactResult, ApiError> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|e| ApiError::ConfigError(e.to_string()))?
@@ -697,11 +688,15 @@ impl ContextApi {
             if purge_frames {
                 let frame_ids = self.head_index.read().get_all_heads_for_node(&nid);
                 for frame_id in frame_ids {
-                    self.frame_storage.purge(&frame_id).map_err(ApiError::from)?;
+                    self.frame_storage
+                        .purge(&frame_id)
+                        .map_err(ApiError::from)?;
                     frames_purged += 1;
                 }
             }
-            self.node_store.purge(&nid, cutoff).map_err(ApiError::from)?;
+            self.node_store
+                .purge(&nid, cutoff)
+                .map_err(ApiError::from)?;
             nodes_purged += 1;
         }
         let head_before = self.head_index.read().heads.len();
@@ -750,9 +745,7 @@ impl ContextApi {
         // Verify agent exists and has synthesize permission
         let agent = {
             let registry = self.agent_registry.read();
-            registry
-                .get_or_error(&agent_id)?
-                .clone() // Clone to release lock
+            registry.get_or_error(&agent_id)?.clone() // Clone to release lock
         };
 
         // Verify agent can synthesize
@@ -796,7 +789,10 @@ impl ContextApi {
         )?;
         drop(head_index);
 
-        debug!(child_frame_count = child_frames.len(), "Collected child frames");
+        debug!(
+            child_frame_count = child_frames.len(),
+            "Collected child frames"
+        );
 
         // If no child frames, create empty frame
         if child_frames.is_empty() {
@@ -809,7 +805,13 @@ impl ContextApi {
                 m
             };
 
-            let frame = Frame::new(basis, content, frame_type.clone(), agent_id.clone(), metadata)?;
+            let frame = Frame::new(
+                basis,
+                content,
+                frame_type.clone(),
+                agent_id.clone(),
+                metadata,
+            )?;
 
             // Store frame
             self.frame_storage.store(&frame).map_err(ApiError::from)?;
@@ -835,7 +837,10 @@ impl ContextApi {
         }
 
         // Extract child frame IDs for basis construction
-        let child_frame_ids: Vec<FrameID> = child_frames.iter().map(|(_, frame)| frame.frame_id).collect();
+        let child_frame_ids: Vec<FrameID> = child_frames
+            .iter()
+            .map(|(_, frame)| frame.frame_id)
+            .collect();
 
         // Construct synthesis basis
         let basis_info = SynthesisBasis {
@@ -867,10 +872,19 @@ impl ContextApi {
         // Encode basis hash as hex string manually
         let basis_hash_hex: String = basis_hash.iter().map(|b| format!("{:02x}", b)).collect();
         metadata.insert("basis_hash".to_string(), basis_hash_hex);
-        metadata.insert("child_frame_count".to_string(), child_frame_ids.len().to_string());
+        metadata.insert(
+            "child_frame_count".to_string(),
+            child_frame_ids.len().to_string(),
+        );
 
         // Create synthesized frame
-        let frame = Frame::new(basis, synthesized_content, frame_type.clone(), agent_id.clone(), metadata)?;
+        let frame = Frame::new(
+            basis,
+            synthesized_content,
+            frame_type.clone(),
+            agent_id.clone(),
+            metadata,
+        )?;
 
         // Store frame
         self.frame_storage.store(&frame).map_err(ApiError::from)?;
@@ -936,9 +950,7 @@ impl ContextApi {
         // Verify agent exists
         let _agent = {
             let registry = self.agent_registry.read();
-            registry
-                .get_or_error(&agent_id)?
-                .clone()
+            registry.get_or_error(&agent_id)?.clone()
         };
 
         // Verify node exists
@@ -1112,8 +1124,14 @@ impl ContextApi {
         // Create frame
         let basis = Basis::Node(node_id);
         let metadata = HashMap::new();
-        let frame = Frame::new(basis, content, frame_type.clone(), agent_id.clone(), metadata)
-            .map_err(|e| ApiError::StorageError(e))?;
+        let frame = Frame::new(
+            basis,
+            content,
+            frame_type.clone(),
+            agent_id.clone(),
+            metadata,
+        )
+        .map_err(|e| ApiError::StorageError(e))?;
 
         // Store frame
         let frame_id = self.put_frame(node_id, frame, agent_id)?;
@@ -1133,9 +1151,15 @@ impl ContextApi {
     /// Get head frame ID for a node and frame type
     ///
     /// Returns the latest frame ID for the given node and frame type.
-    pub fn get_head(&self, node_id: &NodeID, frame_type: &str) -> Result<Option<FrameID>, ApiError> {
+    pub fn get_head(
+        &self,
+        node_id: &NodeID,
+        frame_type: &str,
+    ) -> Result<Option<FrameID>, ApiError> {
         let head_index = self.head_index.read();
-        head_index.get_head(node_id, frame_type).map_err(ApiError::from)
+        head_index
+            .get_head(node_id, frame_type)
+            .map_err(ApiError::from)
     }
 
     /// Get all head frame IDs for a node
@@ -1248,7 +1272,9 @@ impl ContextApi {
     }
 
     /// Get a reference to the provider registry
-    pub fn provider_registry(&self) -> &Arc<parking_lot::RwLock<crate::provider::ProviderRegistry>> {
+    pub fn provider_registry(
+        &self,
+    ) -> &Arc<parking_lot::RwLock<crate::provider::ProviderRegistry>> {
         &self.provider_registry
     }
 }
@@ -1275,7 +1301,9 @@ mod tests {
         let agent_registry = Arc::new(parking_lot::RwLock::new(AgentRegistry::new()));
         let lock_manager = Arc::new(NodeLockManager::new());
 
-        let provider_registry = Arc::new(parking_lot::RwLock::new(crate::provider::ProviderRegistry::new()));
+        let provider_registry = Arc::new(parking_lot::RwLock::new(
+            crate::provider::ProviderRegistry::new(),
+        ));
         let api = ContextApi::new(
             node_store,
             frame_storage,
@@ -1429,7 +1457,14 @@ mod tests {
         let agent_id = "writer-1".to_string();
         let metadata = HashMap::new();
 
-        let frame = Frame::new(basis, content, frame_type.clone(), agent_id.clone(), metadata).unwrap();
+        let frame = Frame::new(
+            basis,
+            content,
+            frame_type.clone(),
+            agent_id.clone(),
+            metadata,
+        )
+        .unwrap();
 
         let frame_id = api.put_frame(node_id, frame, agent_id).unwrap();
 
@@ -1465,7 +1500,14 @@ mod tests {
         let agent_id = "writer-1".to_string();
         let metadata = HashMap::new();
 
-        let frame = Frame::new(basis, content, frame_type.clone(), agent_id.clone(), metadata).unwrap();
+        let frame = Frame::new(
+            basis,
+            content,
+            frame_type.clone(),
+            agent_id.clone(),
+            metadata,
+        )
+        .unwrap();
         let frame_id = api.put_frame(node_id, frame.clone(), agent_id).unwrap();
 
         // Get node context
@@ -1504,16 +1546,29 @@ mod tests {
         let agent_id = "writer-1".to_string();
         let metadata = HashMap::new();
 
-        let frame = Frame::new(basis, content, frame_type.clone(), agent_id.clone(), metadata).unwrap();
+        let frame = Frame::new(
+            basis,
+            content,
+            frame_type.clone(),
+            agent_id.clone(),
+            metadata,
+        )
+        .unwrap();
         let _frame_id = api.put_frame(node_id, frame, agent_id.clone()).unwrap();
 
         // Regenerate - should be idempotent (no changes)
         let report = api.regenerate(node_id, false, agent_id.clone()).unwrap();
-        assert_eq!(report.regenerated_count, 0, "Regeneration should be idempotent");
+        assert_eq!(
+            report.regenerated_count, 0,
+            "Regeneration should be idempotent"
+        );
 
         // Regenerate again - should still be idempotent
         let report2 = api.regenerate(node_id, false, agent_id).unwrap();
-        assert_eq!(report2.regenerated_count, 0, "Second regeneration should also be idempotent");
+        assert_eq!(
+            report2.regenerated_count, 0,
+            "Second regeneration should also be idempotent"
+        );
     }
 
     #[test]
@@ -1567,14 +1622,18 @@ mod tests {
         }
 
         // Ensure frame - should create it
-        let frame_id = api.ensure_agent_frame(node_id, "writer-1".to_string(), None, None).unwrap();
+        let frame_id = api
+            .ensure_agent_frame(node_id, "writer-1".to_string(), None, None)
+            .unwrap();
         assert!(frame_id.is_some());
 
         // Verify frame exists
         assert!(api.has_agent_frame(&node_id, "writer-1").unwrap());
 
         // Ensure again - should return None (already exists)
-        let frame_id2 = api.ensure_agent_frame(node_id, "writer-1".to_string(), None, None).unwrap();
+        let frame_id2 = api
+            .ensure_agent_frame(node_id, "writer-1".to_string(), None, None)
+            .unwrap();
         assert!(frame_id2.is_none());
     }
 
@@ -1595,7 +1654,9 @@ mod tests {
         }
 
         // Ensure frame - should return None (reader can't write)
-        let frame_id = api.ensure_agent_frame(node_id, "reader-1".to_string(), None, None).unwrap();
+        let frame_id = api
+            .ensure_agent_frame(node_id, "reader-1".to_string(), None, None)
+            .unwrap();
         assert!(frame_id.is_none());
 
         // Verify no frame was created
@@ -1619,12 +1680,14 @@ mod tests {
         }
 
         // Ensure frame with custom frame type
-        let frame_id = api.ensure_agent_frame(
-            node_id,
-            "writer-1".to_string(),
-            Some("custom-type".to_string()),
-            None,
-        ).unwrap();
+        let frame_id = api
+            .ensure_agent_frame(
+                node_id,
+                "writer-1".to_string(),
+                Some("custom-type".to_string()),
+                None,
+            )
+            .unwrap();
         assert!(frame_id.is_some());
 
         // Verify frame exists and has correct type
@@ -1662,7 +1725,14 @@ mod tests {
             let node_id: NodeID = [1u8; 32];
             let basis = Basis::Node(node_id);
             let content = b"Hello, world!".to_vec();
-            Frame::new(basis, content, "test".to_string(), "agent-1".to_string(), HashMap::new()).unwrap()
+            Frame::new(
+                basis,
+                content,
+                "test".to_string(),
+                "agent-1".to_string(),
+                HashMap::new(),
+            )
+            .unwrap()
         };
 
         assert_eq!(frame.text_content().unwrap(), "Hello, world!");
@@ -1674,7 +1744,14 @@ mod tests {
             let node_id: NodeID = [1u8; 32];
             let basis = Basis::Node(node_id);
             let content = b"test".to_vec();
-            Frame::new(basis, content, "test".to_string(), "agent-123".to_string(), HashMap::new()).unwrap()
+            Frame::new(
+                basis,
+                content,
+                "test".to_string(),
+                "agent-123".to_string(),
+                HashMap::new(),
+            )
+            .unwrap()
         };
 
         assert_eq!(frame.agent_id(), Some("agent-123"));
@@ -1686,7 +1763,14 @@ mod tests {
             let node_id: NodeID = [1u8; 32];
             let basis = Basis::Node(node_id);
             let content = b"test".to_vec();
-            Frame::new(basis, content, "analysis".to_string(), "agent-1".to_string(), HashMap::new()).unwrap()
+            Frame::new(
+                basis,
+                content,
+                "analysis".to_string(),
+                "agent-1".to_string(),
+                HashMap::new(),
+            )
+            .unwrap()
         };
 
         assert!(frame.is_type("analysis"));
@@ -1712,9 +1796,30 @@ mod tests {
         // Create frames with different types so we get multiple frames
         let agent_id = "writer-1".to_string();
         let basis = Basis::Node(node_id);
-        let frame1 = Frame::new(basis.clone(), b"Frame content 0".to_vec(), "type1".to_string(), agent_id.clone(), HashMap::new()).unwrap();
-        let frame2 = Frame::new(basis.clone(), b"Frame content 1".to_vec(), "type2".to_string(), agent_id.clone(), HashMap::new()).unwrap();
-        let frame3 = Frame::new(basis.clone(), b"Frame content 2".to_vec(), "type3".to_string(), agent_id.clone(), HashMap::new()).unwrap();
+        let frame1 = Frame::new(
+            basis.clone(),
+            b"Frame content 0".to_vec(),
+            "type1".to_string(),
+            agent_id.clone(),
+            HashMap::new(),
+        )
+        .unwrap();
+        let frame2 = Frame::new(
+            basis.clone(),
+            b"Frame content 1".to_vec(),
+            "type2".to_string(),
+            agent_id.clone(),
+            HashMap::new(),
+        )
+        .unwrap();
+        let frame3 = Frame::new(
+            basis.clone(),
+            b"Frame content 2".to_vec(),
+            "type3".to_string(),
+            agent_id.clone(),
+            HashMap::new(),
+        )
+        .unwrap();
         api.put_frame(node_id, frame1, agent_id.clone()).unwrap();
         api.put_frame(node_id, frame2, agent_id.clone()).unwrap();
         api.put_frame(node_id, frame3, agent_id.clone()).unwrap();
@@ -1754,8 +1859,22 @@ mod tests {
         // Create frames with different types
         let agent_id = "writer-1".to_string();
         let basis = Basis::Node(node_id);
-        let frame1 = Frame::new(basis.clone(), b"First".to_vec(), "type1".to_string(), agent_id.clone(), HashMap::new()).unwrap();
-        let frame2 = Frame::new(basis.clone(), b"Second".to_vec(), "type2".to_string(), agent_id.clone(), HashMap::new()).unwrap();
+        let frame1 = Frame::new(
+            basis.clone(),
+            b"First".to_vec(),
+            "type1".to_string(),
+            agent_id.clone(),
+            HashMap::new(),
+        )
+        .unwrap();
+        let frame2 = Frame::new(
+            basis.clone(),
+            b"Second".to_vec(),
+            "type2".to_string(),
+            agent_id.clone(),
+            HashMap::new(),
+        )
+        .unwrap();
         api.put_frame(node_id, frame1, agent_id.clone()).unwrap();
         api.put_frame(node_id, frame2, agent_id.clone()).unwrap();
 
@@ -1793,9 +1912,30 @@ mod tests {
         // Create frames of different types
         let agent_id = "writer-1".to_string();
         let basis = Basis::Node(node_id);
-        let frame1 = Frame::new(basis.clone(), b"analysis1".to_vec(), "analysis".to_string(), agent_id.clone(), HashMap::new()).unwrap();
-        let frame2 = Frame::new(basis.clone(), b"summary1".to_vec(), "summary".to_string(), agent_id.clone(), HashMap::new()).unwrap();
-        let frame3 = Frame::new(basis.clone(), b"analysis2".to_vec(), "analysis".to_string(), agent_id.clone(), HashMap::new()).unwrap();
+        let frame1 = Frame::new(
+            basis.clone(),
+            b"analysis1".to_vec(),
+            "analysis".to_string(),
+            agent_id.clone(),
+            HashMap::new(),
+        )
+        .unwrap();
+        let frame2 = Frame::new(
+            basis.clone(),
+            b"summary1".to_vec(),
+            "summary".to_string(),
+            agent_id.clone(),
+            HashMap::new(),
+        )
+        .unwrap();
+        let frame3 = Frame::new(
+            basis.clone(),
+            b"analysis2".to_vec(),
+            "analysis".to_string(),
+            agent_id.clone(),
+            HashMap::new(),
+        )
+        .unwrap();
 
         api.put_frame(node_id, frame1, agent_id.clone()).unwrap();
         api.put_frame(node_id, frame2, agent_id.clone()).unwrap();
@@ -1814,7 +1954,10 @@ mod tests {
         // So we get the latest analysis frame (analysis2)
         assert!(latest_analysis.is_some());
         assert_eq!(latest_analysis.unwrap().frame_type, "analysis");
-        assert_eq!(latest_analysis.unwrap().text_content().unwrap(), "analysis2");
+        assert_eq!(
+            latest_analysis.unwrap().text_content().unwrap(),
+            "analysis2"
+        );
     }
 
     #[test]
@@ -1829,19 +1972,49 @@ mod tests {
         // Register multiple agents
         {
             let mut registry = api.agent_registry.write();
-            registry.register(AgentIdentity::new("agent-1".to_string(), crate::agent::AgentRole::Writer));
-            registry.register(AgentIdentity::new("agent-2".to_string(), crate::agent::AgentRole::Writer));
+            registry.register(AgentIdentity::new(
+                "agent-1".to_string(),
+                crate::agent::AgentRole::Writer,
+            ));
+            registry.register(AgentIdentity::new(
+                "agent-2".to_string(),
+                crate::agent::AgentRole::Writer,
+            ));
         }
 
         // Create frames from different agents with different types
         let basis = Basis::Node(node_id);
-        let frame1 = Frame::new(basis.clone(), b"content1".to_vec(), "type1".to_string(), "agent-1".to_string(), HashMap::new()).unwrap();
-        let frame2 = Frame::new(basis.clone(), b"content2".to_vec(), "type2".to_string(), "agent-2".to_string(), HashMap::new()).unwrap();
-        let frame3 = Frame::new(basis.clone(), b"content3".to_vec(), "type3".to_string(), "agent-1".to_string(), HashMap::new()).unwrap();
+        let frame1 = Frame::new(
+            basis.clone(),
+            b"content1".to_vec(),
+            "type1".to_string(),
+            "agent-1".to_string(),
+            HashMap::new(),
+        )
+        .unwrap();
+        let frame2 = Frame::new(
+            basis.clone(),
+            b"content2".to_vec(),
+            "type2".to_string(),
+            "agent-2".to_string(),
+            HashMap::new(),
+        )
+        .unwrap();
+        let frame3 = Frame::new(
+            basis.clone(),
+            b"content3".to_vec(),
+            "type3".to_string(),
+            "agent-1".to_string(),
+            HashMap::new(),
+        )
+        .unwrap();
 
-        api.put_frame(node_id, frame1, "agent-1".to_string()).unwrap();
-        api.put_frame(node_id, frame2, "agent-2".to_string()).unwrap();
-        api.put_frame(node_id, frame3, "agent-1".to_string()).unwrap();
+        api.put_frame(node_id, frame1, "agent-1".to_string())
+            .unwrap();
+        api.put_frame(node_id, frame2, "agent-2".to_string())
+            .unwrap();
+        api.put_frame(node_id, frame3, "agent-1".to_string())
+            .unwrap();
 
         let view = ContextView {
             max_frames: 10,
@@ -1854,7 +2027,9 @@ mod tests {
 
         // With different frame types, we get both agent-1 frames
         assert_eq!(agent1_frames.len(), 2);
-        assert!(agent1_frames.iter().all(|f| f.agent_id() == Some("agent-1")));
+        assert!(agent1_frames
+            .iter()
+            .all(|f| f.agent_id() == Some("agent-1")));
     }
 
     #[test]
@@ -1903,7 +2078,14 @@ mod tests {
         let basis = Basis::Node(node_id);
         for i in 0..5 {
             let content = format!("Frame {}", i).into_bytes();
-            let frame = Frame::new(basis.clone(), content, "test".to_string(), agent_id.clone(), HashMap::new()).unwrap();
+            let frame = Frame::new(
+                basis.clone(),
+                content,
+                "test".to_string(),
+                agent_id.clone(),
+                HashMap::new(),
+            )
+            .unwrap();
             api.put_frame(node_id, frame, agent_id.clone()).unwrap();
         }
 
@@ -1931,9 +2113,30 @@ mod tests {
         // Create frames of different types
         let agent_id = "writer-1".to_string();
         let basis = Basis::Node(node_id);
-        let frame1 = Frame::new(basis.clone(), b"analysis1".to_vec(), "analysis".to_string(), agent_id.clone(), HashMap::new()).unwrap();
-        let frame2 = Frame::new(basis.clone(), b"summary1".to_vec(), "summary".to_string(), agent_id.clone(), HashMap::new()).unwrap();
-        let frame3 = Frame::new(basis.clone(), b"analysis2".to_vec(), "analysis".to_string(), agent_id.clone(), HashMap::new()).unwrap();
+        let frame1 = Frame::new(
+            basis.clone(),
+            b"analysis1".to_vec(),
+            "analysis".to_string(),
+            agent_id.clone(),
+            HashMap::new(),
+        )
+        .unwrap();
+        let frame2 = Frame::new(
+            basis.clone(),
+            b"summary1".to_vec(),
+            "summary".to_string(),
+            agent_id.clone(),
+            HashMap::new(),
+        )
+        .unwrap();
+        let frame3 = Frame::new(
+            basis.clone(),
+            b"analysis2".to_vec(),
+            "analysis".to_string(),
+            agent_id.clone(),
+            HashMap::new(),
+        )
+        .unwrap();
 
         api.put_frame(node_id, frame1, agent_id.clone()).unwrap();
         api.put_frame(node_id, frame2, agent_id.clone()).unwrap();
@@ -1965,8 +2168,22 @@ mod tests {
         // Create frames with different types
         let agent_id = "writer-1".to_string();
         let basis = Basis::Node(node_id);
-        let frame1 = Frame::new(basis.clone(), b"First".to_vec(), "type1".to_string(), agent_id.clone(), HashMap::new()).unwrap();
-        let frame2 = Frame::new(basis.clone(), b"Second".to_vec(), "type2".to_string(), agent_id.clone(), HashMap::new()).unwrap();
+        let frame1 = Frame::new(
+            basis.clone(),
+            b"First".to_vec(),
+            "type1".to_string(),
+            agent_id.clone(),
+            HashMap::new(),
+        )
+        .unwrap();
+        let frame2 = Frame::new(
+            basis.clone(),
+            b"Second".to_vec(),
+            "type2".to_string(),
+            agent_id.clone(),
+            HashMap::new(),
+        )
+        .unwrap();
         api.put_frame(node_id, frame1, agent_id.clone()).unwrap();
         api.put_frame(node_id, frame2, agent_id.clone()).unwrap();
 

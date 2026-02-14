@@ -1,8 +1,8 @@
 //! Hash computation for filesystem nodes using BLAKE3
 
 use crate::error::StorageError;
-use crate::types::{Hash, NodeID};
 use crate::tree::path;
+use crate::types::{Hash, NodeID};
 use blake3::Hasher;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -113,8 +113,8 @@ pub fn compute_hash(data: &[u8]) -> Hash {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
-    use tempfile::TempDir;
     use std::fs;
+    use tempfile::TempDir;
 
     #[test]
     fn test_content_hash_deterministic() {
@@ -179,9 +179,7 @@ mod tests {
         let test_dir = temp_dir.path().join("test_dir");
         fs::create_dir(&test_dir).unwrap();
 
-        let children1 = vec![
-            ("file1.txt".to_string(), [1u8; 32]),
-        ];
+        let children1 = vec![("file1.txt".to_string(), [1u8; 32])];
         let children2 = vec![
             ("file1.txt".to_string(), [1u8; 32]),
             ("file2.txt".to_string(), [2u8; 32]),

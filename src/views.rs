@@ -75,7 +75,11 @@ pub fn get_context_view(
                 FrameFilter::ByType(filter_type) => frame.frame_type == *filter_type,
                 FrameFilter::ByAgent(filter_agent) => {
                     // Agent ID might be in metadata
-                    frame.metadata.get("agent_id").map(|a| a == filter_agent).unwrap_or(false)
+                    frame
+                        .metadata
+                        .get("agent_id")
+                        .map(|a| a == filter_agent)
+                        .unwrap_or(false)
                 }
             })
         })
@@ -92,9 +96,7 @@ pub fn get_context_view(
         }
         OrderingPolicy::Type => {
             // Sort by frame type (lexicographic)
-            sorted_frames.sort_by(|(_, a), (_, b)| {
-                a.frame_type.cmp(&b.frame_type)
-            });
+            sorted_frames.sort_by(|(_, a), (_, b)| a.frame_type.cmp(&b.frame_type));
         }
         OrderingPolicy::Agent => {
             // Sort by agent ID (from metadata, lexicographic)
@@ -110,7 +112,10 @@ pub fn get_context_view(
     sorted_frames.truncate(policy.max_frames);
 
     // Step 6: Extract FrameIDs
-    Ok(sorted_frames.into_iter().map(|(frame_id, _)| frame_id).collect())
+    Ok(sorted_frames
+        .into_iter()
+        .map(|(frame_id, _)| frame_id)
+        .collect())
 }
 
 #[cfg(test)]

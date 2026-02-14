@@ -269,11 +269,7 @@ mod tests {
 
     #[test]
     fn test_from_frame_ids() {
-        let frame_ids = vec![
-            [1u8; 32],
-            [2u8; 32],
-            [3u8; 32],
-        ];
+        let frame_ids = vec![[1u8; 32], [2u8; 32], [3u8; 32]];
 
         let set = FrameMerkleSet::from_frame_ids(frame_ids).unwrap();
         assert_eq!(set.len(), 3);

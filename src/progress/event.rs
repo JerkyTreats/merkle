@@ -31,7 +31,11 @@ impl ProgressEnvelope {
         }
     }
 
-    pub fn with_now(session: impl Into<String>, event_type: impl Into<String>, data: Value) -> Self {
+    pub fn with_now(
+        session: impl Into<String>,
+        event_type: impl Into<String>,
+        data: Value,
+    ) -> Self {
         Self {
             ts: crate::progress::session::now_millis().to_string(),
             session: session.into(),

@@ -70,7 +70,9 @@ pub enum ApiError {
     #[error("Generation failed: {0}")]
     GenerationFailed(String),
 
-    #[error("Path not found in tree: {0}. Run `merkle scan` to update tree or start `merkle watch`.")]
+    #[error(
+        "Path not found in tree: {0}. Run `merkle scan` to update tree or start `merkle watch`."
+    )]
     PathNotInTree(std::path::PathBuf),
 }
 

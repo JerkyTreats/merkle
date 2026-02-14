@@ -5,13 +5,12 @@
 
 use crate::api::{ContextApi, ContextView, NodeContext};
 use crate::error::ApiError;
-use crate::frame::Frame;
 use crate::frame::queue::{FrameGenerationQueue, Priority};
+use crate::frame::Frame;
 use crate::types::{FrameID, NodeID};
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::Duration;
-
 
 /// Adapter for internal agents to interact with the context engine
 ///
@@ -20,11 +19,7 @@ use std::time::Duration;
 #[async_trait]
 pub trait AgentAdapter: Send + Sync {
     /// Read context for a node using a view policy
-    fn read_context(
-        &self,
-        node_id: NodeID,
-        view: ContextView,
-    ) -> Result<NodeContext, ApiError>;
+    fn read_context(&self, node_id: NodeID, view: ContextView) -> Result<NodeContext, ApiError>;
 
     /// Write a context frame to a node
     fn write_context(
@@ -66,7 +61,7 @@ pub struct ContextApiAdapter {
 impl ContextApiAdapter {
     /// Create a new adapter wrapping a ContextApi (without queue - generation will fail)
     pub fn new(api: ContextApi) -> Self {
-        Self { 
+        Self {
             api: Arc::new(api),
             queue: None,
         }
@@ -74,10 +69,7 @@ impl ContextApiAdapter {
 
     /// Create a new adapter from an Arc<ContextApi> (without queue - generation will fail)
     pub fn from_arc(api: Arc<ContextApi>) -> Self {
-        Self { 
-            api,
-            queue: None,
-        }
+        Self { api, queue: None }
     }
 
     /// Create a new adapter with a queue
@@ -96,11 +88,7 @@ impl ContextApiAdapter {
 
 #[async_trait]
 impl AgentAdapter for ContextApiAdapter {
-    fn read_context(
-        &self,
-        node_id: NodeID,
-        view: ContextView,
-    ) -> Result<NodeContext, ApiError> {
+    fn read_context(&self, node_id: NodeID, view: ContextView) -> Result<NodeContext, ApiError> {
         self.api.get_node(node_id, view)
     }
 
@@ -119,7 +107,8 @@ impl AgentAdapter for ContextApiAdapter {
         frame_type: String,
         agent_id: String,
     ) -> Result<FrameID, ApiError> {
-        self.api.synthesize_branch(node_id, frame_type, agent_id, None)
+        self.api
+            .synthesize_branch(node_id, frame_type, agent_id, None)
     }
 
     async fn generate_frame(
@@ -138,14 +127,16 @@ impl AgentAdapter for ContextApiAdapter {
 
         // Enqueue with Urgent priority and wait for completion (sync behavior)
         // Use a reasonable timeout (5 minutes)
-        queue.enqueue_and_wait(
-            node_id,
-            agent_id,
-            provider_name,
-            Some(frame_type),
-            Priority::Urgent,
-            Some(Duration::from_secs(300)),
-        ).await
+        queue
+            .enqueue_and_wait(
+                node_id,
+                agent_id,
+                provider_name,
+                Some(frame_type),
+                Priority::Urgent,
+                Some(Duration::from_secs(300)),
+            )
+            .await
     }
 }
 
@@ -166,13 +157,14 @@ mod tests {
         let node_store = Arc::new(SledNodeRecordStore::new(&store_path).unwrap());
         let frame_storage_path = temp_dir.path().join("frames");
         std::fs::create_dir_all(&frame_storage_path).unwrap();
-        let frame_storage = Arc::new(
-            crate::frame::storage::FrameStorage::new(&frame_storage_path).unwrap()
-        );
+        let frame_storage =
+            Arc::new(crate::frame::storage::FrameStorage::new(&frame_storage_path).unwrap());
         let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
         let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
         let agent_registry = Arc::new(parking_lot::RwLock::new(crate::agent::AgentRegistry::new()));
-        let provider_registry = Arc::new(parking_lot::RwLock::new(crate::provider::ProviderRegistry::new()));
+        let provider_registry = Arc::new(parking_lot::RwLock::new(
+            crate::provider::ProviderRegistry::new(),
+        ));
         let lock_manager = Arc::new(crate::concurrency::NodeLockManager::new());
 
         let api = ContextApi::new(
@@ -192,13 +184,16 @@ mod tests {
     fn test_adapter_creation() {
         let (api, _temp_dir) = create_test_api();
         let adapter = ContextApiAdapter::new(api);
-        assert!(adapter.api().get_node(
-            Hash::from([0u8; 32]),
-            crate::api::ContextView {
-                max_frames: 10,
-                ordering: crate::views::OrderingPolicy::Recency,
-                filters: vec![],
-            }
-        ).is_err()); // Should fail because node doesn't exist, but adapter works
+        assert!(adapter
+            .api()
+            .get_node(
+                Hash::from([0u8; 32]),
+                crate::api::ContextView {
+                    max_frames: 10,
+                    ordering: crate::views::OrderingPolicy::Recency,
+                    filters: vec![],
+                }
+            )
+            .is_err()); // Should fail because node doesn't exist, but adapter works
     }
 }

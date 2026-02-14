@@ -86,10 +86,7 @@ impl SynthesisBasis {
 }
 
 /// Synthesize content from child frames using the specified policy
-pub fn synthesize_content(
-    child_frames: &[(NodeID, Frame)],
-    policy: &SynthesisPolicy,
-) -> Vec<u8> {
+pub fn synthesize_content(child_frames: &[(NodeID, Frame)], policy: &SynthesisPolicy) -> Vec<u8> {
     match policy {
         SynthesisPolicy::Concatenation => {
             // Simple concatenation: join all child frame contents
@@ -106,8 +103,10 @@ pub fn synthesize_content(
             let mut result = format!("Summary of {} frames:\n", child_frames.len()).into_bytes();
             for (node_id, frame) in child_frames {
                 // Format first 4 bytes of node_id as hex
-                let node_id_prefix = format!("{:02x}{:02x}{:02x}{:02x}",
-                    node_id[0], node_id[1], node_id[2], node_id[3]);
+                let node_id_prefix = format!(
+                    "{:02x}{:02x}{:02x}{:02x}",
+                    node_id[0], node_id[1], node_id[2], node_id[3]
+                );
                 result.extend_from_slice(
                     format!(
                         "  Node {}: {} ({} bytes)\n",
@@ -178,9 +177,9 @@ pub fn collect_child_frames(
 
     // Sort deterministically: by NodeID, then by FrameID
     child_frames.sort_by(|(node_id_a, frame_a), (node_id_b, frame_b)| {
-        node_id_a.cmp(node_id_b).then_with(|| {
-            frame_a.frame_id.cmp(&frame_b.frame_id)
-        })
+        node_id_a
+            .cmp(node_id_b)
+            .then_with(|| frame_a.frame_id.cmp(&frame_b.frame_id))
     });
 
     Ok(child_frames)

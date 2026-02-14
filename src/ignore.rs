@@ -16,9 +16,9 @@
 use crate::config::xdg;
 use crate::error::ApiError;
 use crate::types::NodeID;
-use std::path::{Path, PathBuf};
 use std::fs;
 use std::io::Write;
+use std::path::{Path, PathBuf};
 
 /// Built-in ignore patterns (same as WalkerConfig default).
 const BUILTIN_DEFAULTS: &[&str] = &[".git", "target", "node_modules", ".cargo"];
@@ -70,9 +70,8 @@ pub fn sync_gitignore_to_ignore_list(workspace_root: &Path) -> Result<(), ApiErr
     let gitignore_patterns = read_gitignore_patterns(workspace_root);
 
     let (before, after) = if list_path.exists() && list_path.is_file() {
-        let contents = fs::read_to_string(&list_path).map_err(|e| {
-            ApiError::ConfigError(format!("Failed to read ignore list: {}", e))
-        })?;
+        let contents = fs::read_to_string(&list_path)
+            .map_err(|e| ApiError::ConfigError(format!("Failed to read ignore list: {}", e)))?;
         let mut before = Vec::new();
         let mut after = Vec::new();
         let mut in_block = false;
@@ -102,36 +101,34 @@ pub fn sync_gitignore_to_ignore_list(workspace_root: &Path) -> Result<(), ApiErr
         if let Some(parent) = list_path.parent() {
             if !parent.exists() {
                 fs::create_dir_all(parent).map_err(|e| {
-                    ApiError::ConfigError(format!("Failed to create directory {}: {}", parent.display(), e))
+                    ApiError::ConfigError(format!(
+                        "Failed to create directory {}: {}",
+                        parent.display(),
+                        e
+                    ))
                 })?;
             }
         }
         (Vec::new(), Vec::new())
     };
 
-    let mut f = fs::File::create(&list_path).map_err(|e| {
-        ApiError::ConfigError(format!("Failed to write ignore list: {}", e))
-    })?;
+    let mut f = fs::File::create(&list_path)
+        .map_err(|e| ApiError::ConfigError(format!("Failed to write ignore list: {}", e)))?;
     for line in before {
-        writeln!(f, "{}", line).map_err(|e| {
-            ApiError::ConfigError(format!("Failed to write ignore list: {}", e))
-        })?;
+        writeln!(f, "{}", line)
+            .map_err(|e| ApiError::ConfigError(format!("Failed to write ignore list: {}", e)))?;
     }
-    writeln!(f, "{}", GITIGNORE_BLOCK_START).map_err(|e| {
-        ApiError::ConfigError(format!("Failed to write ignore list: {}", e))
-    })?;
+    writeln!(f, "{}", GITIGNORE_BLOCK_START)
+        .map_err(|e| ApiError::ConfigError(format!("Failed to write ignore list: {}", e)))?;
     for p in &gitignore_patterns {
-        writeln!(f, "{}", p).map_err(|e| {
-            ApiError::ConfigError(format!("Failed to write ignore list: {}", e))
-        })?;
+        writeln!(f, "{}", p)
+            .map_err(|e| ApiError::ConfigError(format!("Failed to write ignore list: {}", e)))?;
     }
-    writeln!(f, "{}", GITIGNORE_BLOCK_END).map_err(|e| {
-        ApiError::ConfigError(format!("Failed to write ignore list: {}", e))
-    })?;
+    writeln!(f, "{}", GITIGNORE_BLOCK_END)
+        .map_err(|e| ApiError::ConfigError(format!("Failed to write ignore list: {}", e)))?;
     for line in after {
-        writeln!(f, "{}", line).map_err(|e| {
-            ApiError::ConfigError(format!("Failed to write ignore list: {}", e))
-        })?;
+        writeln!(f, "{}", line)
+            .map_err(|e| ApiError::ConfigError(format!("Failed to write ignore list: {}", e)))?;
     }
     Ok(())
 }
@@ -153,12 +150,10 @@ fn read_stored_gitignore_hash(workspace_root: &Path) -> Result<Option<NodeID>, A
         if i >= 32 || chunk.len() != 2 {
             return Ok(None);
         }
-        let s = std::str::from_utf8(chunk).map_err(|_| {
-            ApiError::ConfigError("Invalid hex in .gitignore hash".to_string())
-        })?;
-        arr[i] = u8::from_str_radix(s, 16).map_err(|_| {
-            ApiError::ConfigError("Invalid hex in .gitignore hash".to_string())
-        })?;
+        let s = std::str::from_utf8(chunk)
+            .map_err(|_| ApiError::ConfigError("Invalid hex in .gitignore hash".to_string()))?;
+        arr[i] = u8::from_str_radix(s, 16)
+            .map_err(|_| ApiError::ConfigError("Invalid hex in .gitignore hash".to_string()))?;
     }
     Ok(Some(arr))
 }
@@ -167,15 +162,13 @@ fn write_stored_gitignore_hash(workspace_root: &Path, node_id: &NodeID) -> Resul
     let hash_path = gitignore_hash_path(workspace_root)?;
     if let Some(parent) = hash_path.parent() {
         if !parent.exists() {
-            fs::create_dir_all(parent).map_err(|e| {
-                ApiError::ConfigError(format!("Failed to create directory: {}", e))
-            })?;
+            fs::create_dir_all(parent)
+                .map_err(|e| ApiError::ConfigError(format!("Failed to create directory: {}", e)))?;
         }
     }
     let hex_str = hex::encode(node_id);
-    fs::write(&hash_path, hex_str).map_err(|e| {
-        ApiError::ConfigError(format!("Failed to write .gitignore hash: {}", e))
-    })?;
+    fs::write(&hash_path, hex_str)
+        .map_err(|e| ApiError::ConfigError(format!("Failed to write .gitignore hash: {}", e)))?;
     Ok(())
 }
 
@@ -263,9 +256,8 @@ pub fn read_ignore_list(workspace_root: &Path) -> Result<Vec<String>, ApiError> 
     if !list_path.exists() || !list_path.is_file() {
         return Ok(Vec::new());
     }
-    let contents = fs::read_to_string(&list_path).map_err(|e| {
-        ApiError::ConfigError(format!("Failed to read ignore list: {}", e))
-    })?;
+    let contents = fs::read_to_string(&list_path)
+        .map_err(|e| ApiError::ConfigError(format!("Failed to read ignore list: {}", e)))?;
     let mut out = Vec::new();
     for line in contents.lines() {
         let line = line.trim();
@@ -285,9 +277,8 @@ pub fn remove_from_ignore_list(workspace_root: &Path, path: &Path) -> Result<(),
         return Ok(());
     }
     let path_norm = normalize_workspace_relative(workspace_root, path)?;
-    let contents = fs::read_to_string(&list_path).map_err(|e| {
-        ApiError::ConfigError(format!("Failed to read ignore list: {}", e))
-    })?;
+    let contents = fs::read_to_string(&list_path)
+        .map_err(|e| ApiError::ConfigError(format!("Failed to read ignore list: {}", e)))?;
     let mut in_block = false;
     let mut out = Vec::new();
     for line in contents.lines() {
@@ -321,14 +312,14 @@ pub fn remove_from_ignore_list(workspace_root: &Path, path: &Path) -> Result<(),
     }
     let new_contents = out.join("\n");
     let has_final_newline = contents.ends_with('\n');
-    let to_write = if has_final_newline && !new_contents.is_empty() && !new_contents.ends_with('\n') {
+    let to_write = if has_final_newline && !new_contents.is_empty() && !new_contents.ends_with('\n')
+    {
         format!("{}\n", new_contents)
     } else {
         new_contents
     };
-    fs::write(&list_path, to_write).map_err(|e| {
-        ApiError::ConfigError(format!("Failed to write ignore list: {}", e))
-    })?;
+    fs::write(&list_path, to_write)
+        .map_err(|e| ApiError::ConfigError(format!("Failed to write ignore list: {}", e)))?;
     Ok(())
 }
 
@@ -339,7 +330,11 @@ pub fn append_to_ignore_list(workspace_root: &Path, path: &str) -> Result<(), Ap
     if let Some(parent) = list_path.parent() {
         if !parent.exists() {
             fs::create_dir_all(parent).map_err(|e| {
-                ApiError::ConfigError(format!("Failed to create directory {}: {}", parent.display(), e))
+                ApiError::ConfigError(format!(
+                    "Failed to create directory {}: {}",
+                    parent.display(),
+                    e
+                ))
             })?;
         }
     }
@@ -349,35 +344,38 @@ pub fn append_to_ignore_list(workspace_root: &Path, path: &str) -> Result<(), Ap
         .append(true)
         .open(&list_path)
         .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()))
-        .map_err(|e| {
-            ApiError::ConfigError(format!("Failed to write ignore list: {}", e))
-        })?;
+        .map_err(|e| ApiError::ConfigError(format!("Failed to write ignore list: {}", e)))?;
     Ok(())
 }
 
 /// Normalize a path to workspace-relative form (e.g. "node_modules", "src/generated").
 /// Returns error if path is outside workspace.
 /// If the path exists, canonicalize and strip workspace prefix; otherwise resolve relative to workspace.
-pub fn normalize_workspace_relative(workspace_root: &Path, path: &Path) -> Result<String, ApiError> {
-    let workspace_canon = workspace_root.canonicalize().map_err(|e| {
-        ApiError::ConfigError(format!("Failed to canonicalize workspace: {}", e))
-    })?;
+pub fn normalize_workspace_relative(
+    workspace_root: &Path,
+    path: &Path,
+) -> Result<String, ApiError> {
+    let workspace_canon = workspace_root
+        .canonicalize()
+        .map_err(|e| ApiError::ConfigError(format!("Failed to canonicalize workspace: {}", e)))?;
     let path_resolved = if path.is_absolute() {
         path.to_path_buf()
     } else {
         workspace_root.join(path)
     };
     let path_canon = if path_resolved.exists() {
-        path_resolved.canonicalize().map_err(|e| {
-            ApiError::ConfigError(format!("Failed to canonicalize path: {}", e))
-        })?
+        path_resolved
+            .canonicalize()
+            .map_err(|e| ApiError::ConfigError(format!("Failed to canonicalize path: {}", e)))?
     } else {
         // Path does not exist (e.g. future ignore); must be relative to workspace
         if path.is_absolute() {
             let path_str = path.to_string_lossy();
             let ws_str = workspace_canon.to_string_lossy();
             if !path_str.starts_with(ws_str.as_ref()) {
-                return Err(ApiError::ConfigError("Path is outside workspace".to_string()));
+                return Err(ApiError::ConfigError(
+                    "Path is outside workspace".to_string(),
+                ));
             }
             let suffix = path_str.strip_prefix(ws_str.as_ref()).unwrap_or(&path_str);
             let suffix = suffix.trim_start_matches(std::path::MAIN_SEPARATOR);
@@ -389,7 +387,9 @@ pub fn normalize_workspace_relative(workspace_root: &Path, path: &Path) -> Resul
     let path_str = path_canon.to_string_lossy();
     let ws_str = workspace_canon.to_string_lossy();
     if !path_str.starts_with(ws_str.as_ref()) {
-        return Err(ApiError::ConfigError("Path is outside workspace".to_string()));
+        return Err(ApiError::ConfigError(
+            "Path is outside workspace".to_string(),
+        ));
     }
     let suffix = path_str.strip_prefix(ws_str.as_ref()).unwrap_or(&path_str);
     let suffix = suffix.trim_start_matches(std::path::MAIN_SEPARATOR);

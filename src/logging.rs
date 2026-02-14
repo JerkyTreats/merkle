@@ -7,10 +7,8 @@ use crate::error::ApiError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tracing_subscriber::{
-    fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry,
-};
 use tracing_subscriber::fmt::time::ChronoUtc;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 
 /// Logging configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,7 +125,7 @@ pub fn init_logging(config: Option<&LoggingConfig>) -> Result<(), ApiError> {
         let log_file = config
             .map(|c| c.file.clone())
             .unwrap_or_else(default_log_file);
-        
+
         if let Some(parent) = log_file.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
                 ApiError::ConfigError(format!("Failed to create log directory: {}", e))
@@ -150,12 +148,24 @@ pub fn init_logging(config: Option<&LoggingConfig>) -> Result<(), ApiError> {
         if output.file {
             let file_writer = get_file_writer()?;
             base_subscriber
-                .with(fmt::layer().json().with_target(true).with_timer(ChronoUtc::rfc_3339()).with_writer(file_writer))
+                .with(
+                    fmt::layer()
+                        .json()
+                        .with_target(true)
+                        .with_timer(ChronoUtc::rfc_3339())
+                        .with_writer(file_writer),
+                )
                 .init();
         } else {
             // Default to stdout
             base_subscriber
-                .with(fmt::layer().json().with_target(true).with_timer(ChronoUtc::rfc_3339()).with_writer(std::io::stdout))
+                .with(
+                    fmt::layer()
+                        .json()
+                        .with_target(true)
+                        .with_timer(ChronoUtc::rfc_3339())
+                        .with_writer(std::io::stdout),
+                )
                 .init();
         }
     } else {
@@ -163,12 +173,24 @@ pub fn init_logging(config: Option<&LoggingConfig>) -> Result<(), ApiError> {
         if output.file {
             let file_writer = get_file_writer()?;
             base_subscriber
-                .with(fmt::layer().with_target(true).with_timer(ChronoUtc::rfc_3339()).with_ansi(false).with_writer(file_writer))
+                .with(
+                    fmt::layer()
+                        .with_target(true)
+                        .with_timer(ChronoUtc::rfc_3339())
+                        .with_ansi(false)
+                        .with_writer(file_writer),
+                )
                 .init();
         } else {
             // Default to stdout
             base_subscriber
-                .with(fmt::layer().with_target(true).with_timer(ChronoUtc::rfc_3339()).with_ansi(use_color).with_writer(std::io::stdout))
+                .with(
+                    fmt::layer()
+                        .with_target(true)
+                        .with_timer(ChronoUtc::rfc_3339())
+                        .with_ansi(use_color)
+                        .with_writer(std::io::stdout),
+                )
                 .init();
         }
     }
@@ -186,9 +208,7 @@ fn build_env_filter(config: Option<&LoggingConfig>) -> Result<EnvFilter, ApiErro
     }
 
     // Build filter from config
-    let level = config
-        .map(|c| c.level.as_str())
-        .unwrap_or("info");
+    let level = config.map(|c| c.level.as_str()).unwrap_or("info");
 
     if level == "off" {
         return Ok(EnvFilter::new("off"));
@@ -214,13 +234,9 @@ fn build_env_filter(config: Option<&LoggingConfig>) -> Result<EnvFilter, ApiErro
             let parts: Vec<&str> = module_spec.split('=').collect();
             if parts.len() == 2 {
                 let directive = format!("{}={}", parts[0].trim(), parts[1].trim());
-                filter = filter.add_directive(
-                    directive
-                        .parse()
-                        .map_err(|e| {
-                            ApiError::ConfigError(format!("Invalid log directive from env: {}", e))
-                        })?,
-                );
+                filter = filter.add_directive(directive.parse().map_err(|e| {
+                    ApiError::ConfigError(format!("Invalid log directive from env: {}", e))
+                })?);
             }
         }
     }
@@ -238,9 +254,7 @@ fn determine_format(config: Option<&LoggingConfig>) -> Result<String, ApiError> 
     }
 
     // Use config
-    let format = config
-        .map(|c| c.format.as_str())
-        .unwrap_or("text");
+    let format = config.map(|c| c.format.as_str()).unwrap_or("text");
 
     if format != "json" && format != "text" {
         return Err(ApiError::ConfigError(format!(
@@ -269,9 +283,7 @@ fn determine_output(config: Option<&LoggingConfig>) -> Result<OutputDestinations
     }
 
     // Use config
-    let output = config
-        .map(|c| c.output.as_str())
-        .unwrap_or("stdout");
+    let output = config.map(|c| c.output.as_str()).unwrap_or("stdout");
 
     parse_output_destinations(output)
 }

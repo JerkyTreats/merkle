@@ -37,7 +37,10 @@ impl FrameStorage {
         fs::create_dir_all(&frames_dir).map_err(|e| {
             StorageError::IoError(std::io::Error::new(
                 std::io::ErrorKind::Other,
-                format!("Failed to create frames directory at {:?}: {}", frames_dir, e),
+                format!(
+                    "Failed to create frames directory at {:?}: {}",
+                    frames_dir, e
+                ),
             ))
         })?;
 
@@ -61,8 +64,9 @@ impl FrameStorage {
     pub fn store(&self, frame: &Frame) -> Result<(), StorageError> {
         // Verify FrameID matches computed hash (corruption detection)
         // Extract agent_id from metadata (it should always be present per Phase 2A)
-        let agent_id = frame.metadata.get("agent_id")
-            .ok_or_else(|| StorageError::InvalidPath("Frame missing agent_id in metadata".to_string()))?;
+        let agent_id = frame.metadata.get("agent_id").ok_or_else(|| {
+            StorageError::InvalidPath("Frame missing agent_id in metadata".to_string())
+        })?;
 
         let computed_id = crate::frame::id::compute_frame_id(
             &frame.basis,
@@ -314,10 +318,9 @@ mod tests {
         let storage = FrameStorage::new(temp_dir.path()).unwrap();
 
         let frame_id: FrameID = [
-            0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0,
-            0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
-            0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00,
-            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
+            0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x01, 0x02, 0x03, 0x04,
+            0x05, 0x06, 0x07, 0x08,
         ];
 
         let path = storage.frame_path(&frame_id);
@@ -325,7 +328,9 @@ mod tests {
         // Verify path structure: frames/{hex[0..2]}/{hex[2..4]}/{frame_id}.frame
         assert!(path.to_string_lossy().contains("frames/12/34"));
         assert!(path.to_string_lossy().ends_with(".frame"));
-        assert!(path.to_string_lossy().contains("123456789abcdef0112233445566778899aabbccddeeff000102030405060708"));
+        assert!(path
+            .to_string_lossy()
+            .contains("123456789abcdef0112233445566778899aabbccddeeff000102030405060708"));
     }
 
     #[test]

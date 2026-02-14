@@ -5,10 +5,10 @@
 
 use crate::api::ContextApi;
 use crate::error::ApiError;
-use crate::ignore;
-use crate::frame::{FrameGenerationQueue, GenerationConfig};
 use crate::frame::queue::QueueEventContext;
+use crate::frame::{FrameGenerationQueue, GenerationConfig};
 use crate::heads::HeadIndex;
+use crate::ignore;
 use crate::progress::ProgressRuntime;
 use crate::regeneration::BasisIndex;
 use crate::store::{NodeRecord, NodeRecordStore};
@@ -16,16 +16,16 @@ use crate::tree::builder::TreeBuilder;
 use crate::tree::path::canonicalize_path;
 use crate::tree::walker::WalkerConfig;
 use crate::types::NodeID;
+use hex;
 use notify::{Event, EventKind, RecursiveMode, Watcher};
+use parking_lot::RwLock;
+use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use parking_lot::RwLock;
-use serde_json::json;
-use tracing::{error, info, warn, debug};
-use hex;
+use tracing::{debug, error, info, warn};
 
 /// Watch mode configuration
 #[derive(Clone)]
@@ -125,7 +125,9 @@ impl EventBatcher {
     /// Returns true if the event should be processed immediately (batch ready)
     fn add_event(&mut self, event: ChangeEvent) -> bool {
         let path = match &event {
-            ChangeEvent::Created(p) | ChangeEvent::Modified(p) | ChangeEvent::Removed(p) => p.clone(),
+            ChangeEvent::Created(p) | ChangeEvent::Modified(p) | ChangeEvent::Removed(p) => {
+                p.clone()
+            }
             ChangeEvent::Renamed { to, .. } => to.clone(),
         };
 
@@ -229,7 +231,10 @@ impl WatchDaemon {
             let mut head_index = api.head_index().write();
             if let Ok(loaded) = HeadIndex::load_from_disk(&head_index_path) {
                 *head_index = loaded;
-                info!("Loaded head index from disk: {} entries", head_index.heads.len());
+                info!(
+                    "Loaded head index from disk: {} entries",
+                    head_index.heads.len()
+                );
             } else {
                 info!("Starting with empty head index");
             }
@@ -241,7 +246,10 @@ impl WatchDaemon {
             let mut basis_index = api.basis_index().write();
             if let Ok(loaded) = BasisIndex::load_from_disk(&basis_index_path) {
                 *basis_index = loaded;
-                info!("Loaded basis index from disk: {} entries", basis_index.len());
+                info!(
+                    "Loaded basis index from disk: {} entries",
+                    basis_index.len()
+                );
             } else {
                 info!("Starting with empty basis index");
             }
@@ -289,9 +297,12 @@ impl WatchDaemon {
 
         // Build initial tree
         info!("Building initial tree");
-        self.emit_event_best_effort("watch_started", json!({
-            "workspace": self.config.workspace_root.to_string_lossy().to_string()
-        }));
+        self.emit_event_best_effort(
+            "watch_started",
+            json!({
+                "workspace": self.config.workspace_root.to_string_lossy().to_string()
+            }),
+        );
         self.build_initial_tree()?;
         info!("Initial tree built successfully");
 
@@ -301,17 +312,22 @@ impl WatchDaemon {
             if let Err(e) = tx.send(res) {
                 error!("Error sending watch event: {}", e);
             }
-        }).map_err(|e| {
-            ApiError::StorageError(crate::error::StorageError::IoError(
-                std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create watcher: {}", e))
-            ))
+        })
+        .map_err(|e| {
+            ApiError::StorageError(crate::error::StorageError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to create watcher: {}", e),
+            )))
         })?;
 
-        watcher.watch(&self.config.workspace_root, RecursiveMode::Recursive).map_err(|e| {
-            ApiError::StorageError(crate::error::StorageError::IoError(
-                std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to watch directory: {}", e))
-            ))
-        })?;
+        watcher
+            .watch(&self.config.workspace_root, RecursiveMode::Recursive)
+            .map_err(|e| {
+                ApiError::StorageError(crate::error::StorageError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to watch directory: {}", e),
+                )))
+            })?;
 
         info!(workspace = ?self.config.workspace_root, "Watching workspace");
 
@@ -373,12 +389,12 @@ impl WatchDaemon {
     /// Stop the watch daemon
     pub async fn stop(&self) -> Result<(), ApiError> {
         *self.running.write() = false;
-        
+
         // Stop generation queue if it exists
         if let Some(queue) = &self.generation_queue {
             queue.stop().await?;
         }
-        
+
         Ok(())
     }
 
@@ -389,14 +405,16 @@ impl WatchDaemon {
             ignore_patterns: self.config.ignore_patterns.clone(),
             max_depth: None,
         };
-        let builder = TreeBuilder::new(self.config.workspace_root.clone()).with_walker_config(walker_config);
+        let builder =
+            TreeBuilder::new(self.config.workspace_root.clone()).with_walker_config(walker_config);
         let tree = builder.build().map_err(ApiError::from)?;
 
         // Populate store with all nodes
         NodeRecord::populate_store_from_tree(
             self.api.node_store().as_ref() as &dyn NodeRecordStore,
             &tree,
-        ).map_err(ApiError::from)?;
+        )
+        .map_err(ApiError::from)?;
 
         // When .gitignore node hash changed, sync it into ignore_list
         let _ = ignore::maybe_sync_gitignore_after_tree(
@@ -418,9 +436,7 @@ impl WatchDaemon {
     /// Convert notify Event to ChangeEvent
     fn convert_event(&self, event: Event) -> Option<ChangeEvent> {
         match event.kind {
-            EventKind::Create(_) => {
-                event.paths.first().map(|p| ChangeEvent::Created(p.clone()))
-            }
+            EventKind::Create(_) => event.paths.first().map(|p| ChangeEvent::Created(p.clone())),
             EventKind::Modify(notify::event::ModifyKind::Name(_)) => {
                 // Rename events in notify 6.0 are Modify events with Name kind
                 if event.paths.len() >= 2 {
@@ -430,17 +446,19 @@ impl WatchDaemon {
                     })
                 } else if event.paths.len() == 1 {
                     // Sometimes rename events only have one path
-                    event.paths.first().map(|p| ChangeEvent::Modified(p.clone()))
+                    event
+                        .paths
+                        .first()
+                        .map(|p| ChangeEvent::Modified(p.clone()))
                 } else {
                     None
                 }
             }
-            EventKind::Modify(_) => {
-                event.paths.first().map(|p| ChangeEvent::Modified(p.clone()))
-            }
-            EventKind::Remove(_) => {
-                event.paths.first().map(|p| ChangeEvent::Removed(p.clone()))
-            }
+            EventKind::Modify(_) => event
+                .paths
+                .first()
+                .map(|p| ChangeEvent::Modified(p.clone())),
+            EventKind::Remove(_) => event.paths.first().map(|p| ChangeEvent::Removed(p.clone())),
             _ => None,
         }
     }
@@ -520,7 +538,8 @@ impl WatchDaemon {
             ignore_patterns: self.config.ignore_patterns.clone(),
             max_depth: None,
         };
-        let builder = TreeBuilder::new(self.config.workspace_root.clone()).with_walker_config(walker_config);
+        let builder =
+            TreeBuilder::new(self.config.workspace_root.clone()).with_walker_config(walker_config);
         let tree = builder.build().map_err(ApiError::from)?;
 
         // When .gitignore node hash changed, sync it into ignore_list
@@ -540,7 +559,9 @@ impl WatchDaemon {
                 // Check if path is affected
                 let canonical_path = canonicalize_path(&record.path).unwrap_or(record.path.clone());
                 if paths.iter().any(|p| {
-                    canonicalize_path(p).map(|cp| cp == canonical_path).unwrap_or(false)
+                    canonicalize_path(p)
+                        .map(|cp| cp == canonical_path)
+                        .unwrap_or(false)
                 }) {
                     affected_nodes.push(*node_id);
                 }
@@ -551,7 +572,8 @@ impl WatchDaemon {
         NodeRecord::populate_store_from_tree(
             self.api.node_store().as_ref() as &dyn NodeRecordStore,
             &tree,
-        ).map_err(ApiError::from)?;
+        )
+        .map_err(ApiError::from)?;
 
         // Also include all ancestor nodes
         let mut all_affected = affected_nodes.clone();
@@ -563,8 +585,16 @@ impl WatchDaemon {
     }
 
     /// Collect ancestor nodes for a given node
-    fn collect_ancestors(&self, node_id: NodeID, collected: &mut Vec<NodeID>) -> Result<(), ApiError> {
-        let node_record = self.api.node_store().get(&node_id).map_err(ApiError::from)?;
+    fn collect_ancestors(
+        &self,
+        node_id: NodeID,
+        collected: &mut Vec<NodeID>,
+    ) -> Result<(), ApiError> {
+        let node_record = self
+            .api
+            .node_store()
+            .get(&node_id)
+            .map_err(ApiError::from)?;
         if let Some(record) = node_record {
             if let Some(parent_id) = record.parent {
                 if !collected.contains(&parent_id) {
@@ -589,7 +619,11 @@ impl WatchDaemon {
         // Get all agents
         let agents: Vec<String> = {
             let registry = self.api.agent_registry().read();
-            registry.list_all().iter().map(|a| a.agent_id.clone()).collect()
+            registry
+                .list_all()
+                .iter()
+                .map(|a| a.agent_id.clone())
+                .collect()
         };
 
         if agents.is_empty() {
@@ -661,7 +695,8 @@ impl WatchDaemon {
     }
 
     fn emit_event_best_effort(&self, event_type: &str, data: serde_json::Value) {
-        if let (Some(session_id), Some(progress)) = (&self.config.session_id, &self.config.progress) {
+        if let (Some(session_id), Some(progress)) = (&self.config.session_id, &self.config.progress)
+        {
             progress.emit_event_best_effort(session_id, event_type, data);
         }
     }
@@ -707,9 +742,13 @@ mod tests {
         let node_store = Arc::new(crate::store::SledNodeRecordStore::new(&store_path).unwrap());
         let frame_storage = Arc::new(crate::frame::FrameStorage::new(&frame_storage_path).unwrap());
         let head_index = Arc::new(parking_lot::RwLock::new(crate::heads::HeadIndex::new()));
-        let basis_index = Arc::new(parking_lot::RwLock::new(crate::regeneration::BasisIndex::new()));
+        let basis_index = Arc::new(parking_lot::RwLock::new(
+            crate::regeneration::BasisIndex::new(),
+        ));
         let agent_registry = Arc::new(parking_lot::RwLock::new(crate::agent::AgentRegistry::new()));
-        let provider_registry = Arc::new(parking_lot::RwLock::new(crate::provider::ProviderRegistry::new()));
+        let provider_registry = Arc::new(parking_lot::RwLock::new(
+            crate::provider::ProviderRegistry::new(),
+        ));
         let lock_manager = Arc::new(crate::concurrency::NodeLockManager::new());
 
         let api = ContextApi::new(
@@ -792,8 +831,10 @@ mod tests {
         // Register writer agents
         {
             let mut registry = daemon.api.agent_registry().write();
-            let agent1 = AgentIdentity::new("writer-1".to_string(), crate::agent::AgentRole::Writer);
-            let agent2 = AgentIdentity::new("writer-2".to_string(), crate::agent::AgentRole::Writer);
+            let agent1 =
+                AgentIdentity::new("writer-1".to_string(), crate::agent::AgentRole::Writer);
+            let agent2 =
+                AgentIdentity::new("writer-2".to_string(), crate::agent::AgentRole::Writer);
             registry.register(agent1);
             registry.register(agent2);
         }

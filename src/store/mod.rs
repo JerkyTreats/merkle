@@ -100,12 +100,17 @@ impl NodeRecord {
                     children: vec![], // Files have no children
                     parent: tree.find_parent(&node_id),
                     frame_set_root: None,
-                    metadata: file.metadata.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                    metadata: file
+                        .metadata
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
                     tombstoned_at: None,
                 })
             }
             MerkleNode::Directory(dir) => {
-                let children: Vec<NodeID> = dir.children.iter().map(|(_, node_id)| *node_id).collect();
+                let children: Vec<NodeID> =
+                    dir.children.iter().map(|(_, node_id)| *node_id).collect();
 
                 Ok(NodeRecord {
                     node_id,
@@ -114,7 +119,11 @@ impl NodeRecord {
                     children,
                     parent: tree.find_parent(&node_id),
                     frame_set_root: None,
-                    metadata: dir.metadata.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                    metadata: dir
+                        .metadata
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
                     tombstoned_at: None,
                 })
             }

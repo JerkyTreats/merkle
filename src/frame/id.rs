@@ -1,8 +1,8 @@
 //! FrameID computation for context frames
 
 use crate::error::StorageError;
-use crate::types::{FrameID, Hash};
 use crate::frame::Basis;
+use crate::types::{FrameID, Hash};
 use blake3::Hasher;
 
 /// Compute FrameID for a context frame

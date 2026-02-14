@@ -12,8 +12,9 @@ use unicode_normalization::UnicodeNormalization;
 /// 4. Converts to a consistent representation
 pub fn canonicalize_path(path: &Path) -> Result<PathBuf, crate::error::StorageError> {
     // Use dunce for cross-platform canonicalization
-    let canonical = dunce::canonicalize(path)
-        .map_err(|e| crate::error::StorageError::InvalidPath(format!("Failed to canonicalize path: {}", e)))?;
+    let canonical = dunce::canonicalize(path).map_err(|e| {
+        crate::error::StorageError::InvalidPath(format!("Failed to canonicalize path: {}", e))
+    })?;
 
     // Convert to string for Unicode normalization
     let path_str = canonical.to_string_lossy();

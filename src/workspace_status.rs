@@ -86,7 +86,10 @@ pub fn build_workspace_status(
         .compute_root()
         .map_err(ApiError::from)?;
 
-    let root_in_store = node_store.get(&root_hash).map_err(ApiError::from)?.is_some();
+    let root_in_store = node_store
+        .get(&root_hash)
+        .map_err(ApiError::from)?
+        .is_some();
     if !root_in_store {
         return Ok(WorkspaceStatus {
             scanned: false,
@@ -115,7 +118,11 @@ pub fn build_workspace_status(
             .next()
             .map(|c| c.as_os_str().to_string_lossy().to_string())
             .unwrap_or_else(|| ".".to_string());
-        let key = if first.is_empty() { ".".to_string() } else { first };
+        let key = if first.is_empty() {
+            ".".to_string()
+        } else {
+            first
+        };
         *prefix_counts.entry(key).or_insert(0) += 1;
     }
 
@@ -215,7 +222,10 @@ pub fn format_section_heading(title: &str) -> String {
 /// Format workspace status as human-readable text using comfy-table and styled headings.
 pub fn format_workspace_status_text(data: &WorkspaceStatus, include_breakdown: bool) -> String {
     let mut out = String::new();
-    out.push_str(&format!("{}\n\n", format_section_heading("Workspace Status")));
+    out.push_str(&format!(
+        "{}\n\n",
+        format_section_heading("Workspace Status")
+    ));
     out.push_str(&format!("{}\n", format_section_heading("Tree")));
     if !data.scanned {
         out.push_str(&format!("  Store path: {}\n", data.store_path));
@@ -228,7 +238,10 @@ pub fn format_workspace_status_text(data: &WorkspaceStatus, include_breakdown: b
     }
     let tree = data.tree.as_ref().unwrap();
     out.push_str(&format!("  Store path: {}\n", data.store_path));
-    out.push_str(&format!("  Root hash: {}...\n", &tree.root_hash[..tree.root_hash.len().min(7)]));
+    out.push_str(&format!(
+        "  Root hash: {}...\n",
+        &tree.root_hash[..tree.root_hash.len().min(7)]
+    ));
     out.push_str(&format!("  Total nodes: {}\n", tree.total_nodes));
     out.push_str("  Scanned: yes\n\n");
     if include_breakdown {
@@ -244,7 +257,10 @@ pub fn format_workspace_status_text(data: &WorkspaceStatus, include_breakdown: b
         }
     }
     if let Some(ref coverage) = data.context_coverage {
-        out.push_str(&format!("{}\n\n", format_section_heading("Context coverage")));
+        out.push_str(&format!(
+            "{}\n\n",
+            format_section_heading("Context coverage")
+        ));
         let mut table = Table::new();
         table.load_preset(UTF8_BORDERS_ONLY);
         table.set_header(vec!["Agent", "With frame", "Without", "Coverage"]);
@@ -326,7 +342,11 @@ pub fn format_agent_status_text(entries: &[AgentStatusEntry]) -> String {
     }
     out.push_str(&format!("{}\n\n", table));
     let valid_count = entries.iter().filter(|e| e.valid).count();
-    out.push_str(&format!("Total: {} agents, {} valid.\n", entries.len(), valid_count));
+    out.push_str(&format!(
+        "Total: {} agents, {} valid.\n",
+        entries.len(),
+        valid_count
+    ));
     out
 }
 
@@ -363,7 +383,10 @@ pub struct UnifiedStatusOutput {
 }
 
 /// Format provider status as human-readable text (comfy-table + section heading).
-pub fn format_provider_status_text(entries: &[ProviderStatusEntry], include_connectivity: bool) -> String {
+pub fn format_provider_status_text(
+    entries: &[ProviderStatusEntry],
+    include_connectivity: bool,
+) -> String {
     let mut out = String::new();
     out.push_str(&format!("{}\n\n", format_section_heading("Providers")));
     if entries.is_empty() {
@@ -426,7 +449,10 @@ pub fn format_unified_status_text(
     }
 
     if let Some(ref providers) = data.providers {
-        out.push_str(&format_provider_status_text(&providers.providers, include_connectivity));
+        out.push_str(&format_provider_status_text(
+            &providers.providers,
+            include_connectivity,
+        ));
     }
 
     out

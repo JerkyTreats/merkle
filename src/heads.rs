@@ -4,11 +4,11 @@
 
 use crate::error::StorageError;
 use crate::types::{FrameID, NodeID};
+use bincode;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use bincode;
-use serde::{Deserialize, Serialize};
 
 const HEAD_INDEX_VERSION_V1: u32 = 1;
 const HEAD_INDEX_VERSION_V2: u32 = 2;
@@ -141,7 +141,7 @@ impl HeadIndex {
     }
 
     /// Get the persistence path for a workspace root
-    /// 
+    ///
     /// Uses XDG data directory: $XDG_DATA_HOME/merkle/workspaces/<hash>/head_index.bin
     pub fn persistence_path(workspace_root: &Path) -> PathBuf {
         // Try to use XDG data directory, fall back to .merkle if XDG is not available
@@ -350,10 +350,7 @@ mod tests {
         // Load from disk
         let loaded = HeadIndex::load_from_disk(&path).unwrap();
         assert_eq!(loaded.heads.len(), 1);
-        assert_eq!(
-            loaded.get_head(&node_id, "test").unwrap(),
-            Some(frame_id)
-        );
+        assert_eq!(loaded.get_head(&node_id, "test").unwrap(), Some(frame_id));
     }
 
     #[test]

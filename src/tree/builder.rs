@@ -6,11 +6,11 @@ use crate::tree::node::{DirectoryNode, FileNode, MerkleNode};
 use crate::tree::path;
 use crate::tree::walker::{Entry, Walker, WalkerConfig};
 use crate::types::NodeID;
+use hex;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tracing::{debug, error, info, instrument, trace, warn};
-use hex;
 
 /// Complete Merkle tree structure
 #[derive(Debug, Clone)]
@@ -165,16 +165,13 @@ impl TreeBuilder {
 
         // Step 6: Get root directory NodeID
         let canonical_root = path::canonicalize_path(&self.root)?;
-        let root_id = node_map
-            .get(&canonical_root)
-            .copied()
-            .ok_or_else(|| {
-                error!("Root directory not found in node map: {:?}", canonical_root);
-                StorageError::InvalidPath(format!(
-                    "Root directory not found in node map: {:?}",
-                    canonical_root
-                ))
-            })?;
+        let root_id = node_map.get(&canonical_root).copied().ok_or_else(|| {
+            error!("Root directory not found in node map: {:?}", canonical_root);
+            StorageError::InvalidPath(format!(
+                "Root directory not found in node map: {:?}",
+                canonical_root
+            ))
+        })?;
 
         let duration = start.elapsed();
         info!(
@@ -261,10 +258,7 @@ impl TreeBuilder {
             })?;
 
             let child_path = entry.path();
-            let child_name = entry
-                .file_name()
-                .to_string_lossy()
-                .to_string();
+            let child_name = entry.file_name().to_string_lossy().to_string();
 
             // Canonicalize child path for consistent lookup
             let canonical_child_path = match path::canonicalize_path(&child_path) {

@@ -22,7 +22,11 @@ impl CiIntegration {
     /// Batch process multiple nodes
     ///
     /// Processes a list of nodes efficiently, useful for CI workflows.
-    pub fn batch_process(&self, node_ids: Vec<NodeID>, operation: BatchOperation) -> Result<BatchReport, ApiError> {
+    pub fn batch_process(
+        &self,
+        node_ids: Vec<NodeID>,
+        operation: BatchOperation,
+    ) -> Result<BatchReport, ApiError> {
         let mut report = BatchReport {
             processed: 0,
             succeeded: 0,
@@ -89,18 +93,30 @@ impl CiIntegration {
 
 /// Batch operation type
 pub enum BatchOperation {
-    Regenerate { agent_id: String, recursive: bool },
-    Synthesize { frame_type: String, agent_id: String },
+    Regenerate {
+        agent_id: String,
+        recursive: bool,
+    },
+    Synthesize {
+        frame_type: String,
+        agent_id: String,
+    },
 }
 
 impl BatchOperation {
     fn execute(&self, api: &ContextApi, node_id: NodeID) -> Result<(), ApiError> {
         match self {
-            BatchOperation::Regenerate { agent_id, recursive } => {
+            BatchOperation::Regenerate {
+                agent_id,
+                recursive,
+            } => {
                 api.regenerate(node_id, *recursive, agent_id.clone())?;
                 Ok(())
             }
-            BatchOperation::Synthesize { frame_type, agent_id } => {
+            BatchOperation::Synthesize {
+                frame_type,
+                agent_id,
+            } => {
                 api.synthesize_branch(node_id, frame_type.clone(), agent_id.clone(), None)?;
                 Ok(())
             }
@@ -158,13 +174,14 @@ mod tests {
         let node_store = Arc::new(SledNodeRecordStore::new(&store_path).unwrap());
         let frame_storage_path = temp_dir.path().join("frames");
         std::fs::create_dir_all(&frame_storage_path).unwrap();
-        let frame_storage = Arc::new(
-            crate::frame::storage::FrameStorage::new(&frame_storage_path).unwrap()
-        );
+        let frame_storage =
+            Arc::new(crate::frame::storage::FrameStorage::new(&frame_storage_path).unwrap());
         let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
         let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
         let agent_registry = Arc::new(parking_lot::RwLock::new(crate::agent::AgentRegistry::new()));
-        let provider_registry = Arc::new(parking_lot::RwLock::new(crate::provider::ProviderRegistry::new()));
+        let provider_registry = Arc::new(parking_lot::RwLock::new(
+            crate::provider::ProviderRegistry::new(),
+        ));
         let lock_manager = Arc::new(crate::concurrency::NodeLockManager::new());
 
         let api = ContextApi::new(

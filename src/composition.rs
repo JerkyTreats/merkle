@@ -262,9 +262,11 @@ pub fn compose_frames(
         .filter(|(_, frame)| {
             policy.filters.iter().all(|filter| match filter {
                 FrameFilter::ByType(filter_type) => frame.frame_type == *filter_type,
-                FrameFilter::ByAgent(filter_agent) => {
-                    frame.metadata.get("agent_id").map(|a| a == filter_agent).unwrap_or(false)
-                }
+                FrameFilter::ByAgent(filter_agent) => frame
+                    .metadata
+                    .get("agent_id")
+                    .map(|a| a == filter_agent)
+                    .unwrap_or(false),
             })
         })
         .collect();
@@ -276,7 +278,8 @@ pub fn compose_frames(
             let score = match policy.ordering {
                 OrderingPolicy::Recency => {
                     // Use timestamp as score (newer = higher)
-                    frame.timestamp
+                    frame
+                        .timestamp
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_secs() as i64)
                         .unwrap_or(0)
@@ -294,7 +297,11 @@ pub fn compose_frames(
                     use std::collections::hash_map::DefaultHasher;
                     use std::hash::{Hash, Hasher};
                     let mut hasher = DefaultHasher::new();
-                    frame.metadata.get("agent_id").unwrap_or(&String::new()).hash(&mut hasher);
+                    frame
+                        .metadata
+                        .get("agent_id")
+                        .unwrap_or(&String::new())
+                        .hash(&mut hasher);
                     hasher.finish() as i64
                 }
             };
@@ -311,16 +318,22 @@ pub fn compose_frames(
             // For Type and Agent, we want lexicographic order, so we sort by the actual values
             // after sorting by score. But since we're using hash, we'll just sort by score.
             // Actually, let's sort by the actual values for Type and Agent
-            scored_frames.sort_by(|(_, _, frame_a), (_, _, frame_b)| {
-                match policy.ordering {
-                    OrderingPolicy::Type => frame_a.frame_type.cmp(&frame_b.frame_type),
-                    OrderingPolicy::Agent => {
-                        let agent_a = frame_a.metadata.get("agent_id").map(|s| s.as_str()).unwrap_or("");
-                        let agent_b = frame_b.metadata.get("agent_id").map(|s| s.as_str()).unwrap_or("");
-                        agent_a.cmp(agent_b)
-                    }
-                    _ => unreachable!(),
+            scored_frames.sort_by(|(_, _, frame_a), (_, _, frame_b)| match policy.ordering {
+                OrderingPolicy::Type => frame_a.frame_type.cmp(&frame_b.frame_type),
+                OrderingPolicy::Agent => {
+                    let agent_a = frame_a
+                        .metadata
+                        .get("agent_id")
+                        .map(|s| s.as_str())
+                        .unwrap_or("");
+                    let agent_b = frame_b
+                        .metadata
+                        .get("agent_id")
+                        .map(|s| s.as_str())
+                        .unwrap_or("");
+                    agent_a.cmp(agent_b)
                 }
+                _ => unreachable!(),
             });
         }
     }
@@ -329,14 +342,17 @@ pub fn compose_frames(
     scored_frames.truncate(policy.max_frames);
 
     // Step 5: Extract frames
-    Ok(scored_frames.into_iter().map(|(_, _, frame)| frame).collect())
+    Ok(scored_frames
+        .into_iter()
+        .map(|(_, _, frame)| frame)
+        .collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frame::{Basis, Frame};
     use crate::frame::storage::FrameStorage;
+    use crate::frame::{Basis, Frame};
     use crate::heads::HeadIndex;
     use crate::store::{NodeRecord, NodeRecordStore, NodeType, SledNodeRecordStore};
     use crate::types::FrameID;
@@ -345,7 +361,11 @@ mod tests {
     use std::sync::Arc;
     use tempfile::TempDir;
 
-    fn create_test_node_record(node_id: NodeID, parent: Option<NodeID>, children: Vec<NodeID>) -> NodeRecord {
+    fn create_test_node_record(
+        node_id: NodeID,
+        parent: Option<NodeID>,
+        children: Vec<NodeID>,
+    ) -> NodeRecord {
         NodeRecord {
             node_id,
             path: PathBuf::from(format!("/test/node_{:02x}", node_id[0])),
@@ -382,20 +402,26 @@ mod tests {
             "type1".to_string(),
             "agent1".to_string(),
             HashMap::new(),
-        ).unwrap();
+        )
+        .unwrap();
         let frame2 = Frame::new(
             Basis::Node(node_id),
             b"content2".to_vec(),
             "type2".to_string(),
             "agent2".to_string(),
             HashMap::new(),
-        ).unwrap();
+        )
+        .unwrap();
 
         frame_storage.store(&frame1).unwrap();
         frame_storage.store(&frame2).unwrap();
 
-        head_index.update_head(&node_id, "type1", &frame1.frame_id).unwrap();
-        head_index.update_head(&node_id, "type2", &frame2.frame_id).unwrap();
+        head_index
+            .update_head(&node_id, "type1", &frame1.frame_id)
+            .unwrap();
+        head_index
+            .update_head(&node_id, "type2", &frame2.frame_id)
+            .unwrap();
 
         let policy = CompositionPolicy {
             max_frames: 10,
@@ -410,7 +436,8 @@ mod tests {
             node_store.as_ref(),
             &frame_storage,
             &head_index,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(composed.len(), 2);
     }
@@ -437,9 +464,12 @@ mod tests {
                 format!("type{}", i),
                 "agent1".to_string(),
                 HashMap::new(),
-            ).unwrap();
+            )
+            .unwrap();
             frame_storage.store(&frame).unwrap();
-            head_index.update_head(&node_id, &format!("type{}", i), &frame.frame_id).unwrap();
+            head_index
+                .update_head(&node_id, &format!("type{}", i), &frame.frame_id)
+                .unwrap();
         }
 
         let policy = CompositionPolicy {
@@ -455,7 +485,8 @@ mod tests {
             node_store.as_ref(),
             &frame_storage,
             &head_index,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(composed.len(), 5);
         assert!(composed.len() <= policy.max_frames);
@@ -481,20 +512,26 @@ mod tests {
             "test".to_string(),
             "agent1".to_string(),
             HashMap::new(),
-        ).unwrap();
+        )
+        .unwrap();
         let frame2 = Frame::new(
             Basis::Node(node_id),
             b"content2".to_vec(),
             "test".to_string(),
             "agent2".to_string(),
             HashMap::new(),
-        ).unwrap();
+        )
+        .unwrap();
 
         frame_storage.store(&frame1).unwrap();
         frame_storage.store(&frame2).unwrap();
 
-        head_index.update_head(&node_id, "test", &frame1.frame_id).unwrap();
-        head_index.update_head(&node_id, "test", &frame2.frame_id).unwrap();
+        head_index
+            .update_head(&node_id, "test", &frame1.frame_id)
+            .unwrap();
+        head_index
+            .update_head(&node_id, "test", &frame2.frame_id)
+            .unwrap();
 
         let policy = CompositionPolicy {
             max_frames: 10,
@@ -509,7 +546,8 @@ mod tests {
             node_store.as_ref(),
             &frame_storage,
             &head_index,
-        ).unwrap();
+        )
+        .unwrap();
 
         let composed2 = compose_frames(
             node_id,
@@ -517,7 +555,8 @@ mod tests {
             node_store.as_ref(),
             &frame_storage,
             &head_index,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(composed1.len(), composed2.len());
         assert_eq!(
@@ -553,7 +592,8 @@ mod tests {
             node_store.as_ref(),
             &frame_storage,
             &head_index,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(composed.is_empty());
     }
@@ -585,7 +625,8 @@ mod tests {
             "test".to_string(),
             "agent1".to_string(),
             HashMap::new(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let child_frame = Frame::new(
             Basis::Node(child_id),
@@ -593,13 +634,18 @@ mod tests {
             "test".to_string(),
             "agent1".to_string(),
             HashMap::new(),
-        ).unwrap();
+        )
+        .unwrap();
 
         frame_storage.store(&parent_frame).unwrap();
         frame_storage.store(&child_frame).unwrap();
 
-        head_index.update_head(&parent_id, "test", &parent_frame.frame_id).unwrap();
-        head_index.update_head(&child_id, "test", &child_frame.frame_id).unwrap();
+        head_index
+            .update_head(&parent_id, "test", &parent_frame.frame_id)
+            .unwrap();
+        head_index
+            .update_head(&child_id, "test", &child_frame.frame_id)
+            .unwrap();
 
         // Compose from current node and parent
         let policy = CompositionPolicy {
@@ -618,12 +664,12 @@ mod tests {
             node_store.as_ref(),
             &frame_storage,
             &head_index,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(composed.len(), 2);
         let frame_ids: Vec<FrameID> = composed.iter().map(|f| f.frame_id).collect();
         assert!(frame_ids.contains(&child_frame.frame_id));
         assert!(frame_ids.contains(&parent_frame.frame_id));
     }
-
 }

@@ -70,7 +70,11 @@ impl ProgressStore {
     }
 
     pub fn get_session(&self, session_id: &str) -> Result<Option<SessionRecord>, StorageError> {
-        let Some(raw) = self.sessions.get(session_id.as_bytes()).map_err(to_storage_io)? else {
+        let Some(raw) = self
+            .sessions
+            .get(session_id.as_bytes())
+            .map_err(to_storage_io)?
+        else {
             return Ok(None);
         };
         let parsed = serde_json::from_slice(&raw).map_err(to_storage_data)?;
@@ -97,7 +101,11 @@ impl ProgressStore {
     }
 
     pub fn get_meta(&self, session_id: &str) -> Result<Option<SessionMeta>, StorageError> {
-        let Some(raw) = self.meta.get(session_id.as_bytes()).map_err(to_storage_io)? else {
+        let Some(raw) = self
+            .meta
+            .get(session_id.as_bytes())
+            .map_err(to_storage_io)?
+        else {
             return Ok(None);
         };
         let parsed = serde_json::from_slice(&raw).map_err(to_storage_data)?;
@@ -107,7 +115,9 @@ impl ProgressStore {
     pub fn append_event(&self, event: &ProgressEvent) -> Result<(), StorageError> {
         let key = encode_event_key(&event.session, event.seq);
         let value = serde_json::to_vec(event).map_err(to_storage_data)?;
-        self.events.insert(key.as_bytes(), value).map_err(to_storage_io)?;
+        self.events
+            .insert(key.as_bytes(), value)
+            .map_err(to_storage_io)?;
         Ok(())
     }
 
@@ -205,7 +215,9 @@ impl ProgressStore {
         self.sessions
             .remove(session_id.as_bytes())
             .map_err(to_storage_io)?;
-        self.meta.remove(session_id.as_bytes()).map_err(to_storage_io)?;
+        self.meta
+            .remove(session_id.as_bytes())
+            .map_err(to_storage_io)?;
         let prefix = format!("{session_id}:");
         let keys: Vec<Vec<u8>> = self
             .events

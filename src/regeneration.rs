@@ -5,17 +5,17 @@
 //! Old frames are retained (append-only), ensuring full history preservation.
 
 use crate::error::{ApiError, StorageError};
-use crate::frame::{Basis, Frame, FrameStorage};
 use crate::frame::id::compute_basis_hash;
+use crate::frame::{Basis, Frame, FrameStorage};
 use crate::heads::HeadIndex;
 use crate::store::NodeRecordStore;
 use crate::synthesis::{collect_child_frames, synthesize_content, SynthesisBasis, SynthesisPolicy};
 use crate::types::{FrameID, Hash, NodeID};
+use bincode;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use bincode;
-use serde::{Deserialize, Serialize};
 
 /// Basis index: basis_hash → Vec<FrameID>
 ///
@@ -103,7 +103,7 @@ impl BasisIndex {
     }
 
     /// Get the persistence path for a workspace root
-    /// 
+    ///
     /// Uses XDG data directory: $XDG_DATA_HOME/merkle/workspaces/<hash>/basis_index.bin
     pub fn persistence_path(workspace_root: &Path) -> PathBuf {
         // Try to use XDG data directory, fall back to .merkle if XDG is not available
@@ -377,7 +377,10 @@ pub fn detect_basis_changes(
 
     for frame_type in frame_types {
         // Get current head frame for this type
-        let head_frame_id = match head_index.get_head(&node_id, frame_type).map_err(ApiError::from)? {
+        let head_frame_id = match head_index
+            .get_head(&node_id, frame_type)
+            .map_err(ApiError::from)?
+        {
             Some(id) => id,
             None => continue, // No frame to regenerate
         };
@@ -412,8 +415,13 @@ pub fn detect_basis_changes(
 
             let mut child_frames: Vec<(NodeID, Frame)> = Vec::new();
             for child_node_id in &node_record.children {
-                if let Some(head_frame_id) = head_index.get_head(child_node_id, frame_type).map_err(ApiError::from)? {
-                    if let Some(frame) = frame_storage.get(&head_frame_id).map_err(ApiError::from)? {
+                if let Some(head_frame_id) = head_index
+                    .get_head(child_node_id, frame_type)
+                    .map_err(ApiError::from)?
+                {
+                    if let Some(frame) =
+                        frame_storage.get(&head_frame_id).map_err(ApiError::from)?
+                    {
                         child_frames.push((*child_node_id, frame));
                     }
                 }
@@ -421,9 +429,9 @@ pub fn detect_basis_changes(
 
             // Sort deterministically
             child_frames.sort_by(|(node_id_a, frame_a), (node_id_b, frame_b)| {
-                node_id_a.cmp(node_id_b).then_with(|| {
-                    frame_a.frame_id.cmp(&frame_b.frame_id)
-                })
+                node_id_a
+                    .cmp(node_id_b)
+                    .then_with(|| frame_a.frame_id.cmp(&frame_b.frame_id))
             });
 
             // Extract synthesis policy
@@ -440,7 +448,10 @@ pub fn detect_basis_changes(
             };
 
             // Compute current synthesis basis hash
-            let child_frame_ids: Vec<FrameID> = child_frames.iter().map(|(_, frame)| frame.frame_id).collect();
+            let child_frame_ids: Vec<FrameID> = child_frames
+                .iter()
+                .map(|(_, frame)| frame.frame_id)
+                .collect();
             let current_basis_info = SynthesisBasis {
                 node_id,
                 child_frame_ids,
@@ -476,7 +487,10 @@ pub fn detect_basis_changes(
 /// Convert hex string to Hash
 fn hex_string_to_hash(hex: &str) -> Result<Hash, ApiError> {
     if hex.len() != 64 {
-        return Err(ApiError::InvalidFrame(format!("Invalid hash length: {}", hex.len())));
+        return Err(ApiError::InvalidFrame(format!(
+            "Invalid hash length: {}",
+            hex.len()
+        )));
     }
 
     let mut hash = [0u8; 32];
@@ -537,7 +551,10 @@ pub fn regenerate_node(
     // Regenerate each changed frame type
     for frame_type in &changed_types {
         // Get current head frame
-        let head_frame_id = match head_index.get_head(&node_id, frame_type).map_err(ApiError::from)? {
+        let head_frame_id = match head_index
+            .get_head(&node_id, frame_type)
+            .map_err(ApiError::from)?
+        {
             Some(id) => id,
             None => continue,
         };
@@ -550,13 +567,8 @@ pub fn regenerate_node(
         // Check if this is a synthesized frame (has basis_hash in metadata)
         if head_frame.metadata.contains_key("basis_hash") {
             // This is a synthesized frame - re-synthesize from children
-            let child_frames = collect_child_frames(
-                node_store,
-                frame_storage,
-                head_index,
-                node_id,
-                frame_type,
-            )?;
+            let child_frames =
+                collect_child_frames(node_store, frame_storage, head_index, node_id, frame_type)?;
 
             if child_frames.is_empty() {
                 // Empty directory - create empty frame
@@ -568,7 +580,13 @@ pub fn regenerate_node(
                     m
                 };
 
-                let new_frame = Frame::new(basis, content, frame_type.clone(), agent_id.clone(), metadata)?;
+                let new_frame = Frame::new(
+                    basis,
+                    content,
+                    frame_type.clone(),
+                    agent_id.clone(),
+                    metadata,
+                )?;
 
                 // Store new frame
                 frame_storage.store(&new_frame).map_err(ApiError::from)?;
@@ -578,7 +596,9 @@ pub fn regenerate_node(
                 basis_index.add_frame(basis_hash, new_frame.frame_id);
 
                 // Update head
-                head_index.update_head(&node_id, frame_type, &new_frame.frame_id).map_err(ApiError::from)?;
+                head_index
+                    .update_head(&node_id, frame_type, &new_frame.frame_id)
+                    .map_err(ApiError::from)?;
 
                 regenerated_frame_ids.push(new_frame.frame_id);
             } else {
@@ -597,7 +617,10 @@ pub fn regenerate_node(
                 };
 
                 // Extract child frame IDs
-                let child_frame_ids: Vec<FrameID> = child_frames.iter().map(|(_, frame)| frame.frame_id).collect();
+                let child_frame_ids: Vec<FrameID> = child_frames
+                    .iter()
+                    .map(|(_, frame)| frame.frame_id)
+                    .collect();
 
                 // Construct synthesis basis
                 let basis_info = SynthesisBasis {
@@ -622,22 +645,35 @@ pub fn regenerate_node(
                 // Create frame metadata
                 let mut metadata = head_frame.metadata.clone();
                 metadata.insert("synthesis_policy".to_string(), format!("{:?}", policy));
-                let basis_hash_hex: String = basis_hash.iter().map(|b| format!("{:02x}", b)).collect();
+                let basis_hash_hex: String =
+                    basis_hash.iter().map(|b| format!("{:02x}", b)).collect();
                 metadata.insert("basis_hash".to_string(), basis_hash_hex);
-                metadata.insert("child_frame_count".to_string(), child_frame_ids.len().to_string());
+                metadata.insert(
+                    "child_frame_count".to_string(),
+                    child_frame_ids.len().to_string(),
+                );
 
                 // Create new synthesized frame
-                let new_frame = Frame::new(basis, synthesized_content, frame_type.clone(), agent_id.clone(), metadata)?;
+                let new_frame = Frame::new(
+                    basis,
+                    synthesized_content,
+                    frame_type.clone(),
+                    agent_id.clone(),
+                    metadata,
+                )?;
 
                 // Store new frame
                 frame_storage.store(&new_frame).map_err(ApiError::from)?;
 
                 // Update basis index
-                let frame_basis_hash = compute_basis_hash(&new_frame.basis).map_err(ApiError::from)?;
+                let frame_basis_hash =
+                    compute_basis_hash(&new_frame.basis).map_err(ApiError::from)?;
                 basis_index.add_frame(frame_basis_hash, new_frame.frame_id);
 
                 // Update head atomically
-                head_index.update_head(&node_id, frame_type, &new_frame.frame_id).map_err(ApiError::from)?;
+                head_index
+                    .update_head(&node_id, frame_type, &new_frame.frame_id)
+                    .map_err(ApiError::from)?;
 
                 regenerated_frame_ids.push(new_frame.frame_id);
             }
@@ -648,7 +684,8 @@ pub fn regenerate_node(
                 None => continue, // Not in index, skip
             };
 
-            let current_basis_hash = compute_basis_hash(&head_frame.basis).map_err(ApiError::from)?;
+            let current_basis_hash =
+                compute_basis_hash(&head_frame.basis).map_err(ApiError::from)?;
 
             if stored_basis_hash != current_basis_hash {
                 // Basis changed - need to regenerate
@@ -698,8 +735,8 @@ pub fn regenerate_node(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frame::{Basis, Frame};
     use crate::frame::storage::FrameStorage;
+    use crate::frame::{Basis, Frame};
     use crate::heads::HeadIndex;
     use crate::store::{NodeRecord, NodeRecordStore, NodeType, SledNodeRecordStore};
     use std::collections::HashMap;
@@ -830,10 +867,13 @@ mod tests {
             "test".to_string(),
             "agent-1".to_string(),
             HashMap::new(),
-        ).unwrap();
+        )
+        .unwrap();
 
         frame_storage.store(&child_frame).unwrap();
-        head_index.update_head(&child_node_id, "test", &child_frame.frame_id).unwrap();
+        head_index
+            .update_head(&child_node_id, "test", &child_frame.frame_id)
+            .unwrap();
         let child_basis_hash = compute_basis_hash(&child_frame.basis).unwrap();
         basis_index.add_frame(child_basis_hash, child_frame.frame_id);
 
@@ -847,7 +887,8 @@ mod tests {
             synthesis_policy: SynthesisPolicy::Concatenation,
         };
         let basis_hash = synthesis_basis.compute_hash();
-        let synthesized_content = synthesize_content(&child_frames, &SynthesisPolicy::Concatenation);
+        let synthesized_content =
+            synthesize_content(&child_frames, &SynthesisPolicy::Concatenation);
 
         let mut metadata = HashMap::new();
         metadata.insert("synthesis_policy".to_string(), "concatenation".to_string());
@@ -862,10 +903,13 @@ mod tests {
             "test".to_string(),
             "agent-1".to_string(),
             metadata,
-        ).unwrap();
+        )
+        .unwrap();
 
         frame_storage.store(&dir_frame).unwrap();
-        head_index.update_head(&dir_node_id, "test", &dir_frame.frame_id).unwrap();
+        head_index
+            .update_head(&dir_node_id, "test", &dir_frame.frame_id)
+            .unwrap();
         let dir_basis_hash = compute_basis_hash(&dir_frame.basis).unwrap();
         basis_index.add_frame(dir_basis_hash, dir_frame.frame_id);
 
@@ -878,9 +922,14 @@ mod tests {
             &head_index,
             &frame_storage,
             node_store.as_ref(),
-        ).unwrap();
+        )
+        .unwrap();
 
-        assert_eq!(changed.len(), 0, "No changes should be detected on first check");
+        assert_eq!(
+            changed.len(),
+            0,
+            "No changes should be detected on first check"
+        );
 
         // Regenerate (should be idempotent)
         let report1 = regenerate_node(
@@ -891,9 +940,13 @@ mod tests {
             &frame_storage,
             node_store.as_ref(),
             "agent-1".to_string(),
-        ).unwrap();
+        )
+        .unwrap();
 
-        assert_eq!(report1.regenerated_count, 0, "First regeneration should produce no changes");
+        assert_eq!(
+            report1.regenerated_count, 0,
+            "First regeneration should produce no changes"
+        );
 
         // Regenerate again (should still be idempotent)
         let report2 = regenerate_node(
@@ -904,8 +957,12 @@ mod tests {
             &frame_storage,
             node_store.as_ref(),
             "agent-1".to_string(),
-        ).unwrap();
+        )
+        .unwrap();
 
-        assert_eq!(report2.regenerated_count, 0, "Second regeneration should also produce no changes");
+        assert_eq!(
+            report2.regenerated_count, 0,
+            "Second regeneration should also produce no changes"
+        );
     }
 }

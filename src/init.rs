@@ -5,15 +5,21 @@
 //! binary at build time and copied to XDG config directories at runtime.
 
 use crate::agent::{AgentRegistry, AgentRole};
-use crate::config::{AgentConfig, xdg};
+use crate::config::{xdg, AgentConfig};
 use crate::error::ApiError;
 use std::collections::HashMap;
 
 /// Default prompts embedded in binary at compile time
 pub const DEFAULT_PROMPTS: &[(&str, &str)] = &[
-    ("code-analyzer.md", include_str!("../prompts/code-analyzer.md")),
+    (
+        "code-analyzer.md",
+        include_str!("../prompts/code-analyzer.md"),
+    ),
     ("docs-writer.md", include_str!("../prompts/docs-writer.md")),
-    ("synthesis-agent.md", include_str!("../prompts/synthesis-agent.md")),
+    (
+        "synthesis-agent.md",
+        include_str!("../prompts/synthesis-agent.md"),
+    ),
 ];
 
 /// Default agent configuration data
@@ -102,7 +108,7 @@ pub fn initialize_prompts(force: bool) -> Result<InitResult, ApiError> {
 
     for (filename, content) in DEFAULT_PROMPTS {
         let prompt_path = prompts_dir.join(filename);
-        
+
         if prompt_path.exists() && !force {
             result.skipped.push(filename.to_string());
             continue;
@@ -132,7 +138,7 @@ pub fn initialize_agents(force: bool) -> Result<InitResult, ApiError> {
 
     for agent in DEFAULT_AGENTS {
         let config_path = agents_dir.join(format!("{}.toml", agent.id));
-        
+
         if config_path.exists() && !force {
             result.skipped.push(agent.id.to_string());
             continue;
@@ -149,10 +155,9 @@ pub fn initialize_agents(force: bool) -> Result<InitResult, ApiError> {
 
         // Add user prompt templates to metadata
         if let Some(user_prompt_file) = agent.user_prompt_file {
-            agent_config.metadata.insert(
-                "user_prompt_file".to_string(),
-                user_prompt_file.to_string(),
-            );
+            agent_config
+                .metadata
+                .insert("user_prompt_file".to_string(), user_prompt_file.to_string());
         }
         if let Some(user_prompt_directory) = agent.user_prompt_directory {
             agent_config.metadata.insert(
@@ -197,16 +202,16 @@ pub fn initialize_all(force: bool) -> Result<InitSummary, ApiError> {
     xdg::agents_dir()?;
     xdg::providers_dir()?;
     xdg::prompts_dir()?;
-    
+
     // Initialize prompts first
     let prompts_result = initialize_prompts(force)?;
-    
+
     // Initialize agents
     let agents_result = initialize_agents(force)?;
-    
+
     // Validate initialization
     let validation = validate_initialization()?;
-    
+
     Ok(InitSummary {
         prompts: prompts_result,
         agents: agents_result,
@@ -218,7 +223,7 @@ pub fn initialize_all(force: bool) -> Result<InitSummary, ApiError> {
 pub fn list_initialization() -> Result<InitPreview, ApiError> {
     let prompts_dir = xdg::prompts_dir()?;
     let agents_dir = xdg::agents_dir()?;
-    
+
     let mut prompts = Vec::new();
     let mut agents = Vec::new();
 
@@ -245,10 +250,10 @@ pub fn list_initialization() -> Result<InitPreview, ApiError> {
 pub fn validate_initialization() -> Result<ValidationSummary, ApiError> {
     let mut registry = AgentRegistry::new();
     registry.load_from_xdg()?;
-    
+
     let agent_ids = ["reader", "code-analyzer", "docs-writer", "synthesis-agent"];
     let mut results = Vec::new();
-    
+
     for agent_id in &agent_ids {
         match registry.validate_agent(agent_id) {
             Ok(validation_result) => {
@@ -265,7 +270,7 @@ pub fn validate_initialization() -> Result<ValidationSummary, ApiError> {
             }
         }
     }
-    
+
     Ok(ValidationSummary { results })
 }
 
@@ -302,10 +307,9 @@ mod tests {
             };
 
             if let Some(user_prompt_file) = agent.user_prompt_file {
-                agent_config.metadata.insert(
-                    "user_prompt_file".to_string(),
-                    user_prompt_file.to_string(),
-                );
+                agent_config
+                    .metadata
+                    .insert("user_prompt_file".to_string(), user_prompt_file.to_string());
             }
             if let Some(user_prompt_directory) = agent.user_prompt_directory {
                 agent_config.metadata.insert(
@@ -316,8 +320,11 @@ mod tests {
 
             // Verify it serializes correctly
             let toml_content = toml::to_string_pretty(&agent_config);
-            assert!(toml_content.is_ok(), "Failed to serialize agent config for {}", agent.id);
+            assert!(
+                toml_content.is_ok(),
+                "Failed to serialize agent config for {}",
+                agent.id
+            );
         }
     }
 }
-

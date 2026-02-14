@@ -53,7 +53,9 @@ impl AgentIdentity {
         let capabilities = match role {
             AgentRole::Reader => vec![Capability::Read],
             AgentRole::Writer => vec![Capability::Read, Capability::Write],
-            AgentRole::Synthesis => vec![Capability::Read, Capability::Write, Capability::Synthesize],
+            AgentRole::Synthesis => {
+                vec![Capability::Read, Capability::Write, Capability::Synthesize]
+            }
         };
 
         Self {
@@ -141,9 +143,8 @@ impl AgentRegistry {
 
     /// Get an agent identity by ID or return an error
     pub fn get_or_error(&self, agent_id: &str) -> Result<&AgentIdentity, ApiError> {
-        self.get(agent_id).ok_or_else(|| {
-            ApiError::Unauthorized(format!("Agent not found: {}", agent_id))
-        })
+        self.get(agent_id)
+            .ok_or_else(|| ApiError::Unauthorized(format!("Agent not found: {}", agent_id)))
     }
 
     /// Get all registered agents
@@ -157,16 +158,18 @@ impl AgentRegistry {
     }
 
     /// Load agents from configuration
-    pub fn load_from_config(&mut self, config: &crate::config::MerkleConfig) -> Result<(), ApiError> {
+    pub fn load_from_config(
+        &mut self,
+        config: &crate::config::MerkleConfig,
+    ) -> Result<(), ApiError> {
         for (_, agent_config) in &config.agents {
-            let mut identity = AgentIdentity::new(
-                agent_config.agent_id.clone(),
-                agent_config.role,
-            );
+            let mut identity = AgentIdentity::new(agent_config.agent_id.clone(), agent_config.role);
 
             // Store system prompt in metadata if provided
             if let Some(system_prompt) = &agent_config.system_prompt {
-                identity.metadata.insert("system_prompt".to_string(), system_prompt.clone());
+                identity
+                    .metadata
+                    .insert("system_prompt".to_string(), system_prompt.clone());
             }
 
             // Copy metadata from config
@@ -187,86 +190,79 @@ impl AgentRegistry {
     pub fn load_from_xdg(&mut self) -> Result<(), ApiError> {
         let agents_dir = crate::config::xdg::agents_dir()?;
         let mut prompt_cache = crate::config::PromptCache::new();
-        let base_dir = crate::config::xdg::config_home()?
-            .join("merkle");
-        
+        let base_dir = crate::config::xdg::config_home()?.join("merkle");
+
         if !agents_dir.exists() {
             // Directory doesn't exist yet - that's okay
             return Ok(());
         }
-        
+
         let entries = match std::fs::read_dir(&agents_dir) {
             Ok(entries) => entries,
             Err(e) => {
                 return Err(ApiError::ConfigError(format!(
-                    "Failed to read agents directory {}: {}", 
-                    agents_dir.display(), e
+                    "Failed to read agents directory {}: {}",
+                    agents_dir.display(),
+                    e
                 )));
             }
         };
-        
+
         for entry in entries {
             let entry = match entry {
                 Ok(e) => e,
                 Err(e) => {
                     tracing::warn!(
-                        "Failed to read directory entry in {}: {}", 
-                        agents_dir.display(), e
+                        "Failed to read directory entry in {}: {}",
+                        agents_dir.display(),
+                        e
                     );
                     continue;
                 }
             };
-            
+
             let path = entry.path();
-            
+
             // Only process .toml files
             if path.extension() != Some(OsStr::new("toml")) {
                 continue;
             }
-            
-            let agent_id = match path.file_stem()
-                .and_then(|s| s.to_str()) {
+
+            let agent_id = match path.file_stem().and_then(|s| s.to_str()) {
                 Some(id) => id,
                 None => {
-                    tracing::warn!(
-                        "Invalid agent filename (non-UTF8): {:?}", 
-                        path
-                    );
+                    tracing::warn!("Invalid agent filename (non-UTF8): {:?}", path);
                     continue;
                 }
             };
-            
+
             // Load and parse TOML
             let content = match std::fs::read_to_string(&path) {
                 Ok(c) => c,
                 Err(e) => {
-                    tracing::error!(
-                        "Failed to read agent config {}: {}", 
-                        path.display(), e
-                    );
+                    tracing::error!("Failed to read agent config {}: {}", path.display(), e);
                     continue;
                 }
             };
-            
+
             let agent_config: crate::config::AgentConfig = match toml::from_str(&content) {
                 Ok(config) => config,
                 Err(e) => {
-                    tracing::error!(
-                        "Failed to parse agent config {}: {}", 
-                        path.display(), e
-                    );
+                    tracing::error!("Failed to parse agent config {}: {}", path.display(), e);
                     continue;
                 }
             };
-            
+
             // Validate agent_id matches filename
             if agent_config.agent_id != agent_id {
                 tracing::warn!(
                     "Agent ID mismatch in {}: filename={}, config={}",
-                    path.display(), agent_id, agent_config.agent_id
+                    path.display(),
+                    agent_id,
+                    agent_config.agent_id
                 );
             }
-            
+
             // Load system prompt
             let system_prompt = if let Some(ref prompt_path) = agent_config.system_prompt_path {
                 // Load from file
@@ -276,8 +272,10 @@ impl AgentRegistry {
                             Ok(prompt) => prompt,
                             Err(e) => {
                                 tracing::error!(
-                                    "Failed to load prompt file for agent {} ({}): {}", 
-                                    agent_id, prompt_path, e
+                                    "Failed to load prompt file for agent {} ({}): {}",
+                                    agent_id,
+                                    prompt_path,
+                                    e
                                 );
                                 // Skip this agent if prompt file can't be loaded
                                 continue;
@@ -286,8 +284,10 @@ impl AgentRegistry {
                     }
                     Err(e) => {
                         tracing::error!(
-                            "Failed to resolve prompt path for agent {} ({}): {}", 
-                            agent_id, prompt_path, e
+                            "Failed to resolve prompt path for agent {} ({}): {}",
+                            agent_id,
+                            prompt_path,
+                            e
                         );
                         continue;
                     }
@@ -306,34 +306,34 @@ impl AgentRegistry {
                 }
                 String::new() // Reader agents don't need prompts
             };
-            
+
             // Create agent identity
-            let mut identity = AgentIdentity::new(
-                agent_config.agent_id.clone(),
-                agent_config.role,
-            );
-            
+            let mut identity = AgentIdentity::new(agent_config.agent_id.clone(), agent_config.role);
+
             // Store system prompt in metadata
             if !system_prompt.is_empty() {
-                identity.metadata.insert("system_prompt".to_string(), system_prompt);
+                identity
+                    .metadata
+                    .insert("system_prompt".to_string(), system_prompt);
             }
-            
+
             // Copy other metadata
             for (key, value) in &agent_config.metadata {
                 identity.metadata.insert(key.clone(), value.clone());
             }
-            
+
             // Insert or override (XDG configs override config.toml)
             self.agents.insert(agent_config.agent_id.clone(), identity);
         }
-        
+
         Ok(())
     }
 
     /// List agents filtered by role
     pub fn list_by_role(&self, role: Option<AgentRole>) -> Vec<&AgentIdentity> {
         if let Some(filter_role) = role {
-            self.agents.values()
+            self.agents
+                .values()
                 .filter(|agent| agent.role == filter_role)
                 .collect()
         } else {
@@ -348,15 +348,19 @@ impl AgentRegistry {
     }
 
     /// Save agent configuration to XDG directory
-    pub fn save_agent_config(agent_id: &str, config: &crate::config::AgentConfig) -> Result<(), ApiError> {
+    pub fn save_agent_config(
+        agent_id: &str,
+        config: &crate::config::AgentConfig,
+    ) -> Result<(), ApiError> {
         let config_path = Self::get_agent_config_path(agent_id)?;
-        
+
         // Ensure agents directory exists
         let agents_dir = crate::config::xdg::agents_dir()?;
         std::fs::create_dir_all(&agents_dir).map_err(|e| {
             ApiError::ConfigError(format!(
                 "Failed to create agents directory {}: {}",
-                agents_dir.display(), e
+                agents_dir.display(),
+                e
             ))
         })?;
 
@@ -369,7 +373,8 @@ impl AgentRegistry {
         std::fs::write(&config_path, toml_content).map_err(|e| {
             ApiError::ConfigError(format!(
                 "Failed to write agent config to {}: {}",
-                config_path.display(), e
+                config_path.display(),
+                e
             ))
         })?;
 
@@ -379,7 +384,7 @@ impl AgentRegistry {
     /// Delete agent configuration file
     pub fn delete_agent_config(agent_id: &str) -> Result<(), ApiError> {
         let config_path = Self::get_agent_config_path(agent_id)?;
-        
+
         if !config_path.exists() {
             return Err(ApiError::ConfigError(format!(
                 "Agent config file not found: {}",
@@ -390,7 +395,8 @@ impl AgentRegistry {
         std::fs::remove_file(&config_path).map_err(|e| {
             ApiError::ConfigError(format!(
                 "Failed to delete agent config file {}: {}",
-                config_path.display(), e
+                config_path.display(),
+                e
             ))
         })?;
 
@@ -421,16 +427,21 @@ impl AgentRegistry {
 
         // Validate agent ID matches filename
         let expected_filename = format!("{}.toml", agent_id);
-        if config_path.file_name()
+        if config_path
+            .file_name()
             .and_then(|n| n.to_str())
             .map(|n| n == expected_filename)
-            .unwrap_or(false) {
+            .unwrap_or(false)
+        {
             result.add_check("Agent ID matches filename", true);
         } else {
             result.add_error(format!(
                 "Agent ID '{}' doesn't match filename '{}'",
                 agent_id,
-                config_path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown")
+                config_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown")
             ));
         }
 
@@ -457,31 +468,27 @@ impl AgentRegistry {
         // Validate prompt file if needed
         if agent.role != AgentRole::Reader {
             if let Some(ref prompt_path) = agent_config.system_prompt_path {
-                let base_dir = crate::config::xdg::config_home()?
-                    .join("merkle");
-                
+                let base_dir = crate::config::xdg::config_home()?.join("merkle");
+
                 match crate::config::resolve_prompt_path(prompt_path, &base_dir) {
                     Ok(resolved_path) => {
                         // Check if file exists
                         if resolved_path.exists() {
                             result.add_check("Prompt file exists", true);
-                            
+
                             // Check if file is readable
                             match std::fs::metadata(&resolved_path) {
                                 Ok(_) => result.add_check("Prompt file is readable", true),
-                                Err(e) => result.add_error(format!(
-                                    "Prompt file not readable: {}",
-                                    e
-                                )),
+                                Err(e) => {
+                                    result.add_error(format!("Prompt file not readable: {}", e))
+                                }
                             }
 
                             // Check if file is valid UTF-8
                             match std::fs::read_to_string(&resolved_path) {
                                 Ok(_) => result.add_check("Prompt file is valid UTF-8", true),
-                                Err(e) => result.add_error(format!(
-                                    "Prompt file is not valid UTF-8: {}",
-                                    e
-                                )),
+                                Err(e) => result
+                                    .add_error(format!("Prompt file is not valid UTF-8: {}", e)),
                             }
                         } else {
                             result.add_error(format!(
@@ -495,20 +502,28 @@ impl AgentRegistry {
                     }
                 }
             } else {
-                result.add_error("Missing system_prompt_path (required for Writer/Synthesis)".to_string());
+                result.add_error(
+                    "Missing system_prompt_path (required for Writer/Synthesis)".to_string(),
+                );
             }
 
             // Check for user prompt templates in metadata
             if agent.metadata.get("user_prompt_file").is_some() {
                 result.add_check("user_prompt_file template present", true);
             } else {
-                result.add_error("Missing user_prompt_file in metadata (required for Writer/Synthesis)".to_string());
+                result.add_error(
+                    "Missing user_prompt_file in metadata (required for Writer/Synthesis)"
+                        .to_string(),
+                );
             }
 
             if agent.metadata.get("user_prompt_directory").is_some() {
                 result.add_check("user_prompt_directory template present", true);
             } else {
-                result.add_error("Missing user_prompt_directory in metadata (required for Writer/Synthesis)".to_string());
+                result.add_error(
+                    "Missing user_prompt_directory in metadata (required for Writer/Synthesis)"
+                        .to_string(),
+                );
             }
         } else {
             // Reader agents don't need prompts
@@ -692,7 +707,7 @@ mod tests {
     #[test]
     fn test_validation_result() {
         let mut result = ValidationResult::new("test-agent".to_string());
-        
+
         assert_eq!(result.agent_id, "test-agent");
         assert!(result.is_valid());
         assert_eq!(result.total_checks(), 0);
@@ -701,7 +716,7 @@ mod tests {
         result.add_check("Test check 1", true);
         result.add_check("Test check 2", true);
         result.add_check("Test check 3", false);
-        
+
         assert!(!result.is_valid());
         assert_eq!(result.total_checks(), 3);
         assert_eq!(result.passed_checks(), 2);

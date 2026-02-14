@@ -138,13 +138,13 @@ pub struct StorageConfig {
 
 impl StorageConfig {
     /// Resolve storage paths to actual filesystem locations
-    /// 
+    ///
     /// If paths are the default ".merkle/*" paths, they are resolved to XDG data directories.
     /// Otherwise, they are resolved relative to the workspace root.
     pub fn resolve_paths(&self, workspace_root: &Path) -> Result<(PathBuf, PathBuf), ApiError> {
         let is_default_store = self.store_path == PathBuf::from(".merkle/store");
         let is_default_frames = self.frames_path == PathBuf::from(".merkle/frames");
-        
+
         let store_path = if is_default_store {
             // Use XDG data directory
             let data_dir = xdg::workspace_data_dir(workspace_root)?;
@@ -153,7 +153,7 @@ impl StorageConfig {
             // Use configured path relative to workspace
             workspace_root.join(&self.store_path)
         };
-        
+
         let frames_path = if is_default_frames {
             // Use XDG data directory
             let data_dir = xdg::workspace_data_dir(workspace_root)?;
@@ -162,7 +162,7 @@ impl StorageConfig {
             // Use configured path relative to workspace
             workspace_root.join(&self.frames_path)
         };
-        
+
         Ok((store_path, frames_path))
     }
 }
@@ -269,7 +269,10 @@ impl ProviderConfig {
         // Validate completion options
         if let Some(temp) = self.default_options.temperature {
             if temp < 0.0 || temp > 2.0 {
-                return Err(format!("Temperature must be between 0.0 and 2.0, got {}", temp));
+                return Err(format!(
+                    "Temperature must be between 0.0 and 2.0, got {}",
+                    temp
+                ));
             }
         }
 
@@ -279,19 +282,18 @@ impl ProviderConfig {
     /// Convert ProviderConfig to ModelProvider
     pub fn to_model_provider(&self) -> Result<ModelProvider, ApiError> {
         // Try to get API key from config or environment
-        let api_key = self.api_key.clone().or_else(|| {
-            match self.provider_type {
-                ProviderType::OpenAI => std::env::var("OPENAI_API_KEY").ok(),
-                ProviderType::Anthropic => std::env::var("ANTHROPIC_API_KEY").ok(),
-                _ => None,
-            }
+        let api_key = self.api_key.clone().or_else(|| match self.provider_type {
+            ProviderType::OpenAI => std::env::var("OPENAI_API_KEY").ok(),
+            ProviderType::Anthropic => std::env::var("ANTHROPIC_API_KEY").ok(),
+            _ => None,
         });
 
         match self.provider_type {
             ProviderType::OpenAI => {
                 let api_key = api_key.ok_or_else(|| {
                     ApiError::ProviderNotConfigured(
-                        "OpenAI API key required (set in config or OPENAI_API_KEY env var)".to_string()
+                        "OpenAI API key required (set in config or OPENAI_API_KEY env var)"
+                            .to_string(),
                     )
                 })?;
                 Ok(ModelProvider::OpenAI {
@@ -303,7 +305,8 @@ impl ProviderConfig {
             ProviderType::Anthropic => {
                 let api_key = api_key.ok_or_else(|| {
                     ApiError::ProviderNotConfigured(
-                        "Anthropic API key required (set in config or ANTHROPIC_API_KEY env var)".to_string()
+                        "Anthropic API key required (set in config or ANTHROPIC_API_KEY env var)"
+                            .to_string(),
                     )
                 })?;
                 Ok(ModelProvider::Anthropic {
@@ -311,16 +314,14 @@ impl ProviderConfig {
                     api_key,
                 })
             }
-            ProviderType::Ollama => {
-                Ok(ModelProvider::Ollama {
-                    model: self.model.clone(),
-                    base_url: self.endpoint.clone(),
-                })
-            }
+            ProviderType::Ollama => Ok(ModelProvider::Ollama {
+                model: self.model.clone(),
+                base_url: self.endpoint.clone(),
+            }),
             ProviderType::LocalCustom => {
                 let endpoint = self.endpoint.clone().ok_or_else(|| {
                     ApiError::ProviderNotConfigured(
-                        "LocalCustom provider requires endpoint".to_string()
+                        "LocalCustom provider requires endpoint".to_string(),
                     )
                 })?;
                 Ok(ModelProvider::LocalCustom {
@@ -414,7 +415,10 @@ impl MerkleConfig {
             if let Some(existing) = agent_ids.insert(&agent.agent_id, name) {
                 errors.push(ValidationError::Agent(
                     name.clone(),
-                    format!("Duplicate agent_id '{}' (also defined in '{}')", agent.agent_id, existing),
+                    format!(
+                        "Duplicate agent_id '{}' (also defined in '{}')",
+                        agent.agent_id, existing
+                    ),
                 ));
             }
         }
@@ -428,7 +432,7 @@ impl MerkleConfig {
 }
 
 /// Resolve prompt file path with support for absolute, tilde, and relative paths
-/// 
+///
 /// Path resolution priority:
 /// 1. Absolute path (if starts with `/`)
 /// 2. Tilde expansion (if starts with `~/`)
@@ -439,21 +443,22 @@ pub fn resolve_prompt_path(path: &str, base_dir: &Path) -> Result<PathBuf, ApiEr
     if path.starts_with('/') {
         return Ok(PathBuf::from(path));
     }
-    
+
     // 2. Tilde expansion
     if path.starts_with("~/") {
-        let home = std::env::var("HOME")
-            .map_err(|_| ApiError::ConfigError("HOME not set".to_string()))?;
+        let home =
+            std::env::var("HOME").map_err(|_| ApiError::ConfigError("HOME not set".to_string()))?;
         return Ok(PathBuf::from(home).join(&path[2..]));
     }
-    
+
     // 3. Relative to current directory
     if path.starts_with("./") {
-        let current_dir = std::env::current_dir()
-            .map_err(|e| ApiError::ConfigError(format!("Failed to get current directory: {}", e)))?;
+        let current_dir = std::env::current_dir().map_err(|e| {
+            ApiError::ConfigError(format!("Failed to get current directory: {}", e))
+        })?;
         return Ok(current_dir.join(&path[2..]));
     }
-    
+
     // 4. Relative to base_dir (XDG config)
     Ok(base_dir.join(path))
 }
@@ -472,48 +477,55 @@ impl PromptCache {
     }
 
     /// Load prompt file content with caching
-    /// 
+    ///
     /// Checks modification time and reloads if file has changed.
     /// Validates that file exists, is readable, and contains valid UTF-8.
     pub fn load_prompt(&mut self, path: &Path) -> Result<String, ApiError> {
         // Get file metadata to check modification time
-        let metadata = std::fs::metadata(path)
-            .map_err(|e| ApiError::ConfigError(format!(
-                "Failed to read prompt file {}: {}", 
-                path.display(), e
-            )))?;
-        
-        let mtime = metadata.modified()
-            .map_err(|e| ApiError::ConfigError(format!(
-                "Failed to get modification time for {}: {}", 
-                path.display(), e
-            )))?;
-        
+        let metadata = std::fs::metadata(path).map_err(|e| {
+            ApiError::ConfigError(format!(
+                "Failed to read prompt file {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
+
+        let mtime = metadata.modified().map_err(|e| {
+            ApiError::ConfigError(format!(
+                "Failed to get modification time for {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
+
         // Check if we have a cached version and if it's still valid
         if let Some((cached_content, cached_mtime)) = self.cache.get(path) {
             if *cached_mtime == mtime {
                 return Ok(cached_content.clone());
             }
         }
-        
+
         // Load file content
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ApiError::ConfigError(format!(
-                "Failed to read prompt file {}: {}", 
-                path.display(), e
-            )))?;
-        
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            ApiError::ConfigError(format!(
+                "Failed to read prompt file {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
+
         // Validate file is not empty
         if content.trim().is_empty() {
             return Err(ApiError::ConfigError(format!(
-                "Prompt file {} is empty", 
+                "Prompt file {} is empty",
                 path.display()
             )));
         }
-        
+
         // Cache the content with modification time
-        self.cache.insert(path.to_path_buf(), (content.clone(), mtime));
-        
+        self.cache
+            .insert(path.to_path_buf(), (content.clone(), mtime));
+
         Ok(content)
     }
 }
@@ -529,42 +541,44 @@ pub mod xdg {
     use super::*;
 
     /// Get XDG data home directory
-    /// 
+    ///
     /// Returns `$XDG_DATA_HOME` if set, otherwise defaults to `$HOME/.local/share`
     /// Follows XDG Base Directory Specification
     pub fn data_home() -> Option<PathBuf> {
         if let Ok(xdg_data_home) = std::env::var("XDG_DATA_HOME") {
             return Some(PathBuf::from(xdg_data_home));
         }
-        
+
         std::env::var("HOME")
             .ok()
             .map(|home| PathBuf::from(home).join(".local").join("share"))
     }
 
     /// Get the data directory for a specific workspace
-    /// 
+    ///
     /// Returns `$XDG_DATA_HOME/merkle/<workspace_path>/`
-    /// 
+    ///
     /// The workspace path is canonicalized and used directly as a directory structure.
     /// For example, `/home/user/projects/myproject` becomes:
     /// `$XDG_DATA_HOME/merkle/home/user/projects/myproject/`
-    /// 
+    ///
     /// This eliminates the need for any `.merkle/` directory in the workspace.
     pub fn workspace_data_dir(workspace_root: &Path) -> Result<PathBuf, ApiError> {
         let data_home = data_home().ok_or_else(|| {
-            ApiError::ConfigError("Could not determine XDG data home directory (HOME not set)".to_string())
+            ApiError::ConfigError(
+                "Could not determine XDG data home directory (HOME not set)".to_string(),
+            )
         })?;
-        
+
         // Canonicalize the workspace path to get an absolute, resolved path
         let canonical = workspace_root.canonicalize().map_err(|e| {
             ApiError::ConfigError(format!("Failed to canonicalize workspace path: {}", e))
         })?;
-        
+
         // Build the data directory path by joining the canonical path components
         // Remove the leading root component (/) and use the rest as directory structure
         let mut data_dir = data_home.join("merkle");
-        
+
         // Iterate through path components, skipping the root
         for component in canonical.components() {
             match component {
@@ -585,76 +599,91 @@ pub mod xdg {
                 }
             }
         }
-        
+
         Ok(data_dir)
     }
 
     /// Get XDG config home directory
-    /// 
+    ///
     /// Returns `$XDG_CONFIG_HOME` if set, otherwise defaults to `$HOME/.config`
     /// Follows XDG Base Directory Specification
     pub fn config_home() -> Result<PathBuf, ApiError> {
         if let Ok(xdg_config_home) = std::env::var("XDG_CONFIG_HOME") {
             return Ok(PathBuf::from(xdg_config_home));
         }
-        
-        let home = std::env::var("HOME")
-            .map_err(|_| ApiError::ConfigError("Could not determine XDG config home directory (HOME not set)".to_string()))?;
-        
+
+        let home = std::env::var("HOME").map_err(|_| {
+            ApiError::ConfigError(
+                "Could not determine XDG config home directory (HOME not set)".to_string(),
+            )
+        })?;
+
         Ok(PathBuf::from(home).join(".config"))
     }
 
     /// Get agents directory path
-    /// 
+    ///
     /// Returns `$XDG_CONFIG_HOME/merkle/agents/`
     /// Creates the directory if it doesn't exist
     pub fn agents_dir() -> Result<PathBuf, ApiError> {
         let config_home = config_home()?;
         let agents_dir = config_home.join("merkle").join("agents");
-        
+
         // Create directory if it doesn't exist
         if !agents_dir.exists() {
             std::fs::create_dir_all(&agents_dir).map_err(|e| {
-                ApiError::ConfigError(format!("Failed to create agents directory {}: {}", agents_dir.display(), e))
+                ApiError::ConfigError(format!(
+                    "Failed to create agents directory {}: {}",
+                    agents_dir.display(),
+                    e
+                ))
             })?;
         }
-        
+
         Ok(agents_dir)
     }
 
     /// Get providers directory path
-    /// 
+    ///
     /// Returns `$XDG_CONFIG_HOME/merkle/providers/`
     /// Creates the directory if it doesn't exist
     pub fn providers_dir() -> Result<PathBuf, ApiError> {
         let config_home = config_home()?;
         let providers_dir = config_home.join("merkle").join("providers");
-        
+
         // Create directory if it doesn't exist
         if !providers_dir.exists() {
             std::fs::create_dir_all(&providers_dir).map_err(|e| {
-                ApiError::ConfigError(format!("Failed to create providers directory {}: {}", providers_dir.display(), e))
+                ApiError::ConfigError(format!(
+                    "Failed to create providers directory {}: {}",
+                    providers_dir.display(),
+                    e
+                ))
             })?;
         }
-        
+
         Ok(providers_dir)
     }
 
     /// Get prompts directory path
-    /// 
+    ///
     /// Returns `$XDG_CONFIG_HOME/merkle/prompts/`
     /// Creates the directory if it doesn't exist
     pub fn prompts_dir() -> Result<PathBuf, ApiError> {
         let config_home = config_home()?;
         let prompts_dir = config_home.join("merkle").join("prompts");
-        
+
         // Create directory if it doesn't exist
         if !prompts_dir.exists() {
             std::fs::create_dir_all(&prompts_dir).map_err(|e| {
-                ApiError::ConfigError(format!("Failed to create prompts directory {}: {}", prompts_dir.display(), e))
+                ApiError::ConfigError(format!(
+                    "Failed to create prompts directory {}: {}",
+                    prompts_dir.display(),
+                    e
+                ))
             })?;
         }
-        
+
         Ok(prompts_dir)
     }
 }
@@ -666,25 +695,30 @@ impl ConfigLoader {
     /// Get the XDG config directory path (~/.config/merkle/config.toml)
     #[cfg(test)]
     pub(crate) fn xdg_config_path() -> Option<PathBuf> {
-        std::env::var("HOME")
-            .ok()
-            .map(|home| PathBuf::from(home).join(".config").join("merkle").join("config.toml"))
+        std::env::var("HOME").ok().map(|home| {
+            PathBuf::from(home)
+                .join(".config")
+                .join("merkle")
+                .join("config.toml")
+        })
     }
-    
+
     /// Get the XDG config directory path (~/.config/merkle/config.toml)
     #[cfg(not(test))]
     fn xdg_config_path() -> Option<PathBuf> {
-        std::env::var("HOME")
-            .ok()
-            .map(|home| PathBuf::from(home).join(".config").join("merkle").join("config.toml"))
+        std::env::var("HOME").ok().map(|home| {
+            PathBuf::from(home)
+                .join(".config")
+                .join("merkle")
+                .join("config.toml")
+        })
     }
 
     /// Load configuration from files and environment
     pub fn load(workspace_root: &Path) -> Result<MerkleConfig, ConfigError> {
         let config_dir = workspace_root.join("config");
 
-        let env_name = std::env::var("MERKLE_ENV")
-            .unwrap_or_else(|_| "development".to_string());
+        let env_name = std::env::var("MERKLE_ENV").unwrap_or_else(|_| "development".to_string());
 
         let mut builder = Config::builder()
             // Set default values
@@ -697,11 +731,11 @@ impl ConfigLoader {
         if let Some(xdg_config_path) = Self::xdg_config_path() {
             if xdg_config_path.exists() {
                 // Use canonical path to avoid issues with symlinks or relative paths
-                let canonical_xdg_path = xdg_config_path.canonicalize()
+                let canonical_xdg_path = xdg_config_path
+                    .canonicalize()
                     .unwrap_or_else(|_| xdg_config_path.clone());
                 builder = builder.add_source(
-                    File::with_name(canonical_xdg_path.to_str().unwrap())
-                        .required(false)
+                    File::with_name(canonical_xdg_path.to_str().unwrap()).required(false),
                 );
             } else {
                 // Warn if the default config location doesn't exist
@@ -716,26 +750,22 @@ impl ConfigLoader {
         // Load base config from config/config.toml (workspace-specific, overrides user config)
         let base_config_path = config_dir.join("config.toml");
         if base_config_path.exists() {
-            builder = builder.add_source(
-                File::with_name(base_config_path.to_str().unwrap())
-                    .required(false)
-            );
+            builder = builder
+                .add_source(File::with_name(base_config_path.to_str().unwrap()).required(false));
         }
 
         // Load environment-specific config (overrides base config)
         let env_config_path = config_dir.join(format!("{}.toml", env_name));
         if env_config_path.exists() {
-            builder = builder.add_source(
-                File::with_name(env_config_path.to_str().unwrap())
-                    .required(false)
-            );
+            builder = builder
+                .add_source(File::with_name(env_config_path.to_str().unwrap()).required(false));
         }
 
         // Override with environment variables (MERKLE_* prefix, __ separator) (highest priority)
         builder = builder.add_source(
             Environment::with_prefix("MERKLE")
                 .separator("__")
-                .try_parsing(true)
+                .try_parsing(true),
         );
 
         let config = builder.build()?;
@@ -750,15 +780,13 @@ impl ConfigLoader {
             .set_default("system.storage.store_path", ".merkle/store")?
             .set_default("system.storage.frames_path", ".merkle/frames")?;
 
-        builder = builder.add_source(
-            File::with_name(path.to_str().unwrap())
-        );
+        builder = builder.add_source(File::with_name(path.to_str().unwrap()));
 
         // Override with environment variables
         builder = builder.add_source(
             Environment::with_prefix("MERKLE")
                 .separator("__")
-                .try_parsing(true)
+                .try_parsing(true),
         );
 
         let config = builder.build()?;
@@ -790,11 +818,13 @@ impl ConfigManager {
             .map_err(|e| ApiError::ConfigError(format!("Failed to load config: {}", e)))?;
 
         // Validate new configuration
-        new_config.validate()
-            .map_err(|errors| {
-                let error_msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
-                ApiError::ConfigError(format!("Configuration validation failed:\n{}", error_msgs.join("\n")))
-            })?;
+        new_config.validate().map_err(|errors| {
+            let error_msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+            ApiError::ConfigError(format!(
+                "Configuration validation failed:\n{}",
+                error_msgs.join("\n")
+            ))
+        })?;
 
         *self.config.write().unwrap() = new_config;
         Ok(())
@@ -851,14 +881,17 @@ mod tests {
     #[test]
     fn test_agent_config_validation() {
         let mut providers = HashMap::new();
-        providers.insert("test-provider".to_string(), ProviderConfig {
-            provider_name: Some("test-provider".to_string()),
-            provider_type: ProviderType::Ollama,
-            model: "llama2".to_string(),
-            api_key: None,
-            endpoint: None,
-            default_options: CompletionOptions::default(),
-        });
+        providers.insert(
+            "test-provider".to_string(),
+            ProviderConfig {
+                provider_name: Some("test-provider".to_string()),
+                provider_type: ProviderType::Ollama,
+                model: "llama2".to_string(),
+                api_key: None,
+                endpoint: None,
+                default_options: CompletionOptions::default(),
+            },
+        );
 
         let agent = AgentConfig {
             agent_id: "test-agent".to_string(),
@@ -878,7 +911,7 @@ mod tests {
             metadata: HashMap::new(),
         };
         assert!(agent_bad.validate(&providers).is_err());
-        
+
         // Reader agents don't require prompts
         let agent_reader = AgentConfig {
             agent_id: "test-agent-3".to_string(),
@@ -895,34 +928,43 @@ mod tests {
         let mut config = MerkleConfig::default();
 
         // Add a valid provider
-        config.providers.insert("test-provider".to_string(), ProviderConfig {
-            provider_name: Some("test-provider".to_string()),
-            provider_type: ProviderType::Ollama,
-            model: "llama2".to_string(),
-            api_key: None,
-            endpoint: None,
-            default_options: CompletionOptions::default(),
-        });
+        config.providers.insert(
+            "test-provider".to_string(),
+            ProviderConfig {
+                provider_name: Some("test-provider".to_string()),
+                provider_type: ProviderType::Ollama,
+                model: "llama2".to_string(),
+                api_key: None,
+                endpoint: None,
+                default_options: CompletionOptions::default(),
+            },
+        );
 
         // Add a valid agent
-        config.agents.insert("test-agent".to_string(), AgentConfig {
-            agent_id: "test-agent".to_string(),
-            role: AgentRole::Writer,
-            system_prompt: Some("Test".to_string()),
-            system_prompt_path: None,
-            metadata: HashMap::new(),
-        });
+        config.agents.insert(
+            "test-agent".to_string(),
+            AgentConfig {
+                agent_id: "test-agent".to_string(),
+                role: AgentRole::Writer,
+                system_prompt: Some("Test".to_string()),
+                system_prompt_path: None,
+                metadata: HashMap::new(),
+            },
+        );
 
         assert!(config.validate().is_ok());
 
         // Duplicate agent IDs should fail
-        config.agents.insert("test-agent-2".to_string(), AgentConfig {
-            agent_id: "test-agent".to_string(), // Same ID
-            role: AgentRole::Reader,
-            system_prompt: None,
-            system_prompt_path: None,
-            metadata: HashMap::new(),
-        });
+        config.agents.insert(
+            "test-agent-2".to_string(),
+            AgentConfig {
+                agent_id: "test-agent".to_string(), // Same ID
+                role: AgentRole::Reader,
+                system_prompt: None,
+                system_prompt_path: None,
+                metadata: HashMap::new(),
+            },
+        );
 
         assert!(config.validate().is_err());
     }
@@ -960,7 +1002,9 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config_file = temp_dir.path().join("test_config.toml");
 
-        std::fs::write(&config_file, r#"
+        std::fs::write(
+            &config_file,
+            r#"
 [system]
 default_workspace_root = "."
 
@@ -978,7 +1022,9 @@ agent_id = "test-agent"
 role = "Writer"
 system_prompt = "Test prompt"
 provider_name = "test-ollama"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let config = ConfigLoader::load_from_file(&config_file).unwrap();
         assert_eq!(config.providers.len(), 1);
@@ -1001,15 +1047,15 @@ provider_name = "test-ollama"
         // We'll test this indirectly by checking the behavior of load()
         // First, save the original HOME
         let original_home = std::env::var("HOME").ok();
-        
+
         // Test with a mock HOME
         let test_home = "/test/home";
         std::env::set_var("HOME", test_home);
-        
+
         // The path should be /test/home/.config/merkle/config.toml
         // We can't directly test the private function, but we can verify
         // the behavior through load() which will check for this path
-        
+
         // Clean up
         if let Some(home) = original_home {
             std::env::set_var("HOME", home);
@@ -1026,30 +1072,36 @@ provider_name = "test-ollama"
     fn test_load_with_xdg_config() {
         // Serialize access to HOME to avoid race conditions in parallel test execution
         let _guard = HOME_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-        
+
         let temp_dir = TempDir::new().unwrap();
         let workspace_root = temp_dir.path();
-        
+
         // Save original HOME
         let original_home = std::env::var("HOME").ok();
-        
+
         // Ensure no workspace config exists that could interfere
         let workspace_config_dir = workspace_root.join("config");
         let workspace_config_file = workspace_config_dir.join("config.toml");
         // If it exists, we'll verify it doesn't override XDG config
-        
+
         // Create a mock XDG config directory with absolute path
         let mock_home = temp_dir.path().join("mock_home");
         std::fs::create_dir_all(&mock_home).unwrap();
-        let mock_home_str = mock_home.canonicalize().unwrap().to_string_lossy().to_string();
+        let mock_home_str = mock_home
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
         std::env::set_var("HOME", &mock_home_str);
-        
+
         let xdg_config_dir = mock_home.join(".config").join("merkle");
         std::fs::create_dir_all(&xdg_config_dir).unwrap();
         let xdg_config_file = xdg_config_dir.join("config.toml");
-        
+
         // Write XDG config with a provider
-        std::fs::write(&xdg_config_file, r#"
+        std::fs::write(
+            &xdg_config_file,
+            r#"
 [system]
 default_workspace_root = "."
 
@@ -1061,16 +1113,22 @@ frames_path = ".merkle/frames"
 provider_type = "ollama"
 model = "xdg-model"
 endpoint = "http://localhost:11434"
-"#).unwrap();
-        
+"#,
+        )
+        .unwrap();
+
         // Verify file exists before loading
         assert!(xdg_config_file.exists(), "XDG config file should exist");
-        
+
         // Verify XDG config path function returns the correct path
         let xdg_path = ConfigLoader::xdg_config_path();
         assert!(xdg_path.is_some(), "XDG config path should be found");
-        assert_eq!(xdg_path.unwrap(), xdg_config_file, "XDG config path should match");
-        
+        assert_eq!(
+            xdg_path.unwrap(),
+            xdg_config_file,
+            "XDG config path should match"
+        );
+
         // Load config - should pick up XDG config
         let config = ConfigLoader::load(workspace_root).unwrap();
         assert!(config.providers.contains_key("xdg-provider"), 
@@ -1080,7 +1138,7 @@ endpoint = "http://localhost:11434"
                 workspace_config_file.exists());
         let provider = config.providers.get("xdg-provider").unwrap();
         assert_eq!(provider.model, "xdg-model");
-        
+
         // Clean up
         if let Some(home) = original_home {
             std::env::set_var("HOME", home);
@@ -1096,22 +1154,28 @@ endpoint = "http://localhost:11434"
 
         let temp_dir = TempDir::new().unwrap();
         let workspace_root = temp_dir.path();
-        
+
         // Save original HOME
         let original_home = std::env::var("HOME").ok();
-        
+
         // Create a mock XDG config directory with absolute path
         let mock_home = temp_dir.path().join("mock_home_override");
         std::fs::create_dir_all(&mock_home).unwrap();
-        let mock_home_str = mock_home.canonicalize().unwrap().to_string_lossy().to_string();
+        let mock_home_str = mock_home
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
         std::env::set_var("HOME", &mock_home_str);
-        
+
         let xdg_config_dir = mock_home.join(".config").join("merkle");
         std::fs::create_dir_all(&xdg_config_dir).unwrap();
         let xdg_config_file = xdg_config_dir.join("config.toml");
-        
+
         // Write XDG config with a provider
-        std::fs::write(&xdg_config_file, r#"
+        std::fs::write(
+            &xdg_config_file,
+            r#"
 [system]
 default_workspace_root = "."
 
@@ -1123,26 +1187,32 @@ frames_path = ".merkle/frames"
 provider_type = "ollama"
 model = "xdg-model"
 endpoint = "http://localhost:11434"
-"#).unwrap();
-        
+"#,
+        )
+        .unwrap();
+
         // Create workspace config with same provider but different model
         let workspace_config_dir = workspace_root.join("config");
         std::fs::create_dir_all(&workspace_config_dir).unwrap();
         let workspace_config_file = workspace_config_dir.join("config.toml");
-        std::fs::write(&workspace_config_file, r#"
+        std::fs::write(
+            &workspace_config_file,
+            r#"
 [providers.xdg-provider]
 provider_type = "ollama"
 model = "workspace-model"
 endpoint = "http://localhost:11434"
-"#).unwrap();
-        
+"#,
+        )
+        .unwrap();
+
         // Load config - workspace config should override XDG config
         let config = ConfigLoader::load(workspace_root).unwrap();
         assert!(config.providers.contains_key("xdg-provider"));
         let provider = config.providers.get("xdg-provider").unwrap();
         // Workspace config should win
         assert_eq!(provider.model, "workspace-model");
-        
+
         // Clean up
         if let Some(home) = original_home {
             std::env::set_var("HOME", home);
@@ -1155,32 +1225,42 @@ endpoint = "http://localhost:11434"
     fn test_load_without_xdg_config() {
         // Serialize access to HOME to avoid race conditions in parallel test execution
         let _guard = HOME_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-        
+
         let temp_dir = TempDir::new().unwrap();
         let workspace_root = temp_dir.path();
-        
+
         // Save original HOME
         let original_home = std::env::var("HOME").ok();
-        
+
         // Create a mock HOME but don't create XDG config
         let mock_home = temp_dir.path().join("mock_home_no_config");
         std::fs::create_dir_all(&mock_home).unwrap();
-        let mock_home_str = mock_home.canonicalize().unwrap().to_string_lossy().to_string();
+        let mock_home_str = mock_home
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
         std::env::set_var("HOME", &mock_home_str);
-        
+
         // Verify XDG config doesn't exist
         let xdg_config_file = mock_home.join(".config").join("merkle").join("config.toml");
-        assert!(!xdg_config_file.exists(), "XDG config file should not exist");
-        
+        assert!(
+            !xdg_config_file.exists(),
+            "XDG config file should not exist"
+        );
+
         // Load config - should work fine without XDG config (just use defaults)
         // The warning will be logged but shouldn't cause an error
         let config = ConfigLoader::load(workspace_root).unwrap();
         // Should have default config (no providers from XDG or workspace)
-        assert_eq!(config.providers.len(), 0, 
-                   "Should have no providers when XDG config doesn't exist. Found: {:?}", 
-                   config.providers.keys().collect::<Vec<_>>());
+        assert_eq!(
+            config.providers.len(),
+            0,
+            "Should have no providers when XDG config doesn't exist. Found: {:?}",
+            config.providers.keys().collect::<Vec<_>>()
+        );
         assert_eq!(config.agents.len(), 0);
-        
+
         // Clean up
         if let Some(home) = original_home {
             std::env::set_var("HOME", home);
@@ -1193,27 +1273,33 @@ endpoint = "http://localhost:11434"
     fn test_load_without_home_env() {
         // Serialize access to HOME to avoid race conditions in parallel test execution
         let _guard = HOME_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-        
+
         let temp_dir = TempDir::new().unwrap();
         let workspace_root = temp_dir.path();
-        
+
         // Save original HOME
         let original_home = std::env::var("HOME").ok();
-        
+
         // Remove HOME env var
         std::env::remove_var("HOME");
-        
+
         // Verify XDG config path returns None when HOME is not set
-        assert!(ConfigLoader::xdg_config_path().is_none(), "XDG config path should be None when HOME is not set");
-        
+        assert!(
+            ConfigLoader::xdg_config_path().is_none(),
+            "XDG config path should be None when HOME is not set"
+        );
+
         // Load config - should work fine without HOME (just skip XDG config)
         let config = ConfigLoader::load(workspace_root).unwrap();
         // Should have default config (no providers from XDG or workspace)
-        assert_eq!(config.providers.len(), 0, 
-                   "Should have no providers when HOME is not set. Found: {:?}", 
-                   config.providers.keys().collect::<Vec<_>>());
+        assert_eq!(
+            config.providers.len(),
+            0,
+            "Should have no providers when HOME is not set. Found: {:?}",
+            config.providers.keys().collect::<Vec<_>>()
+        );
         assert_eq!(config.agents.len(), 0);
-        
+
         // Clean up
         if let Some(home) = original_home {
             std::env::set_var("HOME", home);
