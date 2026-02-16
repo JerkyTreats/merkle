@@ -57,8 +57,7 @@ impl CiIntegration {
         // 1. Verify all nodes are accessible
         // 2. Check frame integrity
         // 3. Verify head index consistency
-        // 4. Check basis index consistency
-        // 5. Validate Merkle tree roots
+        // 4. Validate Merkle tree roots
 
         Ok(ValidationReport {
             valid: true,
@@ -93,20 +92,17 @@ impl CiIntegration {
 
 /// Batch operation type
 pub enum BatchOperation {
-    Regenerate {
-        agent_id: String,
-        recursive: bool,
-    },
+    EnsureNodeExists,
 }
 
 impl BatchOperation {
     fn execute(&self, api: &ContextApi, node_id: NodeID) -> Result<(), ApiError> {
         match self {
-            BatchOperation::Regenerate {
-                agent_id,
-                recursive,
-            } => {
-                api.regenerate(node_id, *recursive, agent_id.clone())?;
+            BatchOperation::EnsureNodeExists => {
+                api.node_store()
+                    .get(&node_id)
+                    .map_err(ApiError::from)?
+                    .ok_or(ApiError::NodeNotFound(node_id))?;
                 Ok(())
             }
         }
@@ -151,7 +147,6 @@ mod tests {
     use super::*;
     use crate::api::ContextApi;
     use crate::heads::HeadIndex;
-    use crate::regeneration::BasisIndex;
     use crate::store::persistence::SledNodeRecordStore;
     use crate::types::Hash;
     use std::sync::Arc;
@@ -166,7 +161,6 @@ mod tests {
         let frame_storage =
             Arc::new(crate::frame::storage::FrameStorage::new(&frame_storage_path).unwrap());
         let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
-        let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
         let agent_registry = Arc::new(parking_lot::RwLock::new(crate::agent::AgentRegistry::new()));
         let provider_registry = Arc::new(parking_lot::RwLock::new(
             crate::provider::ProviderRegistry::new(),
@@ -177,7 +171,6 @@ mod tests {
             node_store,
             frame_storage,
             head_index,
-            basis_index,
             agent_registry,
             provider_registry,
             lock_manager,
@@ -199,10 +192,7 @@ mod tests {
         let (api, _temp_dir) = create_test_api();
         let ci = CiIntegration::new(api);
         let node_ids = vec![Hash::from([0u8; 32])];
-        let operation = BatchOperation::Regenerate {
-            agent_id: "test-agent".to_string(),
-            recursive: false,
-        };
+        let operation = BatchOperation::EnsureNodeExists;
         // This will fail because node doesn't exist, but the batch operation should handle it
         let report = ci.batch_process(node_ids, operation).unwrap();
         assert_eq!(report.processed, 1);

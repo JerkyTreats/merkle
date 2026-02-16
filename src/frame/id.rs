@@ -47,7 +47,7 @@ pub fn compute_frame_id(
 /// - Frame(FrameID): hash("frame:" || FrameID)
 /// - Both { node, frame }: hash("both:" || NodeID || FrameID)
 ///
-/// This is public for use in regeneration (Phase 2D) to detect basis changes.
+/// This is public for callers that need deterministic basis hashing.
 pub fn compute_basis_hash(basis: &Basis) -> Result<Hash, StorageError> {
     let mut hasher = Hasher::new();
 

@@ -18,7 +18,6 @@ use merkle::frame::queue::{
 use merkle::frame::storage::FrameStorage;
 use merkle::heads::HeadIndex;
 use merkle::progress::ProgressRuntime;
-use merkle::regeneration::BasisIndex;
 use merkle::store::persistence::SledNodeRecordStore;
 use merkle::types::Hash;
 use std::sync::Arc;
@@ -33,7 +32,6 @@ fn create_test_api() -> (ContextApi, TempDir) {
     std::fs::create_dir_all(&frame_storage_path).unwrap();
     let frame_storage = Arc::new(FrameStorage::new(&frame_storage_path).unwrap());
     let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
-    let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
     let agent_registry = Arc::new(parking_lot::RwLock::new(merkle::agent::AgentRegistry::new()));
     let mut provider_registry = merkle::provider::ProviderRegistry::new();
     // Add a test provider
@@ -57,7 +55,6 @@ fn create_test_api() -> (ContextApi, TempDir) {
         node_store,
         frame_storage,
         head_index,
-        basis_index,
         agent_registry,
         provider_registry,
         lock_manager,

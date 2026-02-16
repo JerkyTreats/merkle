@@ -3,7 +3,6 @@
 use merkle::api::{ContextApi, ContextView};
 use merkle::frame::{Basis, Frame};
 use merkle::heads::HeadIndex;
-use merkle::regeneration::BasisIndex;
 use merkle::store::persistence::SledNodeRecordStore;
 use merkle::tooling::{adapter::ContextApiAdapter, AgentAdapter, BatchOperation, CiIntegration};
 use merkle::types::Hash;
@@ -21,7 +20,6 @@ fn create_test_api() -> (ContextApi, TempDir) {
     let frame_storage =
         Arc::new(merkle::frame::storage::FrameStorage::new(&frame_storage_path).unwrap());
     let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
-    let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
     let agent_registry = Arc::new(parking_lot::RwLock::new(merkle::agent::AgentRegistry::new()));
     let provider_registry = Arc::new(parking_lot::RwLock::new(
         merkle::provider::ProviderRegistry::new(),
@@ -32,7 +30,6 @@ fn create_test_api() -> (ContextApi, TempDir) {
         node_store,
         frame_storage,
         head_index,
-        basis_index,
         agent_registry,
         provider_registry,
         lock_manager,
@@ -62,10 +59,7 @@ fn test_ci_batch_operation() {
     let (api, _temp_dir) = create_test_api();
     let ci = CiIntegration::new(api);
     let node_ids = vec![Hash::from([3u8; 32]), Hash::from([4u8; 32])];
-    let operation = BatchOperation::Regenerate {
-        agent_id: "test-agent".to_string(),
-        recursive: false,
-    };
+    let operation = BatchOperation::EnsureNodeExists;
 
     let report = ci.batch_process(node_ids, operation).unwrap();
     assert_eq!(report.processed, 2);
@@ -109,37 +103,4 @@ fn test_tool_idempotency_put_frame() {
 
     // Both frames should have the same FrameID (deterministic)
     assert_eq!(frame1.frame_id, frame2.frame_id);
-}
-
-#[test]
-fn test_tool_idempotency_regenerate() {
-    // Test that regenerating twice produces the same result
-    let (api, _temp_dir) = create_test_api();
-    let node_id = Hash::from([6u8; 32]);
-
-    // Register the agent first (regenerate checks for agent existence)
-    {
-        let mut registry = api.agent_registry().write();
-        let agent = merkle::agent::AgentIdentity::new(
-            "test-agent".to_string(),
-            merkle::agent::AgentRole::Writer,
-        );
-        registry.register(agent);
-    }
-
-    // Regenerate twice - should be idempotent
-    // (Will fail because node doesn't exist, but tests interface)
-    let result1 = api.regenerate(node_id, false, "test-agent".to_string());
-    let result2 = api.regenerate(node_id, false, "test-agent".to_string());
-
-    // Both should fail the same way (idempotent error handling)
-    assert!(result1.is_err());
-    assert!(result2.is_err());
-    // Both should return the same error (idempotent error handling)
-    // We can't easily compare error types, but both should be NodeNotFound
-    let err1 = result1.unwrap_err();
-    let err2 = result2.unwrap_err();
-    // Both should be NodeNotFound errors
-    assert!(matches!(err1, merkle::error::ApiError::NodeNotFound(_)));
-    assert!(matches!(err2, merkle::error::ApiError::NodeNotFound(_)));
 }

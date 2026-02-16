@@ -204,7 +204,6 @@ pub fn new_session_id() -> String {
 
 pub fn command_name(command: &Commands) -> String {
     match command {
-        Commands::Regenerate { .. } => "regenerate".to_string(),
         Commands::Scan { .. } => "scan".to_string(),
         Commands::Workspace { command } => format!("workspace.{}", workspace_command_name(command)),
         Commands::Status { .. } => "status".to_string(),

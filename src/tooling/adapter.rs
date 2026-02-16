@@ -127,7 +127,6 @@ mod tests {
     use super::*;
     use crate::api::ContextApi;
     use crate::heads::HeadIndex;
-    use crate::regeneration::BasisIndex;
     use crate::store::persistence::SledNodeRecordStore;
     use crate::types::Hash;
     use std::sync::Arc;
@@ -142,7 +141,6 @@ mod tests {
         let frame_storage =
             Arc::new(crate::frame::storage::FrameStorage::new(&frame_storage_path).unwrap());
         let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
-        let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
         let agent_registry = Arc::new(parking_lot::RwLock::new(crate::agent::AgentRegistry::new()));
         let provider_registry = Arc::new(parking_lot::RwLock::new(
             crate::provider::ProviderRegistry::new(),
@@ -153,7 +151,6 @@ mod tests {
             node_store,
             frame_storage,
             head_index,
-            basis_index,
             agent_registry,
             provider_registry,
             lock_manager,

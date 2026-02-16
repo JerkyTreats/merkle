@@ -1,7 +1,7 @@
 //! Editor Integration Hooks
 //!
 //! Provides file watchers and change notifications for editor integration.
-//! Monitors filesystem changes and triggers regeneration when needed.
+//! Monitors filesystem changes and surfaces change events.
 
 use crate::api::ContextApi;
 use crate::error::ApiError;
@@ -62,7 +62,7 @@ impl EditorHooks {
 
     /// Handle a filesystem change event
     ///
-    /// This method processes change events and triggers regeneration if needed.
+    /// This method processes change events and returns whether a node mapping exists.
     /// For Phase 2G, this is a basic implementation that can be extended.
     pub fn handle_event(&self, event: Event) -> Result<Option<NodeID>, ApiError> {
         match event.kind {
@@ -70,8 +70,7 @@ impl EditorHooks {
                 // For Phase 2G, we just return that a change occurred
                 // In a full implementation, we would:
                 // 1. Map file path to NodeID
-                // 2. Trigger regeneration for that node
-                // 3. Return the NodeID that was affected
+                // 2. Return the NodeID that was affected
                 Ok(None) // Placeholder - would return NodeID in full implementation
             }
             _ => Ok(None),
@@ -96,7 +95,6 @@ mod tests {
     use super::*;
     use crate::api::ContextApi;
     use crate::heads::HeadIndex;
-    use crate::regeneration::BasisIndex;
     use crate::store::persistence::SledNodeRecordStore;
     use std::sync::Arc;
     use tempfile::TempDir;
@@ -110,7 +108,6 @@ mod tests {
         let frame_storage =
             Arc::new(crate::frame::storage::FrameStorage::new(&frame_storage_path).unwrap());
         let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
-        let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
         let agent_registry = Arc::new(parking_lot::RwLock::new(crate::agent::AgentRegistry::new()));
         let provider_registry = Arc::new(parking_lot::RwLock::new(
             crate::provider::ProviderRegistry::new(),
@@ -121,7 +118,6 @@ mod tests {
             node_store,
             frame_storage,
             head_index,
-            basis_index,
             agent_registry,
             provider_registry,
             lock_manager,

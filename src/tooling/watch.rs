@@ -1,7 +1,7 @@
 //! Watch Mode Daemon
 //!
 //! Implements a long-lived daemon process that monitors the workspace for filesystem changes
-//! and automatically updates the Merkle tree and triggers node regeneration.
+//! and automatically updates the Merkle tree.
 
 use crate::api::ContextApi;
 use crate::error::ApiError;
@@ -10,7 +10,6 @@ use crate::frame::{FrameGenerationQueue, GenerationConfig};
 use crate::heads::HeadIndex;
 use crate::ignore;
 use crate::progress::ProgressRuntime;
-use crate::regeneration::BasisIndex;
 use crate::store::{NodeRecord, NodeRecordStore};
 use crate::tree::builder::TreeBuilder;
 use crate::tree::path::canonicalize_path;
@@ -38,14 +37,6 @@ pub struct WatchConfig {
     pub batch_window_ms: u64,
     /// Maximum events per batch
     pub max_batch_size: usize,
-    /// Enable automatic regeneration
-    pub regeneration_enabled: bool,
-    /// Recursive regeneration (regenerate parent frames)
-    pub recursive: bool,
-    /// Maximum propagation depth for recursive regeneration
-    pub max_depth: usize,
-    /// Agent ID for automatic regeneration
-    pub agent_id: String,
     /// Ignore patterns (glob patterns)
     pub ignore_patterns: Vec<String>,
     /// Maximum event queue size
@@ -71,10 +62,6 @@ impl Default for WatchConfig {
             debounce_ms: 100,
             batch_window_ms: 50,
             max_batch_size: 100,
-            regeneration_enabled: true,
-            recursive: false,
-            max_depth: 3,
-            agent_id: "watch-daemon".to_string(),
             ignore_patterns: vec![
                 "**/.git/**".to_string(),
                 "**/.merkle/**".to_string(),
@@ -237,21 +224,6 @@ impl WatchDaemon {
                 );
             } else {
                 info!("Starting with empty head index");
-            }
-        }
-
-        // Load basis index on startup if workspace root is configured
-        let basis_index_path = BasisIndex::persistence_path(&config.workspace_root);
-        {
-            let mut basis_index = api.basis_index().write();
-            if let Ok(loaded) = BasisIndex::load_from_disk(&basis_index_path) {
-                *basis_index = loaded;
-                info!(
-                    "Loaded basis index from disk: {} entries",
-                    basis_index.len()
-                );
-            } else {
-                info!("Starting with empty basis index");
             }
         }
 
@@ -497,18 +469,6 @@ impl WatchDaemon {
         // Update tree for affected paths
         let affected_nodes = self.update_tree_for_paths(&affected_paths)?;
 
-        // Trigger regeneration if enabled
-        if self.config.regeneration_enabled {
-            for node_id in &affected_nodes {
-                let _report = self.api.regenerate(
-                    *node_id,
-                    self.config.recursive,
-                    self.config.agent_id.clone(),
-                )?;
-                // Log regeneration results if needed
-            }
-        }
-
         // Create missing contextframes for agents if enabled
         if self.config.auto_create_frames {
             self.ensure_agent_frames_batched(&affected_nodes)?;
@@ -714,7 +674,6 @@ mod tests {
         let config = WatchConfig::default();
         assert_eq!(config.debounce_ms, 100);
         assert_eq!(config.batch_window_ms, 50);
-        assert_eq!(config.agent_id, "watch-daemon");
         assert!(config.auto_create_frames);
         assert_eq!(config.frame_batch_size, 50);
     }
@@ -742,9 +701,6 @@ mod tests {
         let node_store = Arc::new(crate::store::SledNodeRecordStore::new(&store_path).unwrap());
         let frame_storage = Arc::new(crate::frame::FrameStorage::new(&frame_storage_path).unwrap());
         let head_index = Arc::new(parking_lot::RwLock::new(crate::heads::HeadIndex::new()));
-        let basis_index = Arc::new(parking_lot::RwLock::new(
-            crate::regeneration::BasisIndex::new(),
-        ));
         let agent_registry = Arc::new(parking_lot::RwLock::new(crate::agent::AgentRegistry::new()));
         let provider_registry = Arc::new(parking_lot::RwLock::new(
             crate::provider::ProviderRegistry::new(),
@@ -755,7 +711,6 @@ mod tests {
             node_store,
             frame_storage,
             head_index,
-            basis_index,
             agent_registry,
             provider_registry,
             lock_manager,

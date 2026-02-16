@@ -17,7 +17,6 @@ pub mod init;
 pub mod logging;
 pub mod progress;
 pub mod provider;
-pub mod regeneration;
 pub mod store;
 pub mod tooling;
 pub mod tree;

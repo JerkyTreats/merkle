@@ -649,39 +649,6 @@ fn command_summary_failure_message_is_bounded() {
 }
 
 #[test]
-fn regenerate_failure_emits_regeneration_failed_event() {
-    let temp_dir = TempDir::new().unwrap();
-    with_xdg_env(&temp_dir, || {
-        let workspace_root = temp_dir.path().join("workspace");
-        fs::create_dir_all(&workspace_root).unwrap();
-
-        let cli = CliContext::new(workspace_root, None).unwrap();
-        let node_id = hex::encode([7u8; 32]);
-        let result = cli.execute(&Commands::Regenerate {
-            node_id,
-            recursive: false,
-            agent_id: "missing-agent".to_string(),
-        });
-        assert!(result.is_err());
-
-        let runtime = cli.progress_runtime();
-        let sessions = runtime.store().list_sessions().unwrap();
-        let regen_session = sessions
-            .iter()
-            .find(|s| s.command == "regenerate")
-            .expect("regenerate session should exist");
-        let events = runtime
-            .store()
-            .read_events(&regen_session.session_id)
-            .unwrap();
-        assert!(events
-            .iter()
-            .any(|e| e.event_type == "regeneration_started"));
-        assert!(events.iter().any(|e| e.event_type == "regeneration_failed"));
-    });
-}
-
-#[test]
 fn provider_test_failure_emits_provider_request_failed_event() {
     let temp_dir = TempDir::new().unwrap();
     with_xdg_env(&temp_dir, || {

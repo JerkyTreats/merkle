@@ -17,7 +17,6 @@ use crate::ignore;
 use crate::progress::{
     command_name, ProgressRuntime, ProviderLifecycleEventData, PrunePolicy, SummaryEventData,
 };
-use crate::regeneration::BasisIndex;
 use crate::store::persistence::SledNodeRecordStore;
 use crate::store::{NodeRecord, NodeRecordStore};
 use crate::tree::builder::TreeBuilder;
@@ -75,17 +74,6 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Regenerate frames for a node
-    Regenerate {
-        /// Node ID (hex string)
-        node_id: String,
-        /// Recursive regeneration
-        #[arg(long)]
-        recursive: bool,
-        /// Agent ID
-        #[arg(long)]
-        agent_id: String,
-    },
     /// Scan filesystem and rebuild tree
     Scan {
         /// Force rebuild even if tree exists
@@ -128,15 +116,6 @@ pub enum Commands {
         /// Batch window in milliseconds
         #[arg(long, default_value = "50")]
         batch_window_ms: u64,
-        /// Enable recursive regeneration
-        #[arg(long)]
-        recursive: bool,
-        /// Maximum regeneration depth
-        #[arg(long, default_value = "3")]
-        max_depth: usize,
-        /// Agent ID for regeneration
-        #[arg(long, default_value = "watch-daemon")]
-        agent_id: String,
         /// Run in foreground (default: background daemon)
         #[arg(long)]
         foreground: bool,
@@ -586,17 +565,6 @@ impl CliContext {
             }),
         ));
 
-        // Load basis index from disk, or create empty if not found
-        let basis_index_path = BasisIndex::persistence_path(&workspace_root);
-        let basis_index = Arc::new(parking_lot::RwLock::new(
-            BasisIndex::load_from_disk(&basis_index_path).unwrap_or_else(|e| {
-                tracing::warn!(
-                    "Failed to load basis index from disk: {}, starting with empty index",
-                    e
-                );
-                BasisIndex::new()
-            }),
-        ));
         // Load agents and providers from config.toml first, then XDG (XDG overrides)
         let mut agent_registry = crate::agent::AgentRegistry::new();
         agent_registry.load_from_config(&config)?;
@@ -614,7 +582,6 @@ impl CliContext {
             node_store,
             frame_storage,
             head_index,
-            basis_index,
             agent_registry,
             provider_registry,
             lock_manager,
@@ -661,7 +628,7 @@ impl CliContext {
         Ok(queue)
     }
 
-    /// Run workspace validation (store, head index, basis index consistency).
+    /// Run workspace validation for store and head index consistency.
     fn run_workspace_validate(&self, format: &str) -> Result<String, ApiError> {
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
@@ -747,25 +714,6 @@ impl CliContext {
             }
         }
         drop(head_index);
-
-        let basis_index = self.api.basis_index().read();
-        for (_basis_hash, frame_ids) in basis_index.iter() {
-            for frame_id in frame_ids {
-                if self
-                    .api
-                    .frame_storage()
-                    .get(frame_id)
-                    .map_err(ApiError::from)?
-                    .is_none()
-                {
-                    warnings.push(format!(
-                        "Basis index frame {} not found in storage",
-                        hex::encode(frame_id)
-                    ));
-                }
-            }
-        }
-        drop(basis_index);
 
         let frame_count = if self.frame_storage_path.exists() {
             count_frame_files(&self.frame_storage_path)?
@@ -1118,55 +1066,6 @@ impl CliContext {
 
     fn execute_inner(&self, command: &Commands, session_id: &str) -> Result<String, ApiError> {
         match command {
-            Commands::Regenerate {
-                node_id,
-                recursive,
-                agent_id,
-            } => {
-                let node_id = parse_node_id(node_id)?;
-                self.progress.emit_event_best_effort(
-                    session_id,
-                    "regeneration_started",
-                    json!({
-                        "node_id": hex::encode(node_id),
-                        "recursive": recursive,
-                        "agent_id": agent_id
-                    }),
-                );
-                let started = Instant::now();
-                let report = match self.api.regenerate(node_id, *recursive, agent_id.clone()) {
-                    Ok(report) => report,
-                    Err(err) => {
-                        self.progress.emit_event_best_effort(
-                            session_id,
-                            "regeneration_failed",
-                            json!({
-                                "node_id": hex::encode(node_id),
-                                "recursive": recursive,
-                                "agent_id": agent_id,
-                                "duration_ms": started.elapsed().as_millis(),
-                                "error": err.to_string(),
-                            }),
-                        );
-                        return Err(err);
-                    }
-                };
-                self.progress.emit_event_best_effort(
-                    session_id,
-                    "regeneration_completed",
-                    json!({
-                        "node_id": hex::encode(node_id),
-                        "recursive": recursive,
-                        "agent_id": agent_id,
-                        "regenerated_count": report.regenerated_count,
-                        "duration_ms": started.elapsed().as_millis(),
-                    }),
-                );
-                Ok(format!(
-                    "Regenerated {} frames in {}ms",
-                    report.regenerated_count, report.duration_ms
-                ))
-            }
             Commands::Scan { force } => {
                 self.progress.emit_event_best_effort(
                     session_id,
@@ -1346,9 +1245,6 @@ impl CliContext {
             Commands::Watch {
                 debounce_ms,
                 batch_window_ms,
-                recursive,
-                max_depth,
-                agent_id,
                 foreground: _,
             } => {
                 use crate::tooling::watch::{WatchConfig, WatchDaemon};
@@ -1387,9 +1283,6 @@ impl CliContext {
                 watch_config.workspace_root = self.workspace_root.clone();
                 watch_config.debounce_ms = *debounce_ms;
                 watch_config.batch_window_ms = *batch_window_ms;
-                watch_config.recursive = *recursive;
-                watch_config.max_depth = *max_depth;
-                watch_config.agent_id = agent_id.clone();
                 watch_config.ignore_patterns = ignore_patterns;
                 watch_config.session_id = Some(session_id.to_string());
                 watch_config.progress = Some(self.progress.clone());
@@ -1584,12 +1477,16 @@ impl CliContext {
 
             // Prompt path required for Writer
             let prompt = if parsed_role != crate::agent::AgentRole::Reader {
-                Some(prompt_path.ok_or_else(|| {
-                    ApiError::ConfigError(
+                Some(
+                    prompt_path
+                        .ok_or_else(|| {
+                            ApiError::ConfigError(
                         "Prompt path is required for Writer agents. Use --prompt-path <path>"
                             .to_string()
                     )
-                })?.to_string())
+                        })?
+                        .to_string(),
+                )
             } else {
                 None
             };
@@ -4317,7 +4214,6 @@ mod tests {
     use crate::api::ContextApi;
     use crate::frame::storage::FrameStorage;
     use crate::heads::HeadIndex;
-    use crate::regeneration::BasisIndex;
     use crate::store::persistence::SledNodeRecordStore;
     use crate::types::Hash;
     use std::sync::Arc;
@@ -4331,7 +4227,6 @@ mod tests {
         std::fs::create_dir_all(&frame_storage_path).unwrap();
         let frame_storage = Arc::new(FrameStorage::new(&frame_storage_path).unwrap());
         let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
-        let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
         let agent_registry = Arc::new(parking_lot::RwLock::new(crate::agent::AgentRegistry::new()));
         let provider_registry = Arc::new(parking_lot::RwLock::new(
             crate::provider::ProviderRegistry::new(),
@@ -4342,7 +4237,6 @@ mod tests {
             node_store,
             frame_storage,
             head_index,
-            basis_index,
             agent_registry,
             provider_registry,
             lock_manager,

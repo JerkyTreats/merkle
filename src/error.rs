@@ -54,9 +54,6 @@ pub enum ApiError {
     #[error("Invalid frame: {0}")]
     InvalidFrame(String),
 
-    #[error("Regeneration failed: {0}")]
-    RegenerationFailed(String),
-
     #[error("Provider error: {0}")]
     ProviderError(String),
 
@@ -97,7 +94,6 @@ impl Clone for ApiError {
             ApiError::FrameNotFound(frame_id) => ApiError::FrameNotFound(*frame_id),
             ApiError::Unauthorized(message) => ApiError::Unauthorized(message.clone()),
             ApiError::InvalidFrame(message) => ApiError::InvalidFrame(message.clone()),
-            ApiError::RegenerationFailed(message) => ApiError::RegenerationFailed(message.clone()),
             ApiError::ProviderError(message) => ApiError::ProviderError(message.clone()),
             ApiError::ProviderNotConfigured(message) => {
                 ApiError::ProviderNotConfigured(message.clone())

@@ -7,10 +7,8 @@ use crate::agent::AgentRegistry;
 use crate::composition::{compose_frames, CompositionPolicy};
 use crate::concurrency::NodeLockManager;
 use crate::error::ApiError;
-use crate::frame::id::compute_basis_hash;
 use crate::frame::{Basis, Frame, FrameGenerationQueue, FrameMerkleSet, FrameStorage};
 use crate::heads::HeadIndex;
-use crate::regeneration::{regenerate_node, BasisIndex, RegenerationReport};
 use crate::store::{NodeRecord, NodeRecordStore};
 use crate::types::{FrameID, NodeID};
 use crate::views::{get_context_view, ViewPolicy};
@@ -278,8 +276,6 @@ pub struct ContextApi {
     frame_storage: Arc<FrameStorage>,
     /// Head index for O(1) head resolution
     head_index: Arc<parking_lot::RwLock<HeadIndex>>,
-    /// Basis index for regeneration (Phase 2D)
-    basis_index: Arc<parking_lot::RwLock<BasisIndex>>,
     /// Agent registry for authorization
     agent_registry: Arc<parking_lot::RwLock<AgentRegistry>>,
     /// Provider registry for LLM provider management
@@ -296,7 +292,6 @@ impl ContextApi {
         node_store: Arc<dyn NodeRecordStore + Send + Sync>,
         frame_storage: Arc<FrameStorage>,
         head_index: Arc<parking_lot::RwLock<HeadIndex>>,
-        basis_index: Arc<parking_lot::RwLock<BasisIndex>>,
         agent_registry: Arc<parking_lot::RwLock<AgentRegistry>>,
         provider_registry: Arc<parking_lot::RwLock<crate::provider::ProviderRegistry>>,
         lock_manager: Arc<NodeLockManager>,
@@ -305,7 +300,6 @@ impl ContextApi {
             node_store,
             frame_storage,
             head_index,
-            basis_index,
             agent_registry,
             provider_registry,
             lock_manager,
@@ -318,7 +312,6 @@ impl ContextApi {
         node_store: Arc<dyn NodeRecordStore + Send + Sync>,
         frame_storage: Arc<FrameStorage>,
         head_index: Arc<parking_lot::RwLock<HeadIndex>>,
-        basis_index: Arc<parking_lot::RwLock<BasisIndex>>,
         agent_registry: Arc<parking_lot::RwLock<AgentRegistry>>,
         provider_registry: Arc<parking_lot::RwLock<crate::provider::ProviderRegistry>>,
         lock_manager: Arc<NodeLockManager>,
@@ -328,7 +321,6 @@ impl ContextApi {
             node_store,
             frame_storage,
             head_index,
-            basis_index,
             agent_registry,
             provider_registry,
             lock_manager,
@@ -344,15 +336,6 @@ impl ContextApi {
                 let head_index = self.head_index.read();
                 let path = HeadIndex::persistence_path(workspace_root);
                 head_index
-                    .save_to_disk(&path)
-                    .map_err(|e| ApiError::StorageError(e))?;
-            }
-
-            // Persist basis index
-            {
-                let basis_index = self.basis_index.read();
-                let path = BasisIndex::persistence_path(workspace_root);
-                basis_index
                     .save_to_disk(&path)
                     .map_err(|e| ApiError::StorageError(e))?;
             }
@@ -549,19 +532,12 @@ impl ContextApi {
         // and update it. For Phase 2B MVP, we'll track frame sets in memory.
         // For now, we'll just update the head index.
 
-        // Update head index and basis index atomically
+        // Update head index.
         {
             let mut head_index = self.head_index.write();
             head_index
                 .update_head(&node_id, &frame.frame_type, &frame.frame_id)
                 .map_err(ApiError::from)?;
-        }
-
-        // Update basis index (Phase 2D)
-        {
-            let basis_hash = compute_basis_hash(&frame.basis).map_err(ApiError::from)?;
-            let mut basis_index = self.basis_index.write();
-            basis_index.add_frame(basis_hash, frame.frame_id);
         }
 
         // Persist indices to disk
@@ -708,86 +684,6 @@ impl ContextApi {
             head_entries_purged,
             frames_purged,
         })
-    }
-
-    /// Regenerate frames for a node
-    ///
-    /// Regenerates all frames whose basis has changed. Regeneration is incremental,
-    /// localized, and basis-driven—only frames whose basis has changed are regenerated.
-    ///
-    /// # Arguments
-    /// * `node_id` - NodeID to regenerate frames for
-    /// * `recursive` - Whether to regenerate descendant nodes
-    /// * `agent_id` - Identity of agent performing regeneration
-    ///
-    /// # Returns
-    /// * `RegenerationReport` - Summary of regenerated frames
-    /// * `ApiError` - Error if node not found or regeneration fails
-    ///
-    /// # Behavior
-    /// * Incremental: Only regenerates frames with changed basis
-    /// * Idempotent: Re-running produces same result
-    /// * Atomic: Regeneration is transactional
-    /// * Append-only: Old frames preserved
-    #[instrument(skip(self), fields(node_id = %hex::encode(node_id), recursive = recursive, agent_id = %agent_id))]
-    pub fn regenerate(
-        &self,
-        node_id: NodeID,
-        recursive: bool,
-        agent_id: String,
-    ) -> Result<RegenerationReport, ApiError> {
-        let start = Instant::now();
-        info!("Starting regeneration");
-
-        // Verify agent exists
-        let _agent = {
-            let registry = self.agent_registry.read();
-            registry.get_or_error(&agent_id)?.clone()
-        };
-
-        // Verify node exists
-        let _node_record = self
-            .node_store
-            .get(&node_id)
-            .map_err(ApiError::from)?
-            .ok_or_else(|| {
-                warn!("Node not found");
-                ApiError::NodeNotFound(node_id)
-            })?;
-
-        // Acquire write lock for this node (atomic operation)
-        let lock = self.lock_manager.get_lock(&node_id);
-        let _guard = lock.write();
-
-        // Regenerate
-        let mut basis_index = self.basis_index.write();
-        let mut head_index = self.head_index.write();
-
-        let report = regenerate_node(
-            node_id,
-            recursive,
-            &mut basis_index,
-            &mut head_index,
-            &self.frame_storage,
-            self.node_store.as_ref(),
-            agent_id,
-        )?;
-
-        drop(head_index);
-        drop(basis_index);
-
-        // Persist any head and basis index changes produced by regeneration.
-        self.persist_indices()?;
-
-        let duration = start.elapsed();
-        info!(
-            frame_count = report.regenerated_count,
-            duration_ms = duration.as_millis(),
-            recursive = recursive,
-            "Regeneration completed"
-        );
-
-        Ok(report)
     }
 
     /// Compose frames from multiple sources
@@ -1059,11 +955,6 @@ impl ContextApi {
         &self.head_index
     }
 
-    /// Get access to basis index (for tooling)
-    pub fn basis_index(&self) -> &Arc<parking_lot::RwLock<BasisIndex>> {
-        &self.basis_index
-    }
-
     /// Get access to agent registry (for tooling)
     pub fn agent_registry(&self) -> &Arc<parking_lot::RwLock<AgentRegistry>> {
         &self.agent_registry
@@ -1082,33 +973,10 @@ mod tests {
     use super::*;
     use crate::agent::AgentIdentity;
     use crate::frame::{Basis, Frame};
-    use crate::store::{NodeType, SledNodeRecordStore};
+    use crate::store::SledNodeRecordStore;
     use crate::views::{FrameFilter, OrderingPolicy};
     use std::collections::HashMap;
     use tempfile::TempDir;
-
-    struct EnvVarGuard {
-        key: &'static str,
-        original: Option<String>,
-    }
-
-    impl EnvVarGuard {
-        fn set(key: &'static str, value: &str) -> Self {
-            let original = std::env::var(key).ok();
-            std::env::set_var(key, value);
-            Self { key, original }
-        }
-    }
-
-    impl Drop for EnvVarGuard {
-        fn drop(&mut self) {
-            if let Some(ref original) = self.original {
-                std::env::set_var(self.key, original);
-            } else {
-                std::env::remove_var(self.key);
-            }
-        }
-    }
 
     fn create_test_api() -> (ContextApi, TempDir) {
         let temp_dir = TempDir::new().unwrap();
@@ -1118,7 +986,6 @@ mod tests {
         let node_store = Arc::new(SledNodeRecordStore::new(&store_path).unwrap());
         let frame_storage = Arc::new(FrameStorage::new(&frame_storage_path).unwrap());
         let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
-        let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
         let agent_registry = Arc::new(parking_lot::RwLock::new(AgentRegistry::new()));
         let lock_manager = Arc::new(NodeLockManager::new());
 
@@ -1129,7 +996,6 @@ mod tests {
             node_store,
             frame_storage,
             head_index,
-            basis_index,
             agent_registry,
             provider_registry,
             lock_manager,
@@ -1342,207 +1208,6 @@ mod tests {
         assert_eq!(context.node_id, node_id);
         assert_eq!(context.frames.len(), 1);
         assert_eq!(context.frames[0].frame_id, frame_id);
-    }
-
-    #[test]
-    fn test_regenerate_idempotent() {
-        let (api, _temp_dir) = create_test_api();
-        let node_id: NodeID = [1u8; 32];
-
-        // Create and store node record
-        let node_record = create_test_node_record(node_id);
-        api.node_store.put(&node_record).unwrap();
-
-        // Register a writer agent
-        {
-            let mut registry = api.agent_registry.write();
-            let agent = AgentIdentity::new("writer-1".to_string(), crate::agent::AgentRole::Writer);
-            registry.register(agent);
-        }
-
-        // Create and put a frame
-        let basis = Basis::Node(node_id);
-        let content = b"test content".to_vec();
-        let frame_type = "test".to_string();
-        let agent_id = "writer-1".to_string();
-        let metadata = HashMap::new();
-
-        let frame = Frame::new(
-            basis,
-            content,
-            frame_type.clone(),
-            agent_id.clone(),
-            metadata,
-        )
-        .unwrap();
-        let _frame_id = api.put_frame(node_id, frame, agent_id.clone()).unwrap();
-
-        // Regenerate - should be idempotent (no changes)
-        let report = api.regenerate(node_id, false, agent_id.clone()).unwrap();
-        assert_eq!(
-            report.regenerated_count, 0,
-            "Regeneration should be idempotent"
-        );
-
-        // Regenerate again - should still be idempotent
-        let report2 = api.regenerate(node_id, false, agent_id).unwrap();
-        assert_eq!(
-            report2.regenerated_count, 0,
-            "Second regeneration should also be idempotent"
-        );
-    }
-
-    #[test]
-    fn test_regenerate_persists_updated_indices_to_disk() {
-        let temp_dir = TempDir::new().unwrap();
-        let store_path = temp_dir.path().join("store");
-        let frame_storage_path = temp_dir.path().join("frames");
-        let workspace_root = temp_dir.path().join("workspace-root");
-        std::fs::create_dir_all(&workspace_root).unwrap();
-        let xdg_data_home = temp_dir.path().join("xdg-data");
-        std::fs::create_dir_all(&xdg_data_home).unwrap();
-        let _xdg_data_home_guard =
-            EnvVarGuard::set("XDG_DATA_HOME", xdg_data_home.to_str().unwrap());
-
-        let node_store = Arc::new(SledNodeRecordStore::new(&store_path).unwrap());
-        let frame_storage = Arc::new(FrameStorage::new(&frame_storage_path).unwrap());
-        let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
-        let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
-        let agent_registry = Arc::new(parking_lot::RwLock::new(AgentRegistry::new()));
-        let provider_registry = Arc::new(parking_lot::RwLock::new(
-            crate::provider::ProviderRegistry::new(),
-        ));
-        let lock_manager = Arc::new(NodeLockManager::new());
-        let api = ContextApi::with_workspace_root(
-            node_store,
-            frame_storage,
-            head_index,
-            basis_index,
-            agent_registry,
-            provider_registry,
-            lock_manager,
-            workspace_root.clone(),
-        );
-
-        let agent_id = "writer-1".to_string();
-        {
-            let mut registry = api.agent_registry.write();
-            registry.register(AgentIdentity::new(
-                agent_id.clone(),
-                crate::agent::AgentRole::Writer,
-            ));
-        }
-
-        let parent_node_id: NodeID = [11u8; 32];
-        let child_node_id: NodeID = [12u8; 32];
-        let parent_record = NodeRecord {
-            node_id: parent_node_id,
-            path: std::path::PathBuf::from("/test/parent"),
-            node_type: NodeType::Directory,
-            children: vec![child_node_id],
-            parent: None,
-            frame_set_root: None,
-            metadata: HashMap::new(),
-            tombstoned_at: None,
-        };
-        let child_record = NodeRecord {
-            node_id: child_node_id,
-            path: std::path::PathBuf::from("/test/child.txt"),
-            node_type: NodeType::File {
-                size: 100,
-                content_hash: [0u8; 32],
-            },
-            children: vec![],
-            parent: Some(parent_node_id),
-            frame_set_root: None,
-            metadata: HashMap::new(),
-            tombstoned_at: None,
-        };
-        api.node_store.put(&parent_record).unwrap();
-        api.node_store.put(&child_record).unwrap();
-
-        // Child frame version one.
-        let child_frame_v1 = Frame::new(
-            Basis::Node(child_node_id),
-            b"child summary v1".to_vec(),
-            "summary".to_string(),
-            agent_id.clone(),
-            HashMap::new(),
-        )
-        .unwrap();
-        let child_frame_v1_id = api
-            .put_frame(child_node_id, child_frame_v1, agent_id.clone())
-            .unwrap();
-
-        // Parent legacy synthesized frame anchored to child frame version one.
-        let mut metadata = HashMap::new();
-        metadata.insert(
-            "basis_hash".to_string(),
-            hex::encode([9u8; 32]),
-        );
-        metadata.insert("synthesis_policy".to_string(), "concatenation".to_string());
-        let parent_synthesized_v1 = Frame::new(
-            Basis::Frame(child_frame_v1_id),
-            b"parent synthesized v1".to_vec(),
-            "summary".to_string(),
-            agent_id.clone(),
-            metadata,
-        )
-        .unwrap();
-        let parent_frame_v1_id = parent_synthesized_v1.frame_id;
-        api.frame_storage.store(&parent_synthesized_v1).unwrap();
-        {
-            let mut heads = api.head_index.write();
-            heads.update_head(&parent_node_id, "summary", &parent_frame_v1_id)
-                .unwrap();
-        }
-        {
-            let mut basis = api.basis_index.write();
-            let parent_basis_hash =
-                crate::frame::id::compute_basis_hash(&parent_synthesized_v1.basis).unwrap();
-            basis.add_frame(parent_basis_hash, parent_frame_v1_id);
-        }
-        api.persist_indices().unwrap();
-
-        // Child frame version two updates child head and should force parent regeneration.
-        let child_frame_v2 = Frame::new(
-            Basis::Node(child_node_id),
-            b"child summary v2".to_vec(),
-            "summary".to_string(),
-            agent_id.clone(),
-            HashMap::new(),
-        )
-        .unwrap();
-        api.put_frame(child_node_id, child_frame_v2, agent_id.clone())
-            .unwrap();
-
-        let report = api
-            .regenerate(parent_node_id, false, agent_id.clone())
-            .unwrap();
-        assert_eq!(report.regenerated_count, 0);
-        assert_eq!(report.legacy_synthesis_skipped, 1);
-
-        let in_memory_parent_head = api
-            .head_index
-            .read()
-            .get_head(&parent_node_id, "summary")
-            .unwrap()
-            .unwrap();
-        assert_eq!(in_memory_parent_head, parent_frame_v1_id);
-
-        let head_index_path = HeadIndex::persistence_path(&workspace_root);
-        let basis_index_path = BasisIndex::persistence_path(&workspace_root);
-        let persisted_heads = HeadIndex::load_from_disk(&head_index_path).unwrap();
-        let persisted_parent_head = persisted_heads
-            .get_head(&parent_node_id, "summary")
-            .unwrap()
-            .unwrap();
-        assert_eq!(persisted_parent_head, in_memory_parent_head);
-
-        let persisted_basis = BasisIndex::load_from_disk(&basis_index_path).unwrap();
-        assert!(persisted_basis
-            .get_basis_for_frame(&in_memory_parent_head)
-            .is_some());
     }
 
     #[test]

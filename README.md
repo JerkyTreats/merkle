@@ -1,6 +1,6 @@
 # Merkle: Deterministic Filesystem State Management
 
-A Merkle-based filesystem state management system that provides deterministic, hash-based tracking of filesystem state and associated context. The system enables fast, scan-free traversal of nodes and attached context, with append-only, verifiable, and regenerable context frames.
+A Merkle-based filesystem state management system that provides deterministic, hash-based tracking of filesystem state and associated context. The system enables fast, scan-free traversal of nodes and attached context, with append-only and verifiable context frames.
 
 ## Overview
 
@@ -12,7 +12,7 @@ This system provides a deterministic foundation for tracking filesystem state an
 - **Hash-Based Invalidation**: Changes detected only through hash comparison
 - **Bounded Context Views**: Policy-driven, deterministic frame selection
 - **Agent Workflows**: Read/write APIs for agent-driven context management
-- **Incremental Regeneration**: Basis-driven frame regeneration when dependencies change
+- **Multi-Frame Composition**: Policy-driven composition of related context frames
 
 ## Core Principles
 
@@ -55,18 +55,16 @@ Establishes the deterministic, Merkle-addressed foundation for filesystem state 
 📖 **[Phase 1 Documentation](docs/bootstrap/phase1_spec.md)**
 
 ### Phase 2: Construct Workflows & Integrations
-Enables agent-driven workflows, deterministic context retrieval, and incremental regeneration.
+Enables agent-driven workflows, deterministic context retrieval, and composition flows.
 
 **Components:**
 1. **Agent Read/Write Model**: Defines how agents interact with nodes and frames
-2. **Context APIs**: Minimal, stateless API surface (GetNode, PutFrame, Regenerate)
-3. **Incremental Regeneration**: Rebuilds derived frames when bases change
-5. **Multi-Frame Composition**: Combining multiple frames into composite views
-6. **Tooling & Integration Layer**: CLI tools, editor hooks, CI integration
+2. **Context APIs**: Minimal, stateless API surface (GetNode, PutFrame)
+3. **Multi-Frame Composition**: Combining multiple frames into composite views
+4. **Tooling & Integration Layer**: CLI tools, editor hooks, CI integration
 
 **Key Outcomes:**
 - Agents can read and write context frames via stable APIs
-- Context regeneration is localized and basis-driven
 - Workflows operate without global rescans or semantic search
 
 📖 **[Phase 2 Documentation](docs/workflow/phase2_spec.md)**
@@ -182,16 +180,6 @@ async fn put_frame(
 ) -> Result<FrameID, ApiError>;
 ```
 
-#### Regenerate
-Rebuild derived frames when their basis changes.
-
-```rust
-async fn regenerate(
-    node_id: NodeID,
-    recursive: bool,
-) -> Result<RegenerationReport, ApiError>;
-```
-
 📖 **[Phase 2 API Documentation](docs/workflow/phase2_apis.md)**
 📖 **[Phase 3 API Documentation](docs/productionize/phase3_api.md)**
 
@@ -208,7 +196,6 @@ async fn regenerate(
 ### API Operations
 - **GetNode**: < 10ms p50, < 50ms p99 (with bounded view)
 - **PutFrame**: < 5ms p50, < 20ms p99
-- **Regenerate**: < 100ms per node (incremental, only changed frames)
 
 ## Documentation Structure
 
@@ -247,7 +234,6 @@ All phases are currently in planning/specification stage. Implementation tasks a
 
 ### Phase 2 Exit Criteria
 - ✅ Agents can reliably read and write context
-- ✅ Regeneration is minimal and deterministic
 - ✅ Workflows compose without search or mutation
 
 ### Phase 3 Exit Criteria
@@ -266,7 +252,6 @@ All phases are currently in planning/specification stage. Implementation tasks a
 - ✅ Append-only context frames with immutable history
 - ✅ Fast, O(1) or O(log n) lookups without scanning
 - ✅ Agent-driven workflows with read/write APIs
-- ✅ Incremental regeneration based on basis changes
 - ✅ Multi-tenant workspace isolation
 
 ### What This System Does NOT Do

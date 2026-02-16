@@ -9,7 +9,7 @@ use merkle::frame::{Basis, Frame};
 use merkle::heads::HeadIndex;
 use merkle::store::{NodeRecord, NodeType};
 use merkle::tooling::cli::CliContext;
-use merkle::types::{Hash, NodeID};
+use merkle::types::NodeID;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -165,48 +165,6 @@ fn test_workspace_isolation_head_index_isolation() {
             let head_index = ctx2.api().head_index().read();
             let head = head_index.get_head(&node_id, "test").unwrap();
             assert_eq!(head, None, "Head should NOT exist in workspace 2");
-        }
-    });
-}
-
-/// Test that basis indices are isolated between workspaces
-#[test]
-fn test_workspace_isolation_basis_index_isolation() {
-    let test_dir = TempDir::new().unwrap();
-    let workspace1 = TempDir::new().unwrap();
-    let workspace2 = TempDir::new().unwrap();
-
-    with_xdg_data_home(&test_dir, || {
-        // Initialize CLI contexts for both workspaces
-        let ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
-        let ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
-
-        let basis_hash: Hash = [1u8; 32].into();
-        let frame_id = merkle::types::FrameID::from([2u8; 32]);
-
-        // Add basis entry in workspace 1
-        {
-            let mut basis_index = ctx1.api().basis_index().write();
-            basis_index.add_frame(basis_hash, frame_id);
-        }
-
-        // Verify basis entry exists in workspace 1
-        {
-            let basis_index = ctx1.api().basis_index().read();
-            let frames = basis_index.get_frames_by_basis(&basis_hash);
-            assert_eq!(frames.len(), 1, "Basis entry should exist in workspace 1");
-            assert_eq!(frames[0], frame_id);
-        }
-
-        // Verify basis entry does NOT exist in workspace 2
-        {
-            let basis_index = ctx2.api().basis_index().read();
-            let frames = basis_index.get_frames_by_basis(&basis_hash);
-            assert_eq!(
-                frames.len(),
-                0,
-                "Basis entry should NOT exist in workspace 2"
-            );
         }
     });
 }
