@@ -6,10 +6,9 @@
 
 use crate::error::{ApiError, StorageError};
 use crate::frame::id::compute_basis_hash;
-use crate::frame::{Basis, Frame, FrameStorage};
+use crate::frame::{Frame, FrameStorage};
 use crate::heads::HeadIndex;
 use crate::store::NodeRecordStore;
-use crate::synthesis::{collect_child_frames, synthesize_content, SynthesisBasis, SynthesisPolicy};
 use crate::types::{FrameID, Hash, NodeID};
 use bincode;
 use serde::{Deserialize, Serialize};
@@ -356,22 +355,26 @@ pub struct RegenerationReport {
     pub regenerated_count: usize,
     /// FrameIDs of regenerated frames
     pub frame_ids: Vec<FrameID>,
+    /// Number of legacy synthesized frame heads skipped
+    pub legacy_synthesis_skipped: usize,
     /// Duration in milliseconds
     pub duration_ms: u64,
 }
 
-/// Detect basis changes for a node
+fn is_legacy_synthesized_frame(frame: &Frame) -> bool {
+    frame.metadata.contains_key("basis_hash") || frame.metadata.contains_key("synthesis_policy")
+}
+
+/// Detect basis changes for a node.
 ///
-/// Compares the stored basis hash for each frame type with the current basis hash.
-/// For synthesized frames, compares the synthesis basis hash (from metadata).
-/// Returns a list of frame types that need regeneration.
+/// Compares the stored basis hash for each regular frame type with the current basis hash.
+/// Legacy synthesized frame heads are ignored and reported as skipped elsewhere.
 pub fn detect_basis_changes(
     node_id: NodeID,
     frame_types: &[String],
     basis_index: &BasisIndex,
     head_index: &HeadIndex,
     frame_storage: &FrameStorage,
-    node_store: &dyn NodeRecordStore,
 ) -> Result<Vec<String>, ApiError> {
     let mut changed_types = Vec::new();
 
@@ -391,126 +394,32 @@ pub fn detect_basis_changes(
             None => continue, // Frame not found, skip
         };
 
-        // Check if this is a synthesized frame
-        if frame.metadata.contains_key("basis_hash") {
-            // Synthesized frame - compare synthesis basis hash
-            let stored_basis_hash_str = match frame.metadata.get("basis_hash") {
-                Some(s) => s,
-                None => continue, // Missing basis_hash in metadata, skip
-            };
+        // Legacy synthesized frames are read-only after synthesis feature removal.
+        if is_legacy_synthesized_frame(&frame) {
+            continue;
+        }
 
-            // Parse stored basis hash from hex string
-            let stored_basis_hash = match hex_string_to_hash(stored_basis_hash_str) {
-                Ok(hash) => hash,
-                Err(_) => continue, // Invalid hash format, skip
-            };
+        // Regular frame - compare frame basis hash
+        let stored_basis_hash = match basis_index.get_basis_for_frame(&head_frame_id) {
+            Some(hash) => hash,
+            None => continue, // Frame not in index, skip
+        };
 
-            // Get current child frames and compute current synthesis basis
-            // We need to clone head_index data or use a different approach
-            // For now, we'll collect child frames directly
-            let node_record = node_store
-                .get(&node_id)
-                .map_err(ApiError::from)?
-                .ok_or_else(|| ApiError::NodeNotFound(node_id))?;
+        // Compute current basis hash
+        let current_basis_hash = compute_basis_hash(&frame.basis).map_err(ApiError::from)?;
 
-            let mut child_frames: Vec<(NodeID, Frame)> = Vec::new();
-            for child_node_id in &node_record.children {
-                if let Some(head_frame_id) = head_index
-                    .get_head(child_node_id, frame_type)
-                    .map_err(ApiError::from)?
-                {
-                    if let Some(frame) =
-                        frame_storage.get(&head_frame_id).map_err(ApiError::from)?
-                    {
-                        child_frames.push((*child_node_id, frame));
-                    }
-                }
-            }
-
-            // Sort deterministically
-            child_frames.sort_by(|(node_id_a, frame_a), (node_id_b, frame_b)| {
-                node_id_a
-                    .cmp(node_id_b)
-                    .then_with(|| frame_a.frame_id.cmp(&frame_b.frame_id))
-            });
-
-            // Extract synthesis policy
-            let policy = if let Some(policy_str) = frame.metadata.get("synthesis_policy") {
-                if policy_str == "concatenation" || policy_str == "Concatenation" {
-                    SynthesisPolicy::Concatenation
-                } else if policy_str == "summarization" || policy_str == "Summarization" {
-                    SynthesisPolicy::Summarization
-                } else {
-                    SynthesisPolicy::Concatenation // Default
-                }
-            } else {
-                SynthesisPolicy::Concatenation
-            };
-
-            // Compute current synthesis basis hash
-            let child_frame_ids: Vec<FrameID> = child_frames
-                .iter()
-                .map(|(_, frame)| frame.frame_id)
-                .collect();
-            let current_basis_info = SynthesisBasis {
-                node_id,
-                child_frame_ids,
-                frame_type: frame_type.clone(),
-                synthesis_policy: policy,
-            };
-            let current_basis_hash = current_basis_info.compute_hash();
-
-            // Check if basis has changed
-            if stored_basis_hash != current_basis_hash {
-                changed_types.push(frame_type.clone());
-            }
-        } else {
-            // Regular frame - compare frame basis hash
-            let stored_basis_hash = match basis_index.get_basis_for_frame(&head_frame_id) {
-                Some(hash) => hash,
-                None => continue, // Frame not in index, skip
-            };
-
-            // Compute current basis hash
-            let current_basis_hash = compute_basis_hash(&frame.basis).map_err(ApiError::from)?;
-
-            // Check if basis has changed
-            if stored_basis_hash != current_basis_hash {
-                changed_types.push(frame_type.clone());
-            }
+        // Check if basis has changed
+        if stored_basis_hash != current_basis_hash {
+            changed_types.push(frame_type.clone());
         }
     }
 
     Ok(changed_types)
 }
 
-/// Convert hex string to Hash
-fn hex_string_to_hash(hex: &str) -> Result<Hash, ApiError> {
-    if hex.len() != 64 {
-        return Err(ApiError::InvalidFrame(format!(
-            "Invalid hash length: {}",
-            hex.len()
-        )));
-    }
-
-    let mut hash = [0u8; 32];
-    for (i, chunk) in hex.as_bytes().chunks(2).enumerate() {
-        if i >= 32 {
-            break;
-        }
-        let byte_str = std::str::from_utf8(chunk)
-            .map_err(|e| ApiError::InvalidFrame(format!("Invalid hex string: {}", e)))?;
-        hash[i] = u8::from_str_radix(byte_str, 16)
-            .map_err(|e| ApiError::InvalidFrame(format!("Invalid hex digit: {}", e)))?;
-    }
-
-    Ok(hash)
-}
-
-/// Regenerate frames for a node
+/// Regenerate frames for a node.
 ///
-/// Regenerates all frames whose basis has changed. For synthesized frames,
-/// this will re-synthesize from current child frames.
+/// Detects basis changes and reports them. Legacy synthesized frame heads are skipped.
 pub fn regenerate_node(
     node_id: NodeID,
     recursive: bool,
@@ -543,10 +452,27 @@ pub fn regenerate_node(
         basis_index,
         head_index,
         frame_storage,
-        node_store,
     )?;
 
     let mut regenerated_frame_ids = Vec::new();
+    let mut legacy_synthesis_skipped = 0;
+
+    for frame_type in &frame_types {
+        let head_frame_id = match head_index
+            .get_head(&node_id, frame_type)
+            .map_err(ApiError::from)?
+        {
+            Some(id) => id,
+            None => continue,
+        };
+        let head_frame = match frame_storage.get(&head_frame_id).map_err(ApiError::from)? {
+            Some(f) => f,
+            None => continue,
+        };
+        if is_legacy_synthesized_frame(&head_frame) {
+            legacy_synthesis_skipped += 1;
+        }
+    }
 
     // Regenerate each changed frame type
     for frame_type in &changed_types {
@@ -564,139 +490,17 @@ pub fn regenerate_node(
             None => continue,
         };
 
-        // Check if this is a synthesized frame (has basis_hash in metadata)
-        if head_frame.metadata.contains_key("basis_hash") {
-            // This is a synthesized frame - re-synthesize from children
-            let child_frames =
-                collect_child_frames(node_store, frame_storage, head_index, node_id, frame_type)?;
+        // Regular frame - check if basis changed
+        let stored_basis_hash = match basis_index.get_basis_for_frame(&head_frame_id) {
+            Some(hash) => hash,
+            None => continue, // Not in index, skip
+        };
 
-            if child_frames.is_empty() {
-                // Empty directory - create empty frame
-                let basis = Basis::Node(node_id);
-                let content = b"Empty directory".to_vec();
-                let metadata = {
-                    let mut m = head_frame.metadata.clone();
-                    m.insert("synthesis_policy".to_string(), "concatenation".to_string());
-                    m
-                };
+        let current_basis_hash = compute_basis_hash(&head_frame.basis).map_err(ApiError::from)?;
 
-                let new_frame = Frame::new(
-                    basis,
-                    content,
-                    frame_type.clone(),
-                    agent_id.clone(),
-                    metadata,
-                )?;
-
-                // Store new frame
-                frame_storage.store(&new_frame).map_err(ApiError::from)?;
-
-                // Update basis index
-                let basis_hash = compute_basis_hash(&new_frame.basis).map_err(ApiError::from)?;
-                basis_index.add_frame(basis_hash, new_frame.frame_id);
-
-                // Update head
-                head_index
-                    .update_head(&node_id, frame_type, &new_frame.frame_id)
-                    .map_err(ApiError::from)?;
-
-                regenerated_frame_ids.push(new_frame.frame_id);
-            } else {
-                // Extract synthesis policy from metadata
-                let policy = if let Some(policy_str) = head_frame.metadata.get("synthesis_policy") {
-                    // Try to parse policy from string
-                    if policy_str == "concatenation" {
-                        SynthesisPolicy::Concatenation
-                    } else if policy_str == "summarization" {
-                        SynthesisPolicy::Summarization
-                    } else {
-                        SynthesisPolicy::Concatenation // Default
-                    }
-                } else {
-                    SynthesisPolicy::Concatenation
-                };
-
-                // Extract child frame IDs
-                let child_frame_ids: Vec<FrameID> = child_frames
-                    .iter()
-                    .map(|(_, frame)| frame.frame_id)
-                    .collect();
-
-                // Construct synthesis basis
-                let basis_info = SynthesisBasis {
-                    node_id,
-                    child_frame_ids: child_frame_ids.clone(),
-                    frame_type: frame_type.clone(),
-                    synthesis_policy: policy.clone(),
-                };
-
-                let basis_hash = basis_info.compute_hash();
-
-                // Synthesize content
-                let synthesized_content = synthesize_content(&child_frames, &policy);
-
-                // Create basis
-                let basis = if child_frame_ids.len() == 1 {
-                    Basis::Frame(child_frame_ids[0])
-                } else {
-                    Basis::Node(node_id)
-                };
-
-                // Create frame metadata
-                let mut metadata = head_frame.metadata.clone();
-                metadata.insert("synthesis_policy".to_string(), format!("{:?}", policy));
-                let basis_hash_hex: String =
-                    basis_hash.iter().map(|b| format!("{:02x}", b)).collect();
-                metadata.insert("basis_hash".to_string(), basis_hash_hex);
-                metadata.insert(
-                    "child_frame_count".to_string(),
-                    child_frame_ids.len().to_string(),
-                );
-
-                // Create new synthesized frame
-                let new_frame = Frame::new(
-                    basis,
-                    synthesized_content,
-                    frame_type.clone(),
-                    agent_id.clone(),
-                    metadata,
-                )?;
-
-                // Store new frame
-                frame_storage.store(&new_frame).map_err(ApiError::from)?;
-
-                // Update basis index
-                let frame_basis_hash =
-                    compute_basis_hash(&new_frame.basis).map_err(ApiError::from)?;
-                basis_index.add_frame(frame_basis_hash, new_frame.frame_id);
-
-                // Update head atomically
-                head_index
-                    .update_head(&node_id, frame_type, &new_frame.frame_id)
-                    .map_err(ApiError::from)?;
-
-                regenerated_frame_ids.push(new_frame.frame_id);
-            }
-        } else {
-            // Regular frame - check if basis changed
-            let stored_basis_hash = match basis_index.get_basis_for_frame(&head_frame_id) {
-                Some(hash) => hash,
-                None => continue, // Not in index, skip
-            };
-
-            let current_basis_hash =
-                compute_basis_hash(&head_frame.basis).map_err(ApiError::from)?;
-
-            if stored_basis_hash != current_basis_hash {
-                // Basis changed - need to regenerate
-                // For non-synthesized frames, we can't automatically regenerate
-                // as we don't know how to recreate the content.
-                // This is a limitation - in practice, these frames would need
-                // to be regenerated by the agent that created them.
-                // For now, we'll skip them (they were already detected in detect_basis_changes
-                // but we can't regenerate them automatically).
-                continue;
-            }
+        if stored_basis_hash != current_basis_hash {
+            // Basis changed - non-synthesized frames cannot be auto-regenerated.
+            continue;
         }
     }
 
@@ -719,6 +523,7 @@ pub fn regenerate_node(
             )?;
 
             regenerated_frame_ids.extend(child_report.frame_ids);
+            legacy_synthesis_skipped += child_report.legacy_synthesis_skipped;
         }
     }
 
@@ -728,6 +533,7 @@ pub fn regenerate_node(
         node_id,
         regenerated_count: regenerated_frame_ids.len(),
         frame_ids: regenerated_frame_ids,
+        legacy_synthesis_skipped,
         duration_ms,
     })
 }
@@ -799,24 +605,7 @@ mod tests {
     }
 
     #[test]
-    fn test_hex_string_to_hash() {
-        let hex = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
-        let hash = hex_string_to_hash(hex).unwrap();
-        assert_eq!(hash[0], 0x00);
-        assert_eq!(hash[1], 0x01);
-        assert_eq!(hash[31], 0x1f);
-    }
-
-    #[test]
-    fn test_hex_string_to_hash_invalid_length() {
-        let hex = "invalid";
-        let result = hex_string_to_hash(hex);
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_regeneration_idempotent() {
-        // Test that regenerating the same node twice produces the same result
         let temp_dir = TempDir::new().unwrap();
         let store_path = temp_dir.path().join("store");
         let frame_storage_path = temp_dir.path().join("frames");
@@ -826,80 +615,30 @@ mod tests {
         let mut head_index = HeadIndex::new();
         let mut basis_index = BasisIndex::new();
 
-        // Create a directory node with a child
         let dir_node_id: NodeID = [1u8; 32];
-        let child_node_id: NodeID = [2u8; 32];
-
-        let child_record = NodeRecord {
-            node_id: child_node_id,
-            path: PathBuf::from("/test/child.txt"),
-            node_type: NodeType::File {
-                size: 100,
-                content_hash: [0u8; 32],
-            },
-            children: vec![],
-            parent: Some(dir_node_id),
-            frame_set_root: None,
-            metadata: HashMap::new(),
-            tombstoned_at: None,
-        };
-
         let dir_record = NodeRecord {
             node_id: dir_node_id,
             path: PathBuf::from("/test"),
             node_type: NodeType::Directory,
-            children: vec![child_node_id],
+            children: vec![],
             parent: None,
             frame_set_root: None,
             metadata: HashMap::new(),
             tombstoned_at: None,
         };
 
-        node_store.put(&child_record).unwrap();
         node_store.put(&dir_record).unwrap();
 
-        // Create a frame for the child
-        let child_basis = Basis::Node(child_node_id);
-        let child_content = b"child content".to_vec();
-        let child_frame = Frame::new(
-            child_basis,
-            child_content,
-            "test".to_string(),
-            "agent-1".to_string(),
-            HashMap::new(),
-        )
-        .unwrap();
-
-        frame_storage.store(&child_frame).unwrap();
-        head_index
-            .update_head(&child_node_id, "test", &child_frame.frame_id)
-            .unwrap();
-        let child_basis_hash = compute_basis_hash(&child_frame.basis).unwrap();
-        basis_index.add_frame(child_basis_hash, child_frame.frame_id);
-
-        // Synthesize a frame for the directory
-        let child_frames = vec![(child_node_id, child_frame.clone())];
-        let child_frame_ids: Vec<FrameID> = child_frames.iter().map(|(_, f)| f.frame_id).collect();
-        let synthesis_basis = SynthesisBasis {
-            node_id: dir_node_id,
-            child_frame_ids: child_frame_ids.clone(),
-            frame_type: "test".to_string(),
-            synthesis_policy: SynthesisPolicy::Concatenation,
-        };
-        let basis_hash = synthesis_basis.compute_hash();
-        let synthesized_content =
-            synthesize_content(&child_frames, &SynthesisPolicy::Concatenation);
-
+        // Create a legacy synthesized head frame.
         let mut metadata = HashMap::new();
         metadata.insert("synthesis_policy".to_string(), "concatenation".to_string());
-        let basis_hash_hex: String = basis_hash.iter().map(|b| format!("{:02x}", b)).collect();
-        metadata.insert("basis_hash".to_string(), basis_hash_hex);
-        metadata.insert("child_frame_count".to_string(), "1".to_string());
+        metadata.insert("basis_hash".to_string(), hex::encode([7u8; 32]));
+        metadata.insert("child_frame_count".to_string(), "0".to_string());
 
         let dir_basis = Basis::Node(dir_node_id);
         let dir_frame = Frame::new(
             dir_basis,
-            synthesized_content,
+            b"legacy synthesized".to_vec(),
             "test".to_string(),
             "agent-1".to_string(),
             metadata,
@@ -921,14 +660,13 @@ mod tests {
             &basis_index,
             &head_index,
             &frame_storage,
-            node_store.as_ref(),
         )
         .unwrap();
 
         assert_eq!(
             changed.len(),
             0,
-            "No changes should be detected on first check"
+            "Legacy synthesized frames are skipped by detection"
         );
 
         // Regenerate (should be idempotent)
@@ -947,6 +685,7 @@ mod tests {
             report1.regenerated_count, 0,
             "First regeneration should produce no changes"
         );
+        assert_eq!(report1.legacy_synthesis_skipped, 1);
 
         // Regenerate again (should still be idempotent)
         let report2 = regenerate_node(
@@ -964,5 +703,6 @@ mod tests {
             report2.regenerated_count, 0,
             "Second regeneration should also produce no changes"
         );
+        assert_eq!(report2.legacy_synthesis_skipped, 1);
     }
 }

@@ -1,7 +1,7 @@
 //! Workspace status data and population logic.
 //!
 //! Produces the workspace section for `merkle workspace status`: tree state,
-//! optional breakdown, context coverage per Writer/Synthesis agent, and top
+//! optional breakdown, context coverage per writer agent, and top
 //! paths by node count. Also provides agent status and provider status
 //! formatting for `merkle agent status` and `merkle provider status`. Used by
 //! the CLI and later by unified `merkle status`.
@@ -168,14 +168,10 @@ pub fn build_workspace_status(
         None
     };
 
-    // Context coverage: Writer and Synthesis agents; frame type = context-<agent_id>
+    // Context coverage for writer agents, frame type = context-<agent_id>
     let writers = agent_registry.list_by_role(Some(AgentRole::Writer));
-    let synthesis = agent_registry.list_by_role(Some(AgentRole::Synthesis));
-    let mut agent_ids: std::collections::HashSet<String> = writers
-        .iter()
-        .chain(synthesis.iter())
-        .map(|a| a.agent_id.clone())
-        .collect();
+    let mut agent_ids: std::collections::HashSet<String> =
+        writers.iter().map(|a| a.agent_id.clone()).collect();
     let mut context_coverage: Vec<ContextCoverageEntry> = Vec::new();
     for agent_id in agent_ids.drain() {
         let frame_type = format!("context-{}", agent_id);

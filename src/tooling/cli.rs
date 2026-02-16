@@ -75,17 +75,6 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Synthesize branch context
-    Synthesize {
-        /// Node ID (hex string)
-        node_id: String,
-        /// Frame type
-        #[arg(long)]
-        frame_type: String,
-        /// Agent ID
-        #[arg(long)]
-        agent_id: String,
-    },
     /// Regenerate frames for a node
     Regenerate {
         /// Node ID (hex string)
@@ -271,7 +260,7 @@ pub enum AgentCommands {
         /// Output format (text or json)
         #[arg(long, default_value = "text")]
         format: String,
-        /// Filter by role (Reader, Writer, or Synthesis)
+        /// Filter by role (Reader or Writer)
         #[arg(long)]
         role: Option<String>,
     },
@@ -302,10 +291,10 @@ pub enum AgentCommands {
     Create {
         /// Agent ID
         agent_id: String,
-        /// Agent role (Reader, Writer, or Synthesis)
+        /// Agent role (Reader or Writer)
         #[arg(long)]
         role: Option<String>,
-        /// Path to prompt file (required for Writer/Synthesis)
+        /// Path to prompt file (required for Writer)
         #[arg(long)]
         prompt_path: Option<String>,
         /// Use interactive mode (default)
@@ -1129,56 +1118,6 @@ impl CliContext {
 
     fn execute_inner(&self, command: &Commands, session_id: &str) -> Result<String, ApiError> {
         match command {
-            Commands::Synthesize {
-                node_id,
-                frame_type,
-                agent_id,
-            } => {
-                let node_id = parse_node_id(node_id)?;
-                self.progress.emit_event_best_effort(
-                    session_id,
-                    "synthesis_started",
-                    json!({
-                        "node_id": hex::encode(node_id),
-                        "frame_type": frame_type,
-                        "agent_id": agent_id
-                    }),
-                );
-                let started = Instant::now();
-                let frame_id = match self.api.synthesize_branch(
-                    node_id,
-                    frame_type.clone(),
-                    agent_id.clone(),
-                    None,
-                ) {
-                    Ok(frame_id) => frame_id,
-                    Err(err) => {
-                        self.progress.emit_event_best_effort(
-                            session_id,
-                            "synthesis_failed",
-                            json!({
-                                "node_id": hex::encode(node_id),
-                                "frame_type": frame_type,
-                                "agent_id": agent_id,
-                                "duration_ms": started.elapsed().as_millis(),
-                                "error": err.to_string(),
-                            }),
-                        );
-                        return Err(err);
-                    }
-                };
-                self.progress.emit_event_best_effort(
-                    session_id,
-                    "synthesis_completed",
-                    json!({
-                        "node_id": hex::encode(node_id),
-                        "frame_type": frame_type,
-                        "agent_id": agent_id,
-                        "duration_ms": started.elapsed().as_millis(),
-                    }),
-                );
-                Ok(format!("Synthesized frame: {}", hex::encode(frame_id)))
-            }
             Commands::Regenerate {
                 node_id,
                 recursive,
@@ -1525,10 +1464,9 @@ impl CliContext {
             match role_str {
                 "Reader" => Some(crate::agent::AgentRole::Reader),
                 "Writer" => Some(crate::agent::AgentRole::Writer),
-                "Synthesis" => Some(crate::agent::AgentRole::Synthesis),
                 _ => {
                     return Err(ApiError::ConfigError(format!(
-                        "Invalid role filter: {}. Must be Reader, Writer, or Synthesis",
+                        "Invalid role filter: {}. Must be Reader or Writer",
                         role_str
                     )));
                 }
@@ -1636,20 +1574,20 @@ impl CliContext {
             let parsed_role = match role {
                 "Reader" => crate::agent::AgentRole::Reader,
                 "Writer" => crate::agent::AgentRole::Writer,
-                "Synthesis" => crate::agent::AgentRole::Synthesis,
                 _ => {
                     return Err(ApiError::ConfigError(format!(
-                        "Invalid role: {}. Must be Reader, Writer, or Synthesis",
+                        "Invalid role: {}. Must be Reader or Writer",
                         role
                     )));
                 }
             };
 
-            // Prompt path required for Writer/Synthesis
+            // Prompt path required for Writer
             let prompt = if parsed_role != crate::agent::AgentRole::Reader {
                 Some(prompt_path.ok_or_else(|| {
                     ApiError::ConfigError(
-                        "Prompt path is required for Writer/Synthesis agents. Use --prompt-path <path>".to_string()
+                        "Prompt path is required for Writer agents. Use --prompt-path <path>"
+                            .to_string()
                     )
                 })?.to_string())
             } else {
@@ -1668,7 +1606,7 @@ impl CliContext {
             metadata: HashMap::new(),
         };
 
-        // Add user prompt templates for Writer/Synthesis
+        // Add user prompt templates for Writer
         if final_role != crate::agent::AgentRole::Reader {
             if let Some(ref prompt_path) = final_prompt_path {
                 // Add default templates if not provided
@@ -1715,7 +1653,7 @@ impl CliContext {
         // Prompt for role
         let role_selection = Select::new()
             .with_prompt("Agent role")
-            .items(&["Reader", "Writer", "Synthesis"])
+            .items(&["Reader", "Writer"])
             .default(1)
             .interact()
             .map_err(|e| ApiError::ConfigError(format!("Failed to get user input: {}", e)))?;
@@ -1723,11 +1661,10 @@ impl CliContext {
         let role = match role_selection {
             0 => crate::agent::AgentRole::Reader,
             1 => crate::agent::AgentRole::Writer,
-            2 => crate::agent::AgentRole::Synthesis,
             _ => unreachable!(),
         };
 
-        // Prompt for prompt path if Writer/Synthesis
+        // Prompt for prompt path if Writer
         let prompt_path = if role != crate::agent::AgentRole::Reader {
             let path: String = Input::new()
                 .with_prompt("Prompt file path")
@@ -1775,10 +1712,9 @@ impl CliContext {
                 let new_role = match new_role_str {
                     "Reader" => crate::agent::AgentRole::Reader,
                     "Writer" => crate::agent::AgentRole::Writer,
-                    "Synthesis" => crate::agent::AgentRole::Synthesis,
                     _ => {
                         return Err(ApiError::ConfigError(format!(
-                            "Invalid role: {}. Must be Reader, Writer, or Synthesis",
+                            "Invalid role: {}. Must be Reader or Writer",
                             new_role_str
                         )));
                     }
@@ -1934,7 +1870,6 @@ impl CliContext {
             let role_str = match agent.role {
                 crate::agent::AgentRole::Reader => "Reader",
                 crate::agent::AgentRole::Writer => "Writer",
-                crate::agent::AgentRole::Synthesis => "Synthesis",
             };
             let prompt_path_exists = result
                 .checks
@@ -2304,7 +2239,6 @@ impl CliContext {
                 let role_str = match agent.role {
                     crate::agent::AgentRole::Writer => "Writer",
                     crate::agent::AgentRole::Reader => "Reader",
-                    crate::agent::AgentRole::Synthesis => "Synthesis",
                 };
                 let prompt_path_exists = result
                     .checks
@@ -3069,12 +3003,10 @@ impl CliContext {
         // 5. Agent validation
         let agent = self.api.get_agent(&agent_id)?;
 
-        // Verify agent has Writer or Synthesis role
-        if agent.role != crate::agent::AgentRole::Writer
-            && agent.role != crate::agent::AgentRole::Synthesis
-        {
+        // Verify agent has Writer role
+        if agent.role != crate::agent::AgentRole::Writer {
             return Err(ApiError::Unauthorized(format!(
-                "Agent '{}' has role {:?}, but only Writer or Synthesis agents can generate frames.",
+                "Agent '{}' has role {:?}, but only Writer agents can generate frames.",
                 agent_id, agent.role
             )));
         }
@@ -3768,7 +3700,6 @@ fn format_agent_list_text(agents: &[&crate::agent::AgentIdentity]) -> String {
         let role_str = match agent.role {
             crate::agent::AgentRole::Reader => "Reader",
             crate::agent::AgentRole::Writer => "Writer",
-            crate::agent::AgentRole::Synthesis => "Synthesis",
         };
 
         let prompt_path = agent
@@ -3818,7 +3749,6 @@ fn format_agent_list_json(agents: &[&crate::agent::AgentIdentity]) -> String {
                 "role": match agent.role {
                     crate::agent::AgentRole::Reader => "Reader",
                     crate::agent::AgentRole::Writer => "Writer",
-                    crate::agent::AgentRole::Synthesis => "Synthesis",
                 },
                 "system_prompt_path": prompt_path,
             })
@@ -3903,7 +3833,6 @@ fn format_agent_show_json(
         "role": match agent.role {
             crate::agent::AgentRole::Reader => "Reader",
             crate::agent::AgentRole::Writer => "Writer",
-            crate::agent::AgentRole::Synthesis => "Synthesis",
         },
         "system_prompt_path": prompt_path,
         "metadata": metadata,
@@ -4837,7 +4766,6 @@ fn format_init_summary(summary: &crate::init::InitSummary, force: bool) -> Strin
                 "reader" => "Reader",
                 "code-analyzer" => "Writer",
                 "docs-writer" => "Writer",
-                "synthesis-agent" => "Synthesis",
                 _ => "Unknown",
             };
             if force {
@@ -4854,7 +4782,6 @@ fn format_init_summary(summary: &crate::init::InitSummary, force: bool) -> Strin
                 "reader" => "Reader",
                 "code-analyzer" => "Writer",
                 "docs-writer" => "Writer",
-                "synthesis-agent" => "Synthesis",
                 _ => "Unknown",
             };
             output.push_str(&format!(

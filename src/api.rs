@@ -12,7 +12,6 @@ use crate::frame::{Basis, Frame, FrameGenerationQueue, FrameMerkleSet, FrameStor
 use crate::heads::HeadIndex;
 use crate::regeneration::{regenerate_node, BasisIndex, RegenerationReport};
 use crate::store::{NodeRecord, NodeRecordStore};
-use crate::synthesis::{collect_child_frames, synthesize_content, SynthesisBasis, SynthesisPolicy};
 use crate::types::{FrameID, NodeID};
 use crate::views::{get_context_view, ViewPolicy};
 use hex;
@@ -364,7 +363,7 @@ impl ContextApi {
     /// Get node context using policy-driven view
     ///
     /// Retrieves the node record and selected frames based on the context view policy.
-    /// This is a read-only operation that never triggers writes or synthesis.
+    /// This is a read-only operation that never triggers writes.
     ///
     /// # Arguments
     /// * `node_id` - The NodeID to retrieve context for
@@ -376,7 +375,7 @@ impl ContextApi {
     ///
     /// # Behavior
     /// * Deterministic: Same inputs → same outputs
-    /// * Read-only: Never triggers writes or synthesis
+    /// * Read-only: Never triggers writes
     /// * Bounded: Frame count limited by view policy
     #[instrument(skip(self), fields(node_id = %hex::encode(node_id)))]
     pub fn get_node(&self, node_id: NodeID, view: ContextView) -> Result<NodeContext, ApiError> {
@@ -711,213 +710,6 @@ impl ContextApi {
         })
     }
 
-    /// Synthesize branch: Create directory-level context from child nodes
-    ///
-    /// Combines context frames from child nodes into a single synthesized frame
-    /// for the parent directory. Synthesis is deterministic, bottom-up, and
-    /// limited to explicit subtree scope.
-    ///
-    /// # Arguments
-    /// * `node_id` - Directory NodeID to synthesize
-    /// * `frame_type` - Type identifier for the synthesized frame
-    /// * `agent_id` - Identity of synthesis agent
-    /// * `policy` - Optional synthesis policy (default: Concatenation)
-    ///
-    /// # Returns
-    /// * `FrameID` - The generated FrameID for the synthesized frame
-    /// * `ApiError` - Error if node not found, not a directory, or synthesis fails
-    ///
-    /// # Behavior
-    /// * Explicit: Only called via API, never implicit
-    /// * Bottom-up: Requires child frames to exist
-    /// * Deterministic: Same child frames → same synthesized frame
-    #[instrument(skip(self), fields(node_id = %hex::encode(node_id), frame_type = %frame_type, agent_id = %agent_id))]
-    pub fn synthesize_branch(
-        &self,
-        node_id: NodeID,
-        frame_type: String,
-        agent_id: String,
-        policy: Option<SynthesisPolicy>,
-    ) -> Result<FrameID, ApiError> {
-        let start = Instant::now();
-        info!("Starting branch synthesis");
-
-        // Verify agent exists and has synthesize permission
-        let agent = {
-            let registry = self.agent_registry.read();
-            registry.get_or_error(&agent_id)?.clone() // Clone to release lock
-        };
-
-        // Verify agent can synthesize
-        agent.verify_synthesize()?;
-
-        // Verify node exists, is not tombstoned, and is a directory
-        let dir_record = self
-            .node_store
-            .get(&node_id)
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError::NodeNotFound(node_id))?;
-        if dir_record.tombstoned_at.is_some() {
-            return Err(ApiError::NodeNotFound(node_id));
-        }
-
-        match dir_record.node_type {
-            crate::store::NodeType::Directory => {}
-            crate::store::NodeType::File { .. } => {
-                return Err(ApiError::SynthesisFailed(format!(
-                    "Node {:?} is a file, not a directory",
-                    node_id
-                )));
-            }
-        }
-
-        // Use provided policy or default to Concatenation
-        let policy = policy.unwrap_or_default();
-
-        // Acquire write lock for this node (atomic operation)
-        let lock = self.lock_manager.get_lock(&node_id);
-        let _guard = lock.write();
-
-        // Collect child frames
-        let head_index = self.head_index.read();
-        let child_frames = collect_child_frames(
-            self.node_store.as_ref(),
-            &self.frame_storage,
-            &head_index,
-            node_id,
-            &frame_type,
-        )?;
-        drop(head_index);
-
-        debug!(
-            child_frame_count = child_frames.len(),
-            "Collected child frames"
-        );
-
-        // If no child frames, create empty frame
-        if child_frames.is_empty() {
-            warn!("No child frames found, creating empty frame");
-            let basis = Basis::Node(node_id);
-            let content = b"Empty directory".to_vec();
-            let metadata = {
-                let mut m = HashMap::new();
-                m.insert("synthesis_policy".to_string(), "concatenation".to_string());
-                m
-            };
-
-            let frame = Frame::new(
-                basis,
-                content,
-                frame_type.clone(),
-                agent_id.clone(),
-                metadata,
-            )?;
-
-            // Store frame
-            self.frame_storage.store(&frame).map_err(ApiError::from)?;
-
-            // Update head index and basis index
-            {
-                let mut head_index = self.head_index.write();
-                head_index
-                    .update_head(&node_id, &frame_type, &frame.frame_id)
-                    .map_err(ApiError::from)?;
-            }
-
-            {
-                let basis_hash = compute_basis_hash(&frame.basis).map_err(ApiError::from)?;
-                let mut basis_index = self.basis_index.write();
-                basis_index.add_frame(basis_hash, frame.frame_id);
-            }
-
-            // Persist indices to disk
-            self.persist_indices()?;
-
-            return Ok(frame.frame_id);
-        }
-
-        // Extract child frame IDs for basis construction
-        let child_frame_ids: Vec<FrameID> = child_frames
-            .iter()
-            .map(|(_, frame)| frame.frame_id)
-            .collect();
-
-        // Construct synthesis basis
-        let basis_info = SynthesisBasis {
-            node_id,
-            child_frame_ids: child_frame_ids.clone(),
-            frame_type: frame_type.clone(),
-            synthesis_policy: policy.clone(),
-        };
-
-        let basis_hash = basis_info.compute_hash();
-
-        // Synthesize content using policy
-        let synthesized_content = synthesize_content(&child_frames, &policy);
-
-        // Create basis from child frame IDs
-        // For synthesis, we use Basis::Both with node_id and a hash of child frame IDs
-        let basis = if child_frame_ids.len() == 1 {
-            Basis::Frame(child_frame_ids[0])
-        } else {
-            // For multiple frames, we create a synthetic basis
-            // In a full implementation, we'd use Basis::Both, but for now we'll use Node
-            // and include the basis hash in metadata
-            Basis::Node(node_id)
-        };
-
-        // Create frame metadata
-        let mut metadata = HashMap::new();
-        metadata.insert("synthesis_policy".to_string(), format!("{:?}", policy));
-        // Encode basis hash as hex string manually
-        let basis_hash_hex: String = basis_hash.iter().map(|b| format!("{:02x}", b)).collect();
-        metadata.insert("basis_hash".to_string(), basis_hash_hex);
-        metadata.insert(
-            "child_frame_count".to_string(),
-            child_frame_ids.len().to_string(),
-        );
-
-        // Create synthesized frame
-        let frame = Frame::new(
-            basis,
-            synthesized_content,
-            frame_type.clone(),
-            agent_id.clone(),
-            metadata,
-        )?;
-
-        // Store frame
-        self.frame_storage.store(&frame).map_err(ApiError::from)?;
-
-        // Update head index and basis index atomically
-        {
-            let mut head_index = self.head_index.write();
-            head_index
-                .update_head(&node_id, &frame_type, &frame.frame_id)
-                .map_err(ApiError::from)?;
-        }
-
-        // Update basis index (Phase 2D)
-        {
-            let basis_hash = compute_basis_hash(&frame.basis).map_err(ApiError::from)?;
-            let mut basis_index = self.basis_index.write();
-            basis_index.add_frame(basis_hash, frame.frame_id);
-        }
-
-        // Persist indices to disk
-        self.persist_indices()?;
-
-        let duration = start.elapsed();
-        info!(
-            frame_id = %hex::encode(frame.frame_id),
-            child_frame_count = child_frames.len(),
-            duration_ms = duration.as_millis(),
-            "Branch synthesis completed"
-        );
-
-        Ok(frame.frame_id)
-    }
-
     /// Regenerate frames for a node
     ///
     /// Regenerates all frames whose basis has changed. Regeneration is incremental,
@@ -980,6 +772,12 @@ impl ContextApi {
             self.node_store.as_ref(),
             agent_id,
         )?;
+
+        drop(head_index);
+        drop(basis_index);
+
+        // Persist any head and basis index changes produced by regeneration.
+        self.persist_indices()?;
 
         let duration = start.elapsed();
         info!(
@@ -1284,10 +1082,33 @@ mod tests {
     use super::*;
     use crate::agent::AgentIdentity;
     use crate::frame::{Basis, Frame};
-    use crate::store::SledNodeRecordStore;
+    use crate::store::{NodeType, SledNodeRecordStore};
     use crate::views::{FrameFilter, OrderingPolicy};
     use std::collections::HashMap;
     use tempfile::TempDir;
+
+    struct EnvVarGuard {
+        key: &'static str,
+        original: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let original = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(ref original) = self.original {
+                std::env::set_var(self.key, original);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
 
     fn create_test_api() -> (ContextApi, TempDir) {
         let temp_dir = TempDir::new().unwrap();
@@ -1569,6 +1390,159 @@ mod tests {
             report2.regenerated_count, 0,
             "Second regeneration should also be idempotent"
         );
+    }
+
+    #[test]
+    fn test_regenerate_persists_updated_indices_to_disk() {
+        let temp_dir = TempDir::new().unwrap();
+        let store_path = temp_dir.path().join("store");
+        let frame_storage_path = temp_dir.path().join("frames");
+        let workspace_root = temp_dir.path().join("workspace-root");
+        std::fs::create_dir_all(&workspace_root).unwrap();
+        let xdg_data_home = temp_dir.path().join("xdg-data");
+        std::fs::create_dir_all(&xdg_data_home).unwrap();
+        let _xdg_data_home_guard =
+            EnvVarGuard::set("XDG_DATA_HOME", xdg_data_home.to_str().unwrap());
+
+        let node_store = Arc::new(SledNodeRecordStore::new(&store_path).unwrap());
+        let frame_storage = Arc::new(FrameStorage::new(&frame_storage_path).unwrap());
+        let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
+        let basis_index = Arc::new(parking_lot::RwLock::new(BasisIndex::new()));
+        let agent_registry = Arc::new(parking_lot::RwLock::new(AgentRegistry::new()));
+        let provider_registry = Arc::new(parking_lot::RwLock::new(
+            crate::provider::ProviderRegistry::new(),
+        ));
+        let lock_manager = Arc::new(NodeLockManager::new());
+        let api = ContextApi::with_workspace_root(
+            node_store,
+            frame_storage,
+            head_index,
+            basis_index,
+            agent_registry,
+            provider_registry,
+            lock_manager,
+            workspace_root.clone(),
+        );
+
+        let agent_id = "writer-1".to_string();
+        {
+            let mut registry = api.agent_registry.write();
+            registry.register(AgentIdentity::new(
+                agent_id.clone(),
+                crate::agent::AgentRole::Writer,
+            ));
+        }
+
+        let parent_node_id: NodeID = [11u8; 32];
+        let child_node_id: NodeID = [12u8; 32];
+        let parent_record = NodeRecord {
+            node_id: parent_node_id,
+            path: std::path::PathBuf::from("/test/parent"),
+            node_type: NodeType::Directory,
+            children: vec![child_node_id],
+            parent: None,
+            frame_set_root: None,
+            metadata: HashMap::new(),
+            tombstoned_at: None,
+        };
+        let child_record = NodeRecord {
+            node_id: child_node_id,
+            path: std::path::PathBuf::from("/test/child.txt"),
+            node_type: NodeType::File {
+                size: 100,
+                content_hash: [0u8; 32],
+            },
+            children: vec![],
+            parent: Some(parent_node_id),
+            frame_set_root: None,
+            metadata: HashMap::new(),
+            tombstoned_at: None,
+        };
+        api.node_store.put(&parent_record).unwrap();
+        api.node_store.put(&child_record).unwrap();
+
+        // Child frame version one.
+        let child_frame_v1 = Frame::new(
+            Basis::Node(child_node_id),
+            b"child summary v1".to_vec(),
+            "summary".to_string(),
+            agent_id.clone(),
+            HashMap::new(),
+        )
+        .unwrap();
+        let child_frame_v1_id = api
+            .put_frame(child_node_id, child_frame_v1, agent_id.clone())
+            .unwrap();
+
+        // Parent legacy synthesized frame anchored to child frame version one.
+        let mut metadata = HashMap::new();
+        metadata.insert(
+            "basis_hash".to_string(),
+            hex::encode([9u8; 32]),
+        );
+        metadata.insert("synthesis_policy".to_string(), "concatenation".to_string());
+        let parent_synthesized_v1 = Frame::new(
+            Basis::Frame(child_frame_v1_id),
+            b"parent synthesized v1".to_vec(),
+            "summary".to_string(),
+            agent_id.clone(),
+            metadata,
+        )
+        .unwrap();
+        let parent_frame_v1_id = parent_synthesized_v1.frame_id;
+        api.frame_storage.store(&parent_synthesized_v1).unwrap();
+        {
+            let mut heads = api.head_index.write();
+            heads.update_head(&parent_node_id, "summary", &parent_frame_v1_id)
+                .unwrap();
+        }
+        {
+            let mut basis = api.basis_index.write();
+            let parent_basis_hash =
+                crate::frame::id::compute_basis_hash(&parent_synthesized_v1.basis).unwrap();
+            basis.add_frame(parent_basis_hash, parent_frame_v1_id);
+        }
+        api.persist_indices().unwrap();
+
+        // Child frame version two updates child head and should force parent regeneration.
+        let child_frame_v2 = Frame::new(
+            Basis::Node(child_node_id),
+            b"child summary v2".to_vec(),
+            "summary".to_string(),
+            agent_id.clone(),
+            HashMap::new(),
+        )
+        .unwrap();
+        api.put_frame(child_node_id, child_frame_v2, agent_id.clone())
+            .unwrap();
+
+        let report = api
+            .regenerate(parent_node_id, false, agent_id.clone())
+            .unwrap();
+        assert_eq!(report.regenerated_count, 0);
+        assert_eq!(report.legacy_synthesis_skipped, 1);
+
+        let in_memory_parent_head = api
+            .head_index
+            .read()
+            .get_head(&parent_node_id, "summary")
+            .unwrap()
+            .unwrap();
+        assert_eq!(in_memory_parent_head, parent_frame_v1_id);
+
+        let head_index_path = HeadIndex::persistence_path(&workspace_root);
+        let basis_index_path = BasisIndex::persistence_path(&workspace_root);
+        let persisted_heads = HeadIndex::load_from_disk(&head_index_path).unwrap();
+        let persisted_parent_head = persisted_heads
+            .get_head(&parent_node_id, "summary")
+            .unwrap()
+            .unwrap();
+        assert_eq!(persisted_parent_head, in_memory_parent_head);
+
+        let persisted_basis = BasisIndex::load_from_disk(&basis_index_path).unwrap();
+        assert!(persisted_basis
+            .get_basis_for_frame(&in_memory_parent_head)
+            .is_some());
     }
 
     #[test]

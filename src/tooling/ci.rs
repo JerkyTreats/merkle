@@ -97,10 +97,6 @@ pub enum BatchOperation {
         agent_id: String,
         recursive: bool,
     },
-    Synthesize {
-        frame_type: String,
-        agent_id: String,
-    },
 }
 
 impl BatchOperation {
@@ -111,13 +107,6 @@ impl BatchOperation {
                 recursive,
             } => {
                 api.regenerate(node_id, *recursive, agent_id.clone())?;
-                Ok(())
-            }
-            BatchOperation::Synthesize {
-                frame_type,
-                agent_id,
-            } => {
-                api.synthesize_branch(node_id, frame_type.clone(), agent_id.clone(), None)?;
                 Ok(())
             }
         }

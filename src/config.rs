@@ -88,7 +88,7 @@ pub struct AgentConfig {
     /// Unique agent identifier
     pub agent_id: String,
 
-    /// Agent role (Reader, Writer, Synthesis)
+    /// Agent role (Reader or Writer)
     pub role: AgentRole,
 
     /// System prompt for this agent (legacy, for backward compatibility)
@@ -349,7 +349,7 @@ impl AgentConfig {
             }
         }
 
-        // Validate that Writer/Synthesis agents have either system_prompt or system_prompt_path
+        // Validate that non-reader agents have either system_prompt or system_prompt_path
         if self.role != AgentRole::Reader {
             if self.system_prompt.is_none() && self.system_prompt_path.is_none() {
                 return Err(format!(

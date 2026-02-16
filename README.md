@@ -55,19 +55,17 @@ Establishes the deterministic, Merkle-addressed foundation for filesystem state 
 📖 **[Phase 1 Documentation](docs/bootstrap/phase1_spec.md)**
 
 ### Phase 2: Construct Workflows & Integrations
-Enables agent-driven workflows, deterministic context synthesis, and incremental regeneration.
+Enables agent-driven workflows, deterministic context retrieval, and incremental regeneration.
 
 **Components:**
 1. **Agent Read/Write Model**: Defines how agents interact with nodes and frames
-2. **Context APIs**: Minimal, stateless API surface (GetNode, PutFrame, SynthesizeBranch, Regenerate)
-3. **Branch Context Synthesis**: Directory-level aggregation of child node context
-4. **Incremental Regeneration**: Rebuilds derived frames when bases change
+2. **Context APIs**: Minimal, stateless API surface (GetNode, PutFrame, Regenerate)
+3. **Incremental Regeneration**: Rebuilds derived frames when bases change
 5. **Multi-Frame Composition**: Combining multiple frames into composite views
 6. **Tooling & Integration Layer**: CLI tools, editor hooks, CI integration
 
 **Key Outcomes:**
 - Agents can read and write context frames via stable APIs
-- Branch- and directory-level context is synthesized incrementally
 - Context regeneration is localized and basis-driven
 - Workflows operate without global rescans or semantic search
 
@@ -184,18 +182,6 @@ async fn put_frame(
 ) -> Result<FrameID, ApiError>;
 ```
 
-#### SynthesizeBranch
-Synthesize directory-level context from child nodes.
-
-```rust
-async fn synthesize_branch(
-    node_id: NodeID,
-    frame_type: String,
-    agent_id: String,
-    policy: Option<SynthesisPolicy>,
-) -> Result<FrameID, ApiError>;
-```
-
 #### Regenerate
 Rebuild derived frames when their basis changes.
 
@@ -222,7 +208,6 @@ async fn regenerate(
 ### API Operations
 - **GetNode**: < 10ms p50, < 50ms p99 (with bounded view)
 - **PutFrame**: < 5ms p50, < 20ms p99
-- **SynthesizeBranch**: < 50ms p50, < 200ms p99 (directory with 100 children)
 - **Regenerate**: < 100ms per node (incremental, only changed frames)
 
 ## Documentation Structure
@@ -262,7 +247,6 @@ All phases are currently in planning/specification stage. Implementation tasks a
 
 ### Phase 2 Exit Criteria
 - ✅ Agents can reliably read and write context
-- ✅ Branch context is synthesized incrementally
 - ✅ Regeneration is minimal and deterministic
 - ✅ Workflows compose without search or mutation
 

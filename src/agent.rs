@@ -17,9 +17,8 @@ pub enum AgentRole {
     /// Reader agents can only query context via GetNode API
     Reader,
     /// Writer agents can create frames via PutFrame API and also read context
+    #[serde(alias = "Synthesis")]
     Writer,
-    /// Synthesis agents are special writer agents that generate branch/directory frames
-    Synthesis,
 }
 
 /// Agent capability (for future extensibility)
@@ -29,8 +28,6 @@ pub enum Capability {
     Read,
     /// Can write context frames
     Write,
-    /// Can synthesize branch frames
-    Synthesize,
 }
 
 /// Agent identity with role and capabilities
@@ -38,7 +35,7 @@ pub enum Capability {
 pub struct AgentIdentity {
     /// Unique identifier for the agent
     pub agent_id: String,
-    /// Role of the agent (Reader, Writer, or Synthesis)
+    /// Role of the agent
     pub role: AgentRole,
     /// Additional capabilities (for future extensibility)
     pub capabilities: Vec<Capability>,
@@ -53,9 +50,6 @@ impl AgentIdentity {
         let capabilities = match role {
             AgentRole::Reader => vec![Capability::Read],
             AgentRole::Writer => vec![Capability::Read, Capability::Write],
-            AgentRole::Synthesis => {
-                vec![Capability::Read, Capability::Write, Capability::Synthesize]
-            }
         };
 
         Self {
@@ -74,11 +68,6 @@ impl AgentIdentity {
     /// Check if the agent has write capability
     pub fn can_write(&self) -> bool {
         self.capabilities.contains(&Capability::Write)
-    }
-
-    /// Check if the agent has synthesize capability
-    pub fn can_synthesize(&self) -> bool {
-        self.capabilities.contains(&Capability::Synthesize)
     }
 
     /// Verify that the agent can perform read operations
@@ -103,16 +92,6 @@ impl AgentIdentity {
         Ok(())
     }
 
-    /// Verify that the agent can perform synthesis operations
-    pub fn verify_synthesize(&self) -> Result<(), ApiError> {
-        if !self.can_synthesize() {
-            return Err(ApiError::Unauthorized(format!(
-                "Agent {} (role: {:?}) cannot synthesize",
-                self.agent_id, self.role
-            )));
-        }
-        Ok(())
-    }
 }
 
 /// Agent registry for managing agent identities
@@ -299,7 +278,7 @@ impl AgentRegistry {
                 // No prompt - only valid for Reader agents
                 if agent_config.role != AgentRole::Reader {
                     tracing::error!(
-                        "Agent {} missing system prompt (Writer/Synthesis require prompts)",
+                        "Agent {} missing system prompt for non-reader role",
                         agent_id
                     );
                     continue;
@@ -503,7 +482,7 @@ impl AgentRegistry {
                 }
             } else {
                 result.add_error(
-                    "Missing system_prompt_path (required for Writer/Synthesis)".to_string(),
+                    "Missing system_prompt_path for non-reader role".to_string(),
                 );
             }
 
@@ -512,8 +491,7 @@ impl AgentRegistry {
                 result.add_check("user_prompt_file template present", true);
             } else {
                 result.add_error(
-                    "Missing user_prompt_file in metadata (required for Writer/Synthesis)"
-                        .to_string(),
+                    "Missing user_prompt_file in metadata for non-reader role".to_string(),
                 );
             }
 
@@ -521,8 +499,7 @@ impl AgentRegistry {
                 result.add_check("user_prompt_directory template present", true);
             } else {
                 result.add_error(
-                    "Missing user_prompt_directory in metadata (required for Writer/Synthesis)"
-                        .to_string(),
+                    "Missing user_prompt_directory in metadata for non-reader role".to_string(),
                 );
             }
         } else {
@@ -587,10 +564,8 @@ mod tests {
         let agent = AgentIdentity::new("reader-1".to_string(), AgentRole::Reader);
         assert!(agent.can_read());
         assert!(!agent.can_write());
-        assert!(!agent.can_synthesize());
         assert!(agent.verify_read().is_ok());
         assert!(agent.verify_write().is_err());
-        assert!(agent.verify_synthesize().is_err());
     }
 
     #[test]
@@ -598,21 +573,8 @@ mod tests {
         let agent = AgentIdentity::new("writer-1".to_string(), AgentRole::Writer);
         assert!(agent.can_read());
         assert!(agent.can_write());
-        assert!(!agent.can_synthesize());
         assert!(agent.verify_read().is_ok());
         assert!(agent.verify_write().is_ok());
-        assert!(agent.verify_synthesize().is_err());
-    }
-
-    #[test]
-    fn test_synthesis_agent() {
-        let agent = AgentIdentity::new("synthesis-1".to_string(), AgentRole::Synthesis);
-        assert!(agent.can_read());
-        assert!(agent.can_write());
-        assert!(agent.can_synthesize());
-        assert!(agent.verify_read().is_ok());
-        assert!(agent.verify_write().is_ok());
-        assert!(agent.verify_synthesize().is_ok());
     }
 
     #[test]
@@ -642,7 +604,7 @@ mod tests {
 
         let agent1 = AgentIdentity::new("agent-1".to_string(), AgentRole::Reader);
         let agent2 = AgentIdentity::new("agent-2".to_string(), AgentRole::Writer);
-        let agent3 = AgentIdentity::new("agent-3".to_string(), AgentRole::Synthesis);
+        let agent3 = AgentIdentity::new("agent-3".to_string(), AgentRole::Writer);
 
         registry.register(agent1);
         registry.register(agent2);
@@ -664,7 +626,7 @@ mod tests {
         let agent1 = AgentIdentity::new("agent-1".to_string(), AgentRole::Reader);
         let agent2 = AgentIdentity::new("agent-2".to_string(), AgentRole::Writer);
         let agent3 = AgentIdentity::new("agent-3".to_string(), AgentRole::Writer);
-        let agent4 = AgentIdentity::new("agent-4".to_string(), AgentRole::Synthesis);
+        let agent4 = AgentIdentity::new("agent-4".to_string(), AgentRole::Writer);
 
         registry.register(agent1);
         registry.register(agent2);
@@ -678,15 +640,11 @@ mod tests {
 
         // Test filtering by Writer
         let writers = registry.list_by_role(Some(AgentRole::Writer));
-        assert_eq!(writers.len(), 2);
+        assert_eq!(writers.len(), 3);
         let writer_ids: Vec<String> = writers.iter().map(|a| a.agent_id.clone()).collect();
         assert!(writer_ids.contains(&"agent-2".to_string()));
         assert!(writer_ids.contains(&"agent-3".to_string()));
-
-        // Test filtering by Synthesis
-        let synthesis = registry.list_by_role(Some(AgentRole::Synthesis));
-        assert_eq!(synthesis.len(), 1);
-        assert_eq!(synthesis[0].agent_id, "agent-4");
+        assert!(writer_ids.contains(&"agent-4".to_string()));
 
         // Test no filter (all agents)
         let all = registry.list_by_role(None);

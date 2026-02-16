@@ -23,19 +23,11 @@ fn test_agent_roles_authorization() {
     let reader = AgentIdentity::new("reader-1".to_string(), AgentRole::Reader);
     assert!(reader.verify_read().is_ok());
     assert!(reader.verify_write().is_err());
-    assert!(reader.verify_synthesize().is_err());
 
     // Test that Writer agents can read and write
     let writer = AgentIdentity::new("writer-1".to_string(), AgentRole::Writer);
     assert!(writer.verify_read().is_ok());
     assert!(writer.verify_write().is_ok());
-    assert!(writer.verify_synthesize().is_err());
-
-    // Test that Synthesis agents can do everything
-    let synthesis = AgentIdentity::new("synthesis-1".to_string(), AgentRole::Synthesis);
-    assert!(synthesis.verify_read().is_ok());
-    assert!(synthesis.verify_write().is_ok());
-    assert!(synthesis.verify_synthesize().is_ok());
 }
 
 #[test]
@@ -278,14 +270,4 @@ fn test_writer_can_read_and_write() {
     // Writer should pass both read and write authorization
     assert!(writer.verify_read().is_ok());
     assert!(writer.verify_write().is_ok());
-}
-
-#[test]
-fn test_synthesis_agent_full_capabilities() {
-    let synthesis = AgentIdentity::new("synthesis-1".to_string(), AgentRole::Synthesis);
-
-    // Synthesis agent should pass all authorization checks
-    assert!(synthesis.verify_read().is_ok());
-    assert!(synthesis.verify_write().is_ok());
-    assert!(synthesis.verify_synthesize().is_ok());
 }

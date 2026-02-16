@@ -331,6 +331,16 @@ impl SledNodeRecordStore {
             let key = record.node_id.as_slice();
             let value = serialize_node_record(record)?;
             batch.insert(key, value);
+
+            // Maintain the same path secondary index written by put.
+            let path_key = format!("path:{}", record.path.to_string_lossy());
+            let path_value = bincode::serialize(&record.node_id).map_err(|e| {
+                StorageError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Failed to serialize node ID for path mapping: {}", e),
+                ))
+            })?;
+            batch.insert(path_key.as_bytes(), path_value);
         }
 
         self.db.apply_batch(batch).map_err(|e| {
@@ -466,6 +476,14 @@ mod tests {
         // Verify both records are stored
         assert!(store.get(&[1u8; 32]).unwrap().is_some());
         assert!(store.get(&[3u8; 32]).unwrap().is_some());
+        assert!(store
+            .get_by_path(std::path::Path::new("/test/file1.txt"))
+            .unwrap()
+            .is_some());
+        assert!(store
+            .get_by_path(std::path::Path::new("/test/file2.txt"))
+            .unwrap()
+            .is_some());
     }
 
     #[test]

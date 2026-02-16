@@ -58,17 +58,6 @@ fn test_agent_adapter_interface() {
 }
 
 #[test]
-fn test_agent_adapter_synthesize() {
-    let (api, _temp_dir) = create_test_api();
-    let adapter = ContextApiAdapter::new(api);
-    let node_id = Hash::from([2u8; 32]);
-
-    // Synthesize (will fail because node doesn't exist, but tests interface)
-    let result = adapter.synthesize(node_id, "test".to_string(), "test-agent".to_string());
-    assert!(result.is_err()); // Expected - node doesn't exist, but interface works
-}
-
-#[test]
 fn test_ci_batch_operation() {
     let (api, _temp_dir) = create_test_api();
     let ci = CiIntegration::new(api);

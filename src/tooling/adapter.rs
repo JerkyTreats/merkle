@@ -15,7 +15,7 @@ use std::time::Duration;
 /// Adapter for internal agents to interact with the context engine
 ///
 /// Provides a simplified interface for agents to read and write context,
-/// synthesize frames, and optionally generate frames using LLM providers.
+/// and optionally generate frames using LLM providers.
 #[async_trait]
 pub trait AgentAdapter: Send + Sync {
     /// Read context for a node using a view policy
@@ -26,14 +26,6 @@ pub trait AgentAdapter: Send + Sync {
         &self,
         node_id: NodeID,
         frame: Frame,
-        agent_id: String,
-    ) -> Result<FrameID, ApiError>;
-
-    /// Synthesize branch context for a directory node
-    fn synthesize(
-        &self,
-        node_id: NodeID,
-        frame_type: String,
         agent_id: String,
     ) -> Result<FrameID, ApiError>;
 
@@ -99,16 +91,6 @@ impl AgentAdapter for ContextApiAdapter {
         agent_id: String,
     ) -> Result<FrameID, ApiError> {
         self.api.put_frame(node_id, frame, agent_id)
-    }
-
-    fn synthesize(
-        &self,
-        node_id: NodeID,
-        frame_type: String,
-        agent_id: String,
-    ) -> Result<FrameID, ApiError> {
-        self.api
-            .synthesize_branch(node_id, frame_type, agent_id, None)
     }
 
     async fn generate_frame(

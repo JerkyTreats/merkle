@@ -27,7 +27,7 @@ fn create_test_agent(
         metadata: std::collections::HashMap::new(),
     };
 
-    // Add user prompt templates for Writer/Synthesis
+    // Add user prompt templates for writer roles
     if role != AgentRole::Reader {
         agent_config.metadata.insert(
             "user_prompt_file".to_string(),
@@ -681,7 +681,7 @@ fn test_agent_edit_role() {
             command: AgentCommands::Edit {
                 agent_id: "test-agent".to_string(),
                 prompt_path: None,
-                role: Some("Synthesis".to_string()),
+                role: Some("Reader".to_string()),
                 editor: None,
             },
         };
@@ -692,7 +692,7 @@ fn test_agent_edit_role() {
         // Verify config was updated
         let config_path = AgentRegistry::get_agent_config_path("test-agent").unwrap();
         let content = fs::read_to_string(&config_path).unwrap();
-        assert!(content.contains("Synthesis"));
+        assert!(content.contains("Reader"));
     });
 }
 

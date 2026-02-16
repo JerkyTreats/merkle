@@ -16,10 +16,6 @@ pub const DEFAULT_PROMPTS: &[(&str, &str)] = &[
         include_str!("../prompts/code-analyzer.md"),
     ),
     ("docs-writer.md", include_str!("../prompts/docs-writer.md")),
-    (
-        "synthesis-agent.md",
-        include_str!("../prompts/synthesis-agent.md"),
-    ),
 ];
 
 /// Default agent configuration data
@@ -52,13 +48,6 @@ const DEFAULT_AGENTS: &[DefaultAgent] = &[
         prompt_file: Some("prompts/docs-writer.md"),
         user_prompt_file: Some("Generate comprehensive documentation for the code file at {path}. Include:\n- Purpose and overview\n- API documentation\n- Usage examples\n- Important notes and warnings\n- Related components"),
         user_prompt_directory: Some("Generate documentation for the directory at {path}. Include:\n- Directory purpose and structure\n- Module overview\n- Key components and their roles\n- Usage guidelines"),
-    },
-    DefaultAgent {
-        id: "synthesis-agent",
-        role: AgentRole::Synthesis,
-        prompt_file: Some("prompts/synthesis-agent.md"),
-        user_prompt_file: Some("Synthesize context frames from child nodes. Combine the information into a coherent summary."),
-        user_prompt_directory: Some("Synthesize context frames from child nodes in the directory at {path}. Combine the information into a coherent summary that:\n- Preserves key information from child contexts\n- Identifies common themes and patterns\n- Highlights important relationships\n- Maintains accuracy and completeness"),
     },
 ];
 
@@ -251,7 +240,7 @@ pub fn validate_initialization() -> Result<ValidationSummary, ApiError> {
     let mut registry = AgentRegistry::new();
     registry.load_from_xdg()?;
 
-    let agent_ids = ["reader", "code-analyzer", "docs-writer", "synthesis-agent"];
+    let agent_ids = ["reader", "code-analyzer", "docs-writer"];
     let mut results = Vec::new();
 
     for agent_id in &agent_ids {

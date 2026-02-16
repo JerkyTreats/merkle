@@ -19,7 +19,6 @@ pub mod progress;
 pub mod provider;
 pub mod regeneration;
 pub mod store;
-pub mod synthesis;
 pub mod tooling;
 pub mod tree;
 pub mod types;

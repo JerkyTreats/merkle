@@ -13,25 +13,20 @@ fn test_init_creates_default_agents() {
     with_xdg_env(&test_dir, || {
         let summary = init::initialize_all(false).unwrap();
 
-        // Check that all 4 agents were created
-        assert_eq!(summary.agents.created.len(), 4);
+        // Check that all default agents were created
+        assert_eq!(summary.agents.created.len(), 3);
         assert!(summary.agents.created.contains(&"reader".to_string()));
         assert!(summary
             .agents
             .created
             .contains(&"code-analyzer".to_string()));
         assert!(summary.agents.created.contains(&"docs-writer".to_string()));
-        assert!(summary
-            .agents
-            .created
-            .contains(&"synthesis-agent".to_string()));
 
         // Verify files exist
         let agents_dir = xdg::agents_dir().unwrap();
         assert!(agents_dir.join("reader.toml").exists());
         assert!(agents_dir.join("code-analyzer.toml").exists());
         assert!(agents_dir.join("docs-writer.toml").exists());
-        assert!(agents_dir.join("synthesis-agent.toml").exists());
     });
 }
 
@@ -41,17 +36,15 @@ fn test_init_creates_prompts() {
     with_xdg_env(&test_dir, || {
         let summary = init::initialize_prompts(false).unwrap();
 
-        // Check that all 3 prompts were created
-        assert_eq!(summary.created.len(), 3);
+        // Check that all default prompts were created
+        assert_eq!(summary.created.len(), 2);
         assert!(summary.created.contains(&"code-analyzer.md".to_string()));
         assert!(summary.created.contains(&"docs-writer.md".to_string()));
-        assert!(summary.created.contains(&"synthesis-agent.md".to_string()));
 
         // Verify files exist
         let prompts_dir = xdg::prompts_dir().unwrap();
         assert!(prompts_dir.join("code-analyzer.md").exists());
         assert!(prompts_dir.join("docs-writer.md").exists());
-        assert!(prompts_dir.join("synthesis-agent.md").exists());
 
         // Verify content is not empty
         let content = fs::read_to_string(prompts_dir.join("code-analyzer.md")).unwrap();
@@ -65,15 +58,15 @@ fn test_init_idempotent() {
     with_xdg_env(&test_dir, || {
         // First initialization
         let summary1 = init::initialize_all(false).unwrap();
-        assert_eq!(summary1.agents.created.len(), 4);
-        assert_eq!(summary1.prompts.created.len(), 3);
+        assert_eq!(summary1.agents.created.len(), 3);
+        assert_eq!(summary1.prompts.created.len(), 2);
 
         // Second initialization (should skip existing)
         let summary2 = init::initialize_all(false).unwrap();
         assert_eq!(summary2.agents.created.len(), 0);
-        assert_eq!(summary2.agents.skipped.len(), 4);
+        assert_eq!(summary2.agents.skipped.len(), 3);
         assert_eq!(summary2.prompts.created.len(), 0);
-        assert_eq!(summary2.prompts.skipped.len(), 3);
+        assert_eq!(summary2.prompts.skipped.len(), 2);
     });
 }
 
@@ -83,7 +76,7 @@ fn test_init_force_overwrites() {
     with_xdg_env(&test_dir, || {
         // First initialization
         let summary1 = init::initialize_all(false).unwrap();
-        assert_eq!(summary1.agents.created.len(), 4);
+        assert_eq!(summary1.agents.created.len(), 3);
 
         // Modify a file
         let agents_dir = xdg::agents_dir().unwrap();
@@ -95,7 +88,7 @@ fn test_init_force_overwrites() {
 
         // Force re-initialization
         let summary2 = init::initialize_all(true).unwrap();
-        assert_eq!(summary2.agents.created.len(), 4);
+        assert_eq!(summary2.agents.created.len(), 3);
         assert_eq!(summary2.agents.skipped.len(), 0);
 
         // Verify file was overwritten
@@ -111,8 +104,8 @@ fn test_init_list_mode() {
     with_xdg_env(&test_dir, || {
         // List before initialization
         let preview1 = init::list_initialization().unwrap();
-        assert_eq!(preview1.prompts.len(), 3);
-        assert_eq!(preview1.agents.len(), 4);
+        assert_eq!(preview1.prompts.len(), 2);
+        assert_eq!(preview1.agents.len(), 3);
 
         // Initialize
         init::initialize_all(false).unwrap();
@@ -139,7 +132,7 @@ fn test_init_validates_agents() {
             );
         }
 
-        assert_eq!(summary.validation.results.len(), 4);
+        assert_eq!(summary.validation.results.len(), 3);
     });
 }
 
@@ -267,7 +260,7 @@ fn test_init_agent_configs_valid() {
         let agents_dir = xdg::agents_dir().unwrap();
 
         // Verify each agent config is valid TOML
-        for agent_id in &["reader", "code-analyzer", "docs-writer", "synthesis-agent"] {
+        for agent_id in &["reader", "code-analyzer", "docs-writer"] {
             let config_path = agents_dir.join(format!("{}.toml", agent_id));
             let content = fs::read_to_string(&config_path).unwrap();
 
@@ -288,7 +281,7 @@ fn test_init_prompts_have_content() {
 
         let prompts_dir = xdg::prompts_dir().unwrap();
 
-        for prompt_file in &["code-analyzer.md", "docs-writer.md", "synthesis-agent.md"] {
+        for prompt_file in &["code-analyzer.md", "docs-writer.md"] {
             let content = fs::read_to_string(prompts_dir.join(prompt_file)).unwrap();
 
             // Should not be empty
