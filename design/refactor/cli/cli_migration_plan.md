@@ -29,6 +29,7 @@ This plan covers migration work owned by CLI specs in this folder.
 - [Telemetry Migration Plan](../telemetry/telemetry_migration_plan.md)
 - [Telemetry Event Engine Spec](../telemetry/telemetry_event_engine_spec.md)
 - [Workspace Lifecycle Services Spec](../workspace/workspace_lifecycle_services.md)
+- [Dependency Gate Checklist](../dependency_gate_checklist.md)
 - [God Module Detangling Spec](../god_module_detangling_spec.md)
 - [Src Module Structure Map](../src_module_structure_map.md)
 

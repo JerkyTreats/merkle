@@ -28,6 +28,7 @@ This plan covers migration work owned by provider specs in this folder.
 - [Agent Provider Config Management Commands Spec](../agent/agent_provider_config_management_commands.md)
 - [CLI Migration Plan](../cli/cli_migration_plan.md)
 - [Tooling Diffusion Map](../cli/tooling_diffusion_map.md)
+- [Dependency Gate Checklist](../dependency_gate_checklist.md)
 - [God Module Detangling Spec](../god_module_detangling_spec.md)
 - [Src Module Structure Map](../src_module_structure_map.md)
 

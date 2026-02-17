@@ -29,6 +29,7 @@ This plan covers migration work owned by agent specs in this folder.
 - [CLI Migration Plan](../cli/cli_migration_plan.md)
 - [Tooling Diffusion Map](../cli/tooling_diffusion_map.md)
 - [Context Domain Structure Spec](../context/context_domain_structure.md)
+- [Dependency Gate Checklist](../dependency_gate_checklist.md)
 - [God Module Detangling Spec](../god_module_detangling_spec.md)
 
 ## Dependency Inventory
