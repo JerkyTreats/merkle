@@ -14,3 +14,18 @@
 ## Avoid Backwards Compatibility
 
 Maintaining backwards compatibility tends to clutter codebases, and its not a requirement for this project. 
+
+
+## Commits
+
+Use `conventional commits` when instructed to commit.
+
+- Write the subject as a declarative summary of what changed.
+- Describe concrete behavior or ownership changes, not process context.
+- Do not use contextual labels like phase names in the subject.
+- Keep the subject focused and specific to the diff.
+- Prefer `type` and `scope` with this shape `type(scope): summary`.
+- Good example `refactor(provider): split provider ownership into profile repository diagnostics commands and generation`
+- Bad example `refactor(provider): implement phase2`
+
+Verify with user before push.
