@@ -32,7 +32,7 @@ Related specs:
 | `src/tooling/cli.rs` | Parse route help and output mode | Cli | `src/cli/mod.rs`, `src/cli/parse.rs`, `src/cli/route.rs`, `src/cli/help.rs`, `src/cli/output.rs` | Keep only boundary mechanics |
 | `src/tooling/cli.rs` | Command output formatting | Cli | `src/cli/presentation/mod.rs`, `src/cli/presentation/agent.rs`, `src/cli/presentation/provider.rs`, `src/cli/presentation/context.rs`, `src/cli/presentation/init.rs`, `src/cli/presentation/shared.rs` | Move formatter helpers |
 | `src/tooling/cli.rs` | Workspace lifecycle orchestration | Workspace | `src/workspace/lifecycle_service.rs` | Move |
-| `src/tooling/cli.rs` | Context generation orchestration | Context | `src/context/orchestration/service.rs`, `src/context/orchestration/plan.rs`, `src/context/queue/runtime.rs` | Move |
+| `src/tooling/cli.rs` | Context generation | Context | `src/context/generation/plan.rs`, `src/context/generation/executor.rs`, `src/context/queue/runtime.rs` | Move |
 | `src/tooling/cli.rs` | Agent and provider command workflows | Agent and Provider | `src/agent/application/command_service.rs`, `src/provider/application/command_service.rs` | Move |
 | `src/tooling/cli.rs` | Session lifecycle and summary emission policy | Telemetry | `src/telemetry/sessions/service.rs`, `src/telemetry/emission/summary_mapper.rs` | Move |
 | `src/tooling/watch.rs` | Workspace watch runtime and event batching | Workspace | `src/workspace/watch/mod.rs`, `src/workspace/watch/runtime.rs`, `src/workspace/watch/events.rs` | Move |

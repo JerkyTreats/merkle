@@ -11,9 +11,10 @@ Define a migration plan for context refactor work with clear dependency order, b
 This plan covers migration work owned by context specs in this folder.
 
 - context domain creation under `src/context`
+- frame model storage and identity moved under `src/context/frame` as a submodule of context
 - query and read policy extraction from legacy API and helper modules
 - mutation lifecycle extraction from legacy API paths
-- generation orchestration and queue lifecycle extraction from CLI and legacy modules
+- generation and queue lifecycle extraction from CLI and legacy modules
 - shared shell cutover and removal of legacy context surfaces
 
 ## Related Specs
@@ -38,18 +39,18 @@ This plan covers migration work owned by context specs in this folder.
 
 - context query mutation and lifecycle logic are mixed in `src/api.rs`
 - view policy and composition logic are split across `src/views.rs` and `src/composition.rs`
-- generation orchestration is split across `src/tooling/cli.rs` and `src/generation`
-- queue lifecycle policy remains in `src/frame/queue.rs` and is wired from CLI handlers
-- context command handlers in `src/tooling/cli.rs` still own orchestration and result mapping
+- generation plan and executor are in `src/generation` and will move to `src/context/generation`; CLI still owns wiring
+- frame model storage and id live in `src/frame` and will move to `src/context/frame`; queue in `src/frame/queue.rs` will move to `src/context/queue`
+- context command handlers in `src/tooling/cli.rs` still own generation wiring and result mapping
 
 ### Sequencing dependencies
 
 - context query and mutation contracts must land before shell cutover can be stable
-- context queue and orchestration extraction must happen before removing CLI orchestration logic
+- context queue and generation extraction must happen before removing CLI generation logic
 - provider contracts should be consumed from provider migration during generation cutover
 - agent adapter integration should consume context contracts during agent migration cutover
 - config composition facade should be consumed from config migration during shell and startup cutover
-- workspace watch runtime hooks should consume context queue and orchestration contracts during shared cutover
+- workspace watch runtime hooks should consume context queue and generation contracts during shared cutover
 - context generation event emission should consume telemetry contracts during shared cutover
 - shared shell sequencing should follow CLI migration plan route waves and gates
 - shell cutover should align with provider agent and config shared cutover window
@@ -59,7 +60,7 @@ This plan covers migration work owned by context specs in this folder.
 - this plan depends on provider migration for provider service and port contracts used by context generation
 - this plan provides context contracts consumed by agent adapter and command flows
 - this plan depends on config migration for composition facade usage in command and startup paths
-- this plan provides context queue and orchestration contracts consumed by workspace watch migration
+- this plan provides context queue and generation contracts consumed by workspace watch migration
 - this plan aligns with telemetry migration for generation event emission contracts
 - this plan aligns with config workspace and telemetry migrations at shared CLI cutover and boundary seal stages
 
@@ -79,11 +80,11 @@ Difficulty: high
 - extraction touches many callers and a broad test surface
 - mitigation is staged extraction with characterization tests for query mutation and lifecycle paths
 
-### Queue and orchestration extraction
+### Queue and generation extraction
 
 Difficulty: high
 
-- orchestration policy runtime lifecycle and queue wiring are split across multiple modules
+- generation plan and executor and queue wiring are split across multiple modules
 - primary risk is behavior drift in recursive generation ordering and completion handling
 - mitigation is deterministic parity tests for generation summaries ordering and queue waits
 
@@ -107,7 +108,8 @@ Difficulty: medium
 - add `src/context/mod.rs`
 - add `src/context/facade.rs`
 - add `src/context/types.rs`
-- add module roots for query mutation orchestration and queue areas
+- move `src/frame` to `src/context/frame` so context domain owns frame model storage set and id
+- add module roots for query mutation generation and queue areas; queue runtime at `src/context/queue` using `context::frame` types
 - wire initial facade delegation with no behavior change
 
 3. Query and view extraction
@@ -123,12 +125,12 @@ Difficulty: medium
 - move write and lifecycle policy from `src/api.rs` into context mutation service
 - keep deterministic head update and persistence order in one context owner
 
-5. Orchestration and queue extraction
-- add `src/context/orchestration/service.rs`
-- add `src/context/orchestration/plan.rs`
+5. Generation and queue extraction
+- add `src/context/generation/plan.rs`
+- add `src/context/generation/executor.rs`
 - add `src/context/queue/runtime.rs`
 - add `src/context/queue/request.rs`
-- move generation orchestration from CLI and `src/generation` into context orchestration modules
+- move generation plan and executor from CLI and `src/generation` into `src/context/generation`
 - move queue lifecycle wiring policy from legacy paths into context queue runtime
 
 6. Cross plan integration
@@ -138,18 +140,19 @@ Difficulty: medium
 
 7. Shared shell cutover
 - reduce context command handlers in `src/tooling/cli.rs` to parse route and output selection only
-- remove `build_generation_plan` and context orchestration logic from CLI
+- remove `build_generation_plan` and context generation logic from CLI
 - align this cutover with provider agent and config cutover phases
 
 8. Legacy removal and boundary seal
 - remove legacy context policy paths from `src/api.rs` and related helper modules
-- remove remaining context orchestration and queue policy from legacy locations
+- remove remaining context generation and queue policy from legacy locations
+- remove top-level `src/frame`; frame is owned only under `src/context/frame`
 - remove the legacy `api` module surface from final domain structure
 - enforce context domain contracts to prevent cross domain leakage
 
 ## Guardrails
 
-- context domain owns query mutation queue and orchestration policy
+- context domain owns query mutation queue generation and frame model and storage
 - provider domain owns provider services and transport contracts
 - agent domain owns adapter contracts and command ownership for agent flows
 - config domain owns source loading precedence merge and composition only
@@ -168,7 +171,7 @@ Difficulty: medium
 ### Boundary checks
 
 - route tests confirm one context service call per context command variant
-- guard tests confirm CLI does not own context orchestration queue or mutation policy
+- guard tests confirm CLI does not own context generation queue or mutation policy
 - guard tests confirm provider integration uses provider contracts only
 - guard tests confirm agent integration uses context contracts only
 
@@ -180,10 +183,10 @@ Difficulty: medium
 
 ## Exit Criteria
 
-- context concerns are owned by `src/context` modules
-- context orchestration and queue lifecycle ownership removed from `src/tooling/cli.rs`
+- context concerns are owned by `src/context` modules; frame lives under `src/context/frame`
+- context generation and queue lifecycle ownership removed from `src/tooling/cli.rs`
 - query and mutation core policy removed from `src/api.rs`
-- no long lived domain named `api` remains in final refactor structure
+- no top-level `src/frame`; no long lived domain named `api` remains in final refactor structure
 - characterization parity and boundary suites pass
 
 ## Risks And Mitigation

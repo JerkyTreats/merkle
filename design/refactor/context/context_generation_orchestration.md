@@ -4,7 +4,7 @@ Date: 2026-02-17
 
 ## Objective
 
-Define extraction for context generation orchestration so CLI handlers stay thin and orchestration ownership moves into the context domain.
+Define extraction for context generation so CLI handlers stay thin and generation ownership moves into the context domain under `src/context/generation`.
 
 Related ownership specs:
 - [God Module Detangling Spec](../god_module_detangling_spec.md)
@@ -12,13 +12,13 @@ Related ownership specs:
 
 ## Scope
 
-This spec covers orchestration for `context generate`.
+This spec covers generation for `context generate`.
 
 - generation target resolution by path or node id
 - generation plan construction and ordering policy
 - subtree precondition checks for recursive generation
 - runtime boundary ownership for async execution
-- queue lifecycle wiring and orchestrator invocation
+- queue lifecycle wiring and executor invocation
 - deterministic result mapping for text and json adapters
 
 ## Out Of Scope
@@ -32,23 +32,23 @@ This spec does not redesign generation behavior.
 
 ## Current Mix Of Concerns
 
-`src/tooling/cli.rs` currently mixes shell and orchestration concerns in the context generate path.
+`src/tooling/cli.rs` currently mixes shell and generation concerns in the context generate path.
 
 - shell concern that should remain: parse `ContextCommands` and route one service call
-- orchestration concern to move: `handle_context_generate`
-- orchestration concern to move: `build_generation_plan`
-- orchestration concern to move: runtime creation and block boundary management
-- orchestration concern to move: queue start stop and worker lifecycle wiring
-- orchestration concern to move: command result summary assembly for generation outcomes
+- generation concern to move: `handle_context_generate`
+- generation concern to move: `build_generation_plan`
+- generation concern to move: runtime creation and block boundary management
+- generation concern to move: queue start stop and worker lifecycle wiring
+- generation concern to move: command result summary assembly for generation outcomes
 
 ## Target Ownership
 
-### Context orchestration service owns
+### Context generation owns
 
 - target resolution and precondition policy
 - generation plan construction and ordering
 - runtime boundary ownership for async execution
-- queue orchestration and orchestrator invocation
+- queue wiring and executor invocation
 - deterministic response model for shell adapters
 
 ### CLI shell owns
@@ -64,47 +64,47 @@ This spec does not redesign generation behavior.
 - frame storage and head update persistence
 - telemetry event transport and sink primitives
 
-## Orchestration Concerns To Move
+## Generation Concerns To Move
 
-The list below tracks each orchestration concern, the target home, and current home status.
+The list below tracks each generation concern, the target home, and current home status.
 
 ### Target resolution and precondition checks
 
 - current shell area: `handle_context_generate`
-- target home: `src/context/orchestration/service.rs`
-- home status: partial, API and generation modules exist, orchestration ownership still in shell
+- target home: `src/context/generation/executor.rs`
+- home status: partial, API and generation modules exist, generation ownership still in shell
 
 ### Plan construction
 
 - current shell area: `build_generation_plan`
-- target home: `src/context/orchestration/plan.rs`
+- target home: `src/context/generation/plan.rs`
 - home status: partial, plan types exist, plan building still in shell
 
 ### Runtime boundary ownership
 
 - current shell area: runtime creation and block boundary logic in `handle_context_generate`
-- target home: `src/context/orchestration/service.rs`
+- target home: `src/context/generation/executor.rs`
 - home status: missing dedicated owner
 
 ### Queue lifecycle and invocation
 
-- current shell area: queue start stop and orchestrator invocation in `handle_context_generate`
+- current shell area: queue start stop and executor invocation in `handle_context_generate`
 - target home: `src/context/queue/runtime.rs`
-- home status: partial, queue and orchestrator modules exist, lifecycle policy still in shell
+- home status: partial, queue and executor modules exist, lifecycle policy still in shell
 
 ### Deterministic command result mapping
 
 - current shell area: context generate success and failure output assembly in `handle_context_generate`
-- target home: context orchestration response models
+- target home: context generation response models
 - home status: missing dedicated response contract
 
-## Proposed Domain Shape For Orchestration
+## Proposed Domain Shape For Generation
 
-Create context domain modules as orchestration owners.
+Create context domain modules as generation owners. Behavior-named: `generation` not `orchestration`.
 
-- module: `src/context/orchestration/mod.rs`
-- module: `src/context/orchestration/service.rs`
-- module: `src/context/orchestration/plan.rs`
+- module: `src/context/generation/mod.rs`
+- module: `src/context/generation/plan.rs`
+- module: `src/context/generation/executor.rs`
 - module: `src/context/queue/mod.rs`
 - module: `src/context/queue/runtime.rs`
 - module: `src/context/queue/request.rs`
@@ -130,12 +130,12 @@ Create context domain modules as orchestration owners.
 ## Migration Plan
 
 1. add characterization tests for current `context generate` behavior in text and json
-2. introduce context orchestration services behind current handler with no behavior change
-3. move target resolution and precondition checks into context orchestration service
-4. move plan construction into context orchestration plan module
-5. move runtime boundary and queue lifecycle ownership into context orchestration and queue modules
+2. introduce context generation services behind current handler with no behavior change
+3. move target resolution and precondition checks into context generation executor
+4. move plan construction into context generation plan module
+5. move runtime boundary and queue lifecycle ownership into context generation and queue modules
 6. keep CLI handler as parse route and output adapter only
-7. remove `build_generation_plan` and generation orchestration logic from `src/tooling/cli.rs`
+7. remove `build_generation_plan` and generation logic from `src/tooling/cli.rs`
 
 ## Test Plan
 
@@ -160,8 +160,8 @@ Create context domain modules as orchestration owners.
 
 ## Acceptance Criteria
 
-- generation orchestration is owned by context domain modules
-- no generation orchestration logic remains in `src/tooling/cli.rs`
+- generation is owned by context domain modules under `src/context/generation`
+- no generation logic remains in `src/tooling/cli.rs`
 - queue lifecycle ownership moves to `src/context/queue/runtime.rs`
 - `build_generation_plan` no longer exists in `src/tooling/cli.rs`
 - `context generate` behavior remains stable for text and json modes
@@ -170,7 +170,7 @@ Create context domain modules as orchestration owners.
 ## Risks And Mitigation
 
 - risk: runtime lifecycle regressions during extraction
-- mitigation: isolate runtime boundary in one context service and add targeted lifecycle tests
+- mitigation: isolate runtime boundary in context generation executor and add targeted lifecycle tests
 
 - risk: behavior drift in recursive plan ordering
 - mitigation: characterization tests and deterministic ordering assertions
@@ -180,8 +180,8 @@ Create context domain modules as orchestration owners.
 
 ## Deliverables
 
-- context orchestration module split under `src/context/orchestration`
-- context queue module split under `src/context/queue`
+- context generation module under `src/context/generation` with plan and executor
+- context queue module under `src/context/queue`
 - CLI route wiring that delegates context generation to context services
 - characterization and parity tests for context generation flows
 - migration report listing moved logic and boundary checks

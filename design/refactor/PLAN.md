@@ -10,7 +10,7 @@ The order is dependency driven, not folder driven.
 
 - First establish contract foundations and repository ownership
 - Then complete shared composition and telemetry policy ownership
-- Then move context and workspace orchestration owners
+- Then move context and workspace domain owners
 - Then cut over CLI routes in planned waves
 - Then remove legacy surfaces in the same phase window
 
@@ -53,8 +53,8 @@ Apply these rules when implementing domain extraction and refactors.
 | 2 | Provider foundation and repository ownership | Phase 1 | Completed local |
 | 3 | Agent foundation and repository ownership | Phase 1, Phase 2 | Completed local |
 | 4 | Config composition root and path ownership | Phase 2, Phase 3 | Completed local |
-| 5 | Telemetry foundation and policy services | Phase 1 | Planned |
-| 6 | Context query mutation orchestration and queue ownership | Phase 2, Phase 4, Phase 5 | Planned |
+| 5 | Telemetry foundation and policy services | Phase 1 | Completed local |
+| 6 | Context query mutation generation and queue ownership | Phase 2, Phase 4, Phase 5 | Planned |
 | 7 | Provider and agent command workflows plus adapter cutover | Phase 2, Phase 3, Phase 4, Phase 6 | Planned |
 | 8 | Workspace lifecycle status and watch ownership | Phase 4, Phase 5, Phase 6, Phase 7 | Planned |
 | 9 | CLI route waves and startup execution cutover | Phase 4, Phase 5, Phase 6, Phase 7, Phase 8 | Planned |
@@ -191,55 +191,61 @@ Applied Migration rules. Resulting structure: `config.rs` parent plus `config/fa
 | Goal | Move telemetry contracts routing sinks sessions and summary mapping into telemetry domain ownership. |
 | Dependencies | Phase 1 |
 | Docs | telemetry/telemetry_migration_plan.md |
-| Completion | Planned |
+| Completion | Completed local |
 
 | Order | Task | Completion |
 |-------|------|------------|
-| 1 | Add telemetry domain root facade and shared types. | Planned |
-| 2 | Extract event and summary contracts. | Planned |
-| 3 | Extract routing and sink ownership from legacy progress modules. | Planned |
-| 4 | Extract session lifecycle service and policy from CLI execution paths. | Planned |
-| 5 | Extract emission engine and summary mapper from CLI handlers. | Planned |
-| 6 | Remove legacy telemetry policy ownership in the same phase window. | Planned |
+| 1 | Add telemetry domain root facade and shared types. | Completed local |
+| 2 | Extract event and summary contracts. | Completed local |
+| 3 | Extract routing and sink ownership from legacy progress modules. | Completed local |
+| 4 | Extract session lifecycle service and policy from CLI execution paths. | Completed local |
+| 5 | Extract emission engine and summary mapper from CLI handlers. | Completed local |
+| 6 | Remove legacy telemetry policy ownership in the same phase window. | Completed local |
 
 | Exit criterion | Completion |
 |----------------|------------|
-| Telemetry contracts and services are stable and consumed through telemetry facade only. | Planned |
-| CLI execute path no longer owns session lifecycle or summary mapping policy. | Planned |
+| Telemetry contracts and services are stable and consumed through telemetry facade only. | Completed local |
+| CLI execute path no longer owns session lifecycle or summary mapping policy. | Completed local |
 
 | Dependency closure solved | Completion |
 |---------------------------|------------|
-| Provides telemetry contracts needed by context generation hooks workspace watch hooks and CLI cutover. | Planned |
+| Provides telemetry contracts needed by context generation hooks workspace watch hooks and CLI cutover. | Completed local |
+
+#### Phase 5 — Implementation notes
+
+Telemetry domain under `src/telemetry.rs` and `src/telemetry/` owns events, sessions, routing, sinks, emission, and summary. Facade re-exports ProgressRuntime, PrunePolicy, SessionStatus, event types, new_session_id, and now_millis. All call sites in CLI, frame queue, generation orchestrator, and watch use `crate::telemetry` only. Legacy `src/progress` removed; Phase 10 task 3 completed in same window.
 
 ---
 
-### Phase 6 — Context query mutation orchestration and queue ownership
+### Phase 6 — Context query mutation generation and queue ownership
 
 | Field | Value |
 |-------|--------|
-| Goal | Move context query mutation generation orchestration and queue lifecycle into context domain ownership. |
+| Goal | Move context query mutation generation queue and frame model and storage into context domain ownership. Behavior-named structure: frame query mutation generation queue under `src/context`. |
 | Dependencies | Phase 2, Phase 4, Phase 5 |
-| Docs | context/context_migration_plan.md |
+| Docs | context/context_migration_plan.md, context/context_domain_structure.md |
 | Completion | Planned |
 
 | Order | Task | Completion |
 |-------|------|------------|
 | 1 | Add context domain root facade and shared types. | Planned |
-| 2 | Extract query service view policy composition and head queries. | Planned |
-| 3 | Extract mutation and lifecycle service from legacy API paths with deterministic update order. | Planned |
-| 4 | Extract orchestration service plan and queue runtime ownership from CLI and legacy modules. | Planned |
-| 5 | Route provider dependent generation through provider contracts and services from Phase 2. | Planned |
-| 6 | Route telemetry generation events through telemetry contracts from Phase 5. | Planned |
-| 7 | Remove legacy context policy from old modules in the same phase window. | Planned |
+| 2 | Move `src/frame` into `src/context/frame` so frame model storage set and id are owned by context domain; queue runtime lands at `src/context/queue`. | Planned |
+| 3 | Extract query service view policy composition and head queries. | Planned |
+| 4 | Extract mutation and lifecycle service from legacy API paths with deterministic update order. | Planned |
+| 5 | Extract generation plan and executor into `src/context/generation` and queue runtime into `src/context/queue`; remove from CLI and legacy modules. | Planned |
+| 6 | Route provider dependent generation through provider contracts and services from Phase 2. | Planned |
+| 7 | Route telemetry generation events through telemetry contracts from Phase 5. | Planned |
+| 8 | Remove legacy context policy and top-level `src/frame` from old modules in the same phase window. | Planned |
 
 | Exit criterion | Completion |
 |----------------|------------|
 | Context contracts consumed by agent adapter and workspace watch are available and tested. | Planned |
-| Context orchestration and queue policy are no longer owned by CLI or mixed legacy paths. | Planned |
+| Frame model and storage live under `src/context/frame`; no top-level `src/frame`. | Planned |
+| Context generation and queue policy are no longer owned by CLI or mixed legacy paths. | Planned |
 
 | Dependency closure solved | Completion |
 |---------------------------|------------|
-| Provides context facade queue and orchestration contracts required by agent and workspace cutovers. | Planned |
+| Provides context facade queue and generation contracts required by agent and workspace cutovers. | Planned |
 
 ---
 
@@ -345,7 +351,7 @@ Applied Migration rules. Resulting structure: `config.rs` parent plus `config/fa
 |-------|------|------------|
 | 1 | Remove legacy `src/tooling` ownership paths after all route waves are complete. | Planned |
 | 2 | Remove legacy context policy ownership from `src/api.rs` and related old helper surfaces. | Planned |
-| 3 | Remove legacy `src/progress` ownership once telemetry ownership is complete. | Planned |
+| 3 | Remove legacy `src/progress` ownership once telemetry ownership is complete. | Completed local |
 | 4 | Remove stale exports and stale helper code paths that bypass domain contracts. | Planned |
 | 5 | Enforce boundary guard tests for no cross domain internal reach through. | Planned |
 
@@ -369,7 +375,7 @@ Applied Migration rules. Resulting structure: `config.rs` parent plus `config/fa
 | 3 | Phase 3 | Establish agent contracts and repository ownership. |
 | 4 | Phase 4 | Establish config composition facade and path contracts. |
 | 5 | Phase 5 | Establish telemetry contracts and policy services. |
-| 6 | Phase 6 | Establish context query mutation orchestration and queue contracts. |
+| 6 | Phase 6 | Establish context query mutation generation and queue contracts. |
 | 7 | Phase 7 | Complete provider and agent workflow ownership and adapter cutover. |
 | 8 | Phase 8 | Complete workspace lifecycle status and watch ownership. |
 | 9 | Phase 9 | Execute CLI route waves and startup execution cutover. |
