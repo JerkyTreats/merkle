@@ -3,9 +3,10 @@
 use std::sync::{mpsc::Receiver, Arc, Mutex};
 
 use crate::error::StorageError;
-use crate::progress::event::{ProgressEnvelope, ProgressEvent};
-use crate::progress::session::SessionStatus;
-use crate::progress::store::{ProgressStore, SessionMeta};
+use crate::telemetry::events::{ProgressEnvelope, ProgressEvent};
+use crate::telemetry::sessions::policy::SessionStatus;
+use crate::telemetry::sinks::store::{ProgressStore, SessionMeta};
+use crate::telemetry::types::now_millis;
 
 pub struct EventIngestor {
     store: Arc<ProgressStore>,
@@ -33,14 +34,14 @@ impl EventIngestor {
             .unwrap_or(SessionMeta {
                 next_seq: 1,
                 latest_status: SessionStatus::Active,
-                updated_at_ms: crate::progress::session::now_millis(),
+                updated_at_ms: now_millis(),
             });
 
         let seq = meta.next_seq;
         let event = ProgressEvent::from_envelope(envelope, seq);
         self.store.append_event(&event)?;
         meta.next_seq += 1;
-        meta.updated_at_ms = crate::progress::session::now_millis();
+        meta.updated_at_ms = now_millis();
         self.store.put_meta(&event.session, &meta)?;
         Ok(())
     }
@@ -63,12 +64,11 @@ impl SharedIngestor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::progress::bus::ProgressBus;
-    use tempfile::TempDir;
+    use crate::telemetry::routing::bus::ProgressBus;
 
     #[test]
     fn sequence_assignment_is_monotonic() {
-        let dir = TempDir::new().unwrap();
+        let dir = tempfile::TempDir::new().unwrap();
         let db = sled::open(dir.path()).unwrap();
         let store = ProgressStore::shared(db).unwrap();
         let (bus, rx) = ProgressBus::new_pair();

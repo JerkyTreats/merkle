@@ -29,3 +29,8 @@ Use `conventional commits` when instructed to commit.
 - Bad example `refactor(provider): implement phase2`
 
 Verify with user before push.
+
+## Parentheses Markdown Content
+
+- Do not use literal parentheses characters `(` or `)` in Markdown prose such as headings, paragraphs, lists, and tables.
+- Parentheses are allowed only when required by Markdown formatting syntax, for example `[label](/path)`, and inside inline code or fenced code blocks.

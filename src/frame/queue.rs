@@ -6,11 +6,11 @@
 use crate::api::{ContextApi, ContextView};
 use crate::error::ApiError;
 use crate::frame::{Basis, Frame};
-use crate::progress::{
-    ProgressRuntime, ProviderLifecycleEventData, QueueEventData, QueueStatsEventData,
-};
 use crate::provider::ChatMessage;
 use crate::store::NodeRecord;
+use crate::telemetry::{
+    ProgressRuntime, ProviderLifecycleEventData, QueueEventData, QueueStatsEventData,
+};
 use crate::types::{FrameID, NodeID};
 use hex;
 use parking_lot::RwLock;

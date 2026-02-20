@@ -27,9 +27,8 @@ pub fn add_to_builder(
             let canonical_xdg_path = xdg_config_path
                 .canonicalize()
                 .unwrap_or_else(|_| xdg_config_path.clone());
-            builder = builder.add_source(
-                File::with_name(canonical_xdg_path.to_str().unwrap()).required(false),
-            );
+            builder = builder
+                .add_source(File::with_name(canonical_xdg_path.to_str().unwrap()).required(false));
         } else {
             warn!(
                 config_path = %xdg_config_path.display(),

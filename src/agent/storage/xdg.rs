@@ -106,43 +106,43 @@ impl AgentStorage for XdgAgentStorage {
                 );
             }
 
-            let resolved_system_prompt = if let Some(ref prompt_path) = agent_config.system_prompt_path
-            {
-                match resolve_prompt_path(prompt_path, &base_dir) {
-                    Ok(resolved_path) => match prompt_cache.load_prompt(&resolved_path) {
-                        Ok(prompt) => Some(prompt),
+            let resolved_system_prompt =
+                if let Some(ref prompt_path) = agent_config.system_prompt_path {
+                    match resolve_prompt_path(prompt_path, &base_dir) {
+                        Ok(resolved_path) => match prompt_cache.load_prompt(&resolved_path) {
+                            Ok(prompt) => Some(prompt),
+                            Err(e) => {
+                                tracing::error!(
+                                    "Failed to load prompt file for agent {} ({}): {}",
+                                    agent_id,
+                                    prompt_path,
+                                    e
+                                );
+                                continue;
+                            }
+                        },
                         Err(e) => {
                             tracing::error!(
-                                "Failed to load prompt file for agent {} ({}): {}",
+                                "Failed to resolve prompt path for agent {} ({}): {}",
                                 agent_id,
                                 prompt_path,
                                 e
                             );
                             continue;
                         }
-                    },
-                    Err(e) => {
+                    }
+                } else if let Some(ref prompt) = agent_config.system_prompt {
+                    Some(prompt.clone())
+                } else {
+                    if agent_config.role != AgentRole::Reader {
                         tracing::error!(
-                            "Failed to resolve prompt path for agent {} ({}): {}",
-                            agent_id,
-                            prompt_path,
-                            e
+                            "Agent {} missing system prompt for non-reader role",
+                            agent_id
                         );
                         continue;
                     }
-                }
-            } else if let Some(ref prompt) = agent_config.system_prompt {
-                Some(prompt.clone())
-            } else {
-                if agent_config.role != AgentRole::Reader {
-                    tracing::error!(
-                        "Agent {} missing system prompt for non-reader role",
-                        agent_id
-                    );
-                    continue;
-                }
-                None
-            };
+                    None
+                };
 
             loaded.push(StoredAgentConfig {
                 agent_id: agent_config.agent_id.clone(),

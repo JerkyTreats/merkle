@@ -67,17 +67,14 @@ impl AgentRegistry {
 
             // Store system prompt in metadata if provided
             if let Some(system_prompt) = &agent_config.system_prompt {
-                identity.metadata.insert(
-                    "system_prompt".to_string(),
-                    system_prompt.clone(),
-                );
+                identity
+                    .metadata
+                    .insert("system_prompt".to_string(), system_prompt.clone());
             }
 
             // Copy metadata from config
             for (key, value) in &agent_config.metadata {
-                identity
-                    .metadata
-                    .insert(key.clone(), value.clone());
+                identity.metadata.insert(key.clone(), value.clone());
             }
 
             self.register(identity);
@@ -123,11 +120,7 @@ impl AgentRegistry {
     }
 
     /// Save agent configuration to XDG directory
-    pub fn save_agent_config(
-        &self,
-        agent_id: &str,
-        config: &AgentConfig,
-    ) -> Result<(), ApiError> {
+    pub fn save_agent_config(&self, agent_id: &str, config: &AgentConfig) -> Result<(), ApiError> {
         self.storage.save(agent_id, config)
     }
 

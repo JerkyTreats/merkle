@@ -4,7 +4,7 @@ use crate::generation::plan::{
     FailurePolicy, GenerationErrorDetail, GenerationItem, GenerationPlan, GenerationResult,
     LevelSummary,
 };
-use crate::progress::ProgressRuntime;
+use crate::telemetry::ProgressRuntime;
 use crate::types::FrameID;
 use futures::stream::{FuturesUnordered, StreamExt};
 use serde_json::json;

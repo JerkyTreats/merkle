@@ -1,4 +1,4 @@
-//! Durable sled-backed progress event store.
+//! Durable sled-backed telemetry event store.
 
 use std::io;
 use std::sync::Arc;
@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 use sled::{Db, Tree};
 
 use crate::error::StorageError;
-use crate::progress::event::ProgressEvent;
-use crate::progress::session::{now_millis, SessionStatus};
+use crate::telemetry::events::ProgressEvent;
+use crate::telemetry::sessions::policy::SessionStatus;
+use crate::telemetry::types::now_millis;
 
 const TREE_SESSIONS: &str = "obs_sessions";
 const TREE_EVENTS: &str = "obs_events";
@@ -246,8 +247,7 @@ fn to_storage_data(err: serde_json::Error) -> StorageError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::progress::event::ProgressEvent;
-    use tempfile::TempDir;
+    use crate::telemetry::events::ProgressEvent;
 
     #[test]
     fn key_encoding_is_lexicographic() {
@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn write_and_read_events_sorted() {
-        let dir = TempDir::new().unwrap();
+        let dir = tempfile::TempDir::new().unwrap();
         let db = sled::open(dir.path()).unwrap();
         let store = ProgressStore::new(db).unwrap();
         let session = "abc";

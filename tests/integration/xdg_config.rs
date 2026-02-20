@@ -1,7 +1,7 @@
 //! Integration tests for XDG configuration loading
 
-use merkle::agent::{AgentRegistry, AgentRole, AgentStorage, PromptCache, XdgAgentStorage};
 use merkle::agent::resolve_prompt_path;
+use merkle::agent::{AgentRegistry, AgentRole, AgentStorage, PromptCache, XdgAgentStorage};
 use merkle::config::{xdg, MerkleConfig, ProviderConfig, ProviderType};
 use merkle::provider::ProviderRegistry;
 use std::fs;

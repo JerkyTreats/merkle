@@ -15,11 +15,13 @@ use crate::generation::{
 };
 use crate::heads::HeadIndex;
 use crate::ignore;
-use crate::progress::{
-    command_name, ProgressRuntime, ProviderLifecycleEventData, PrunePolicy, SummaryEventData,
-};
 use crate::store::persistence::SledNodeRecordStore;
 use crate::store::{NodeRecord, NodeRecordStore};
+use crate::telemetry::emission::{
+    emit_command_summary as telemetry_emit_command_summary, truncate_for_summary,
+    SummaryCommandDescriptor,
+};
+use crate::telemetry::{ProgressRuntime, ProviderLifecycleEventData, PrunePolicy};
 use crate::tree::builder::TreeBuilder;
 use crate::tree::walker::WalkerConfig;
 use crate::types::{Hash, NodeID};
@@ -33,8 +35,6 @@ use std::time::Instant;
 use tracing::info;
 
 use hex;
-
-const COMMAND_SUMMARY_MESSAGE_MAX_CHARS: usize = 256;
 
 /// Merkle CLI - Deterministic filesystem state management
 #[derive(Parser)]
@@ -1540,7 +1540,11 @@ impl CliContext {
         Ok(format!(
             "Agent created: {}\nConfiguration file: {}",
             agent_id,
-            self.api.agent_registry().read().agent_config_path(agent_id)?.display()
+            self.api
+                .agent_registry()
+                .read()
+                .agent_config_path(agent_id)?
+                .display()
         ))
     }
 
@@ -1645,7 +1649,11 @@ impl CliContext {
     fn edit_agent_with_editor(&self, agent_id: &str, editor: Option<&str>) -> Result<(), ApiError> {
         use std::process::Command;
 
-        let config_path = self.api.agent_registry().read().agent_config_path(agent_id)?;
+        let config_path = self
+            .api
+            .agent_registry()
+            .read()
+            .agent_config_path(agent_id)?;
 
         // Load existing config
         let content = std::fs::read_to_string(&config_path)
@@ -3071,7 +3079,7 @@ impl CliContext {
                 return Ok(GenerationPlan {
                     plan_id: format!(
                         "plan-{}-{}",
-                        crate::progress::session::now_millis(),
+                        crate::telemetry::now_millis(),
                         &hex::encode(target_node_id)[..8]
                     ),
                     source: format!("context generate {}", target_path.to_string_lossy()),
@@ -3108,7 +3116,7 @@ impl CliContext {
         Ok(GenerationPlan {
             plan_id: format!(
                 "plan-{}-{}",
-                crate::progress::session::now_millis(),
+                crate::telemetry::now_millis(),
                 &hex::encode(target_node_id)[..8]
             ),
             source: format!("context generate {}", target_path.to_string_lossy()),
@@ -3303,13 +3311,6 @@ impl CliContext {
     ) {
         let ok = result.is_ok();
         let error = result.as_ref().err().map(|err| err.to_string());
-        if let Some((event_type, data)) =
-            Self::typed_summary_event(command, ok, duration_ms, error.as_deref())
-        {
-            self.progress
-                .emit_event_best_effort(session_id, event_type, data);
-        }
-
         let (message, output_chars, error_chars, truncated) = match result {
             Ok(output) => (None, Some(output.chars().count()), None, None),
             Err(_) => {
@@ -3317,236 +3318,24 @@ impl CliContext {
                     .clone()
                     .unwrap_or_else(|| "command failed".to_string());
                 let error_chars = error_text.chars().count();
-                let (preview, was_truncated) =
-                    Self::truncate_summary_message(&error_text, COMMAND_SUMMARY_MESSAGE_MAX_CHARS);
+                let (preview, was_truncated) = truncate_for_summary(&error_text);
                 (Some(preview), None, Some(error_chars), Some(was_truncated))
             }
         };
-
-        let data = SummaryEventData {
-            command: command_name(command),
+        let descriptor = summary_descriptor(command);
+        telemetry_emit_command_summary(
+            self.progress.as_ref(),
+            session_id,
+            &command_name(command),
+            &descriptor,
             ok,
             duration_ms,
+            error.as_deref(),
             message,
             output_chars,
             error_chars,
             truncated,
-        };
-        self.progress
-            .emit_event_best_effort(session_id, "command_summary", json!(data));
-    }
-
-    fn truncate_summary_message(value: &str, max_chars: usize) -> (String, bool) {
-        if value.chars().count() <= max_chars {
-            return (value.to_string(), false);
-        }
-
-        (value.chars().take(max_chars).collect(), true)
-    }
-
-    fn typed_summary_event(
-        command: &Commands,
-        ok: bool,
-        duration_ms: u128,
-        error: Option<&str>,
-    ) -> Option<(&'static str, serde_json::Value)> {
-        match command {
-            Commands::Workspace { command } => match command {
-                WorkspaceCommands::Status { format, breakdown } => Some((
-                    "status_summary",
-                    json!({
-                        "scope": "workspace",
-                        "format": format,
-                        "breakdown": breakdown,
-                        "ok": ok,
-                        "duration_ms": duration_ms,
-                        "error": error,
-                    }),
-                )),
-                WorkspaceCommands::Validate { format } => Some((
-                    "validate_summary",
-                    json!({
-                        "scope": "workspace",
-                        "format": format,
-                        "ok": ok,
-                        "duration_ms": duration_ms,
-                        "error": error,
-                    }),
-                )),
-                WorkspaceCommands::Delete {
-                    path,
-                    node,
-                    dry_run,
-                    no_ignore,
-                } => Some((
-                    "workspace_mutation_summary",
-                    json!({
-                        "operation": "delete",
-                        "target": if path.is_some() { "path" } else if node.is_some() { "node" } else { "unknown" },
-                        "dry_run": dry_run,
-                        "no_ignore": no_ignore,
-                        "ok": ok,
-                        "duration_ms": duration_ms,
-                        "error": error,
-                    }),
-                )),
-                WorkspaceCommands::Restore {
-                    path,
-                    node,
-                    dry_run,
-                } => Some((
-                    "workspace_mutation_summary",
-                    json!({
-                        "operation": "restore",
-                        "target": if path.is_some() { "path" } else if node.is_some() { "node" } else { "unknown" },
-                        "dry_run": dry_run,
-                        "ok": ok,
-                        "duration_ms": duration_ms,
-                        "error": error,
-                    }),
-                )),
-                WorkspaceCommands::Compact {
-                    ttl,
-                    all,
-                    keep_frames,
-                    dry_run,
-                } => Some((
-                    "workspace_maintenance_summary",
-                    json!({
-                        "operation": "compact",
-                        "ttl_days": ttl,
-                        "all": all,
-                        "keep_frames": keep_frames,
-                        "dry_run": dry_run,
-                        "ok": ok,
-                        "duration_ms": duration_ms,
-                        "error": error,
-                    }),
-                )),
-                WorkspaceCommands::ListDeleted { older_than, format } => Some((
-                    "list_summary",
-                    json!({
-                        "scope": "workspace_deleted",
-                        "older_than_days": older_than,
-                        "format": format,
-                        "ok": ok,
-                        "duration_ms": duration_ms,
-                        "error": error,
-                    }),
-                )),
-                WorkspaceCommands::Ignore {
-                    path,
-                    dry_run,
-                    format,
-                } => Some((
-                    "config_mutation_summary",
-                    json!({
-                        "scope": "workspace_ignore",
-                        "action": if path.is_some() { "add" } else { "list" },
-                        "dry_run": dry_run,
-                        "format": format,
-                        "ok": ok,
-                        "duration_ms": duration_ms,
-                        "error": error,
-                    }),
-                )),
-            },
-            Commands::Status {
-                format,
-                workspace_only,
-                agents_only,
-                providers_only,
-                breakdown,
-                test_connectivity,
-            } => {
-                let include_all = !workspace_only && !agents_only && !providers_only;
-                Some((
-                    "status_summary",
-                    json!({
-                        "scope": "unified",
-                        "format": format,
-                        "include_workspace": include_all || *workspace_only,
-                        "include_agents": include_all || *agents_only,
-                        "include_providers": include_all || *providers_only,
-                        "breakdown": breakdown,
-                        "test_connectivity": test_connectivity,
-                        "ok": ok,
-                        "duration_ms": duration_ms,
-                        "error": error,
-                    }),
-                ))
-            }
-            Commands::Validate => Some((
-                "validate_summary",
-                json!({
-                    "scope": "workspace",
-                    "format": "text",
-                    "ok": ok,
-                    "duration_ms": duration_ms,
-                    "error": error,
-                }),
-            )),
-            Commands::Agent { command } => Some((
-                "config_mutation_summary",
-                json!({
-                    "scope": "agent",
-                    "action": match command {
-                        AgentCommands::Status { .. } => "status",
-                        AgentCommands::List { .. } => "list",
-                        AgentCommands::Show { .. } => "show",
-                        AgentCommands::Validate { .. } => "validate",
-                        AgentCommands::Create { .. } => "create",
-                        AgentCommands::Edit { .. } => "edit",
-                        AgentCommands::Remove { .. } => "remove",
-                    },
-                    "mutation": matches!(
-                        command,
-                        AgentCommands::Create { .. }
-                            | AgentCommands::Edit { .. }
-                            | AgentCommands::Remove { .. }
-                    ),
-                    "ok": ok,
-                    "duration_ms": duration_ms,
-                    "error": error,
-                }),
-            )),
-            Commands::Provider { command } => Some((
-                "config_mutation_summary",
-                json!({
-                    "scope": "provider",
-                    "action": match command {
-                        ProviderCommands::Status { .. } => "status",
-                        ProviderCommands::List { .. } => "list",
-                        ProviderCommands::Show { .. } => "show",
-                        ProviderCommands::Validate { .. } => "validate",
-                        ProviderCommands::Test { .. } => "test",
-                        ProviderCommands::Create { .. } => "create",
-                        ProviderCommands::Edit { .. } => "edit",
-                        ProviderCommands::Remove { .. } => "remove",
-                    },
-                    "mutation": matches!(
-                        command,
-                        ProviderCommands::Create { .. }
-                            | ProviderCommands::Edit { .. }
-                            | ProviderCommands::Remove { .. }
-                    ),
-                    "ok": ok,
-                    "duration_ms": duration_ms,
-                    "error": error,
-                }),
-            )),
-            Commands::Init { force, list } => Some((
-                "init_summary",
-                json!({
-                    "force": force,
-                    "list_only": list,
-                    "ok": ok,
-                    "duration_ms": duration_ms,
-                    "error": error,
-                }),
-            )),
-            _ => None,
-        }
+        );
     }
 }
 
@@ -4169,6 +3958,168 @@ fn format_context_json_output(
 
     serde_json::to_string_pretty(&result)
         .map_err(|e| ApiError::ConfigError(format!("Failed to serialize JSON: {}", e)))
+}
+
+fn command_name(command: &Commands) -> String {
+    match command {
+        Commands::Scan { .. } => "scan".to_string(),
+        Commands::Workspace { command } => format!("workspace.{}", workspace_command_name(command)),
+        Commands::Status { .. } => "status".to_string(),
+        Commands::Validate => "validate".to_string(),
+        Commands::Watch { .. } => "watch".to_string(),
+        Commands::Agent { command } => format!("agent.{}", agent_command_name(command)),
+        Commands::Provider { command } => format!("provider.{}", provider_command_name(command)),
+        Commands::Init { .. } => "init".to_string(),
+        Commands::Context { command } => format!("context.{}", context_command_name(command)),
+    }
+}
+
+fn workspace_command_name(command: &WorkspaceCommands) -> &'static str {
+    match command {
+        WorkspaceCommands::Status { .. } => "status",
+        WorkspaceCommands::Validate { .. } => "validate",
+        WorkspaceCommands::Ignore { .. } => "ignore",
+        WorkspaceCommands::Delete { .. } => "delete",
+        WorkspaceCommands::Restore { .. } => "restore",
+        WorkspaceCommands::Compact { .. } => "compact",
+        WorkspaceCommands::ListDeleted { .. } => "list_deleted",
+    }
+}
+
+fn context_command_name(command: &ContextCommands) -> &'static str {
+    match command {
+        ContextCommands::Generate { .. } => "generate",
+        ContextCommands::Get { .. } => "get",
+    }
+}
+
+fn provider_command_name(command: &ProviderCommands) -> &'static str {
+    match command {
+        ProviderCommands::Status { .. } => "status",
+        ProviderCommands::List { .. } => "list",
+        ProviderCommands::Show { .. } => "show",
+        ProviderCommands::Create { .. } => "create",
+        ProviderCommands::Edit { .. } => "edit",
+        ProviderCommands::Remove { .. } => "remove",
+        ProviderCommands::Validate { .. } => "validate",
+        ProviderCommands::Test { .. } => "test",
+    }
+}
+
+fn agent_command_name(command: &AgentCommands) -> &'static str {
+    match command {
+        AgentCommands::Status { .. } => "status",
+        AgentCommands::List { .. } => "list",
+        AgentCommands::Show { .. } => "show",
+        AgentCommands::Create { .. } => "create",
+        AgentCommands::Edit { .. } => "edit",
+        AgentCommands::Remove { .. } => "remove",
+        AgentCommands::Validate { .. } => "validate",
+    }
+}
+
+fn summary_descriptor(command: &Commands) -> SummaryCommandDescriptor {
+    match command {
+        Commands::Workspace { command } => match command {
+            WorkspaceCommands::Status { format, breakdown } => {
+                SummaryCommandDescriptor::WorkspaceStatus {
+                    format: format.clone(),
+                    breakdown: *breakdown,
+                }
+            }
+            WorkspaceCommands::Validate { format } => SummaryCommandDescriptor::WorkspaceValidate {
+                format: format.clone(),
+            },
+            WorkspaceCommands::Delete {
+                path,
+                node,
+                dry_run,
+                no_ignore,
+            } => SummaryCommandDescriptor::WorkspaceDelete {
+                target_path: path.is_some(),
+                target_node: node.is_some(),
+                dry_run: *dry_run,
+                no_ignore: *no_ignore,
+            },
+            WorkspaceCommands::Restore {
+                path,
+                node,
+                dry_run,
+            } => SummaryCommandDescriptor::WorkspaceRestore {
+                target_path: path.is_some(),
+                target_node: node.is_some(),
+                dry_run: *dry_run,
+            },
+            WorkspaceCommands::Compact {
+                ttl,
+                all,
+                keep_frames,
+                dry_run,
+            } => SummaryCommandDescriptor::WorkspaceCompact {
+                ttl_days: *ttl,
+                all: *all,
+                keep_frames: *keep_frames,
+                dry_run: *dry_run,
+            },
+            WorkspaceCommands::ListDeleted { older_than, format } => {
+                SummaryCommandDescriptor::WorkspaceListDeleted {
+                    older_than_days: *older_than,
+                    format: format.clone(),
+                }
+            }
+            WorkspaceCommands::Ignore {
+                path,
+                dry_run,
+                format,
+            } => SummaryCommandDescriptor::WorkspaceIgnore {
+                has_path: path.is_some(),
+                dry_run: *dry_run,
+                format: format.clone(),
+            },
+        },
+        Commands::Status {
+            format,
+            workspace_only,
+            agents_only,
+            providers_only,
+            breakdown,
+            test_connectivity,
+        } => {
+            let include_all = !workspace_only && !agents_only && !providers_only;
+            SummaryCommandDescriptor::StatusUnified {
+                format: format.clone(),
+                include_workspace: include_all || *workspace_only,
+                include_agents: include_all || *agents_only,
+                include_providers: include_all || *providers_only,
+                breakdown: *breakdown,
+                test_connectivity: *test_connectivity,
+            }
+        }
+        Commands::Validate => SummaryCommandDescriptor::ValidateWorkspace,
+        Commands::Agent { command } => SummaryCommandDescriptor::AgentAction {
+            action: agent_command_name(command).to_string(),
+            mutation: matches!(
+                command,
+                AgentCommands::Create { .. }
+                    | AgentCommands::Edit { .. }
+                    | AgentCommands::Remove { .. }
+            ),
+        },
+        Commands::Provider { command } => SummaryCommandDescriptor::ProviderAction {
+            action: provider_command_name(command).to_string(),
+            mutation: matches!(
+                command,
+                ProviderCommands::Create { .. }
+                    | ProviderCommands::Edit { .. }
+                    | ProviderCommands::Remove { .. }
+            ),
+        },
+        Commands::Init { force, list } => SummaryCommandDescriptor::Init {
+            force: *force,
+            list_only: *list,
+        },
+        _ => SummaryCommandDescriptor::None,
+    }
 }
 
 #[cfg(test)]

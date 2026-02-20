@@ -1,10 +1,10 @@
-//! In-process event bus for progress events.
+//! In-process event bus for telemetry events.
 
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 use serde_json::Value;
 
-use crate::progress::event::ProgressEnvelope;
+use crate::telemetry::events::ProgressEnvelope;
 
 #[derive(Clone)]
 pub struct ProgressBus {

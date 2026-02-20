@@ -17,8 +17,8 @@ use merkle::frame::queue::{
 };
 use merkle::frame::storage::FrameStorage;
 use merkle::heads::HeadIndex;
-use merkle::progress::ProgressRuntime;
 use merkle::store::persistence::SledNodeRecordStore;
+use merkle::telemetry::ProgressRuntime;
 use merkle::types::Hash;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

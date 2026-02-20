@@ -1,4 +1,4 @@
-//! Event schema for progress observability.
+//! Event schema for telemetry.
 
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};

@@ -9,9 +9,9 @@ use merkle::concurrency::NodeLockManager;
 use merkle::config::{xdg, AgentConfig, ProviderConfig, ProviderType};
 use merkle::frame::storage::FrameStorage;
 use merkle::heads::HeadIndex;
-use merkle::progress::ProgressRuntime;
 use merkle::provider::ProviderRegistry;
 use merkle::store::persistence::SledNodeRecordStore;
+use merkle::telemetry::ProgressRuntime;
 use tempfile::TempDir;
 
 static XDG_ENV_MUTEX: Mutex<()> = Mutex::new(());
@@ -152,7 +152,7 @@ pub fn create_test_provider(provider_name: &str) {
 pub fn latest_session_events(
     runtime: &ProgressRuntime,
     command: &str,
-) -> Vec<merkle::progress::ProgressEvent> {
+) -> Vec<merkle::telemetry::ProgressEvent> {
     let sessions = runtime.store().list_sessions().unwrap();
     let session = sessions
         .iter()

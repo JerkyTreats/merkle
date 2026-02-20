@@ -4,8 +4,8 @@ use merkle::agent::{AgentRole, AgentStorage, XdgAgentStorage};
 use merkle::config::AgentConfig;
 use merkle::config::{xdg, ProviderConfig, ProviderType};
 use merkle::frame::{Basis, Frame};
-use merkle::progress::{PrunePolicy, SessionStatus};
 use merkle::provider::CompletionOptions;
+use merkle::telemetry::{PrunePolicy, SessionStatus};
 use merkle::tooling::cli::{
     AgentCommands, CliContext, Commands, ContextCommands, ProviderCommands, WorkspaceCommands,
 };
