@@ -1,5 +1,5 @@
+use crate::context::queue::Priority;
 use crate::error::ApiError;
-use crate::frame::queue::Priority;
 use crate::types::{FrameID, NodeID};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

@@ -10,7 +10,7 @@
 use merkle::agent::{AgentIdentity, AgentRegistry, AgentRole};
 use merkle::concurrency::NodeLockManager;
 use merkle::error::ApiError;
-use merkle::frame::{Basis, Frame, FrameStorage};
+use merkle::context::frame::{Basis, Frame, FrameStorage};
 use merkle::types::NodeID;
 use std::collections::HashMap;
 use std::sync::Arc;

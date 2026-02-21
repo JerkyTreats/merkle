@@ -3,7 +3,7 @@ use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
 
-use merkle::frame::{Basis, Frame};
+use merkle::context::frame::{Basis, Frame};
 use merkle::tooling::cli::{CliContext, Commands, ContextCommands, WorkspaceCommands};
 use merkle::tooling::{WatchConfig, WatchDaemon};
 use tempfile::TempDir;

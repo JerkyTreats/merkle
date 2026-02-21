@@ -11,11 +11,11 @@
 
 use merkle::api::ContextApi;
 use merkle::error::ApiError;
-use merkle::frame::queue::{
+use merkle::context::frame::storage::FrameStorage;
+use merkle::context::queue::{
     FrameGenerationQueue, GenerationConfig, GenerationRequest, GenerationRequestOptions, Priority,
     QueueEventContext,
 };
-use merkle::frame::storage::FrameStorage;
 use merkle::heads::HeadIndex;
 use merkle::store::persistence::SledNodeRecordStore;
 use merkle::telemetry::ProgressRuntime;
@@ -386,7 +386,7 @@ async fn test_generation_request_ordering() {
     // Test that GenerationRequest implements Ord correctly
     let now = Instant::now();
 
-    use merkle::frame::queue::RequestId;
+    use merkle::context::queue::RequestId;
     let req1 = GenerationRequest {
         request_id: RequestId::next(),
         node_id: Hash::from([1u8; 32]),

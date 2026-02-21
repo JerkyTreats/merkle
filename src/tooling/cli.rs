@@ -7,12 +7,11 @@ use crate::agent::AgentStorage;
 use crate::api::{ContextApi, ContextView};
 use crate::config::ConfigLoader;
 use crate::error::ApiError;
-use crate::frame::queue::QueueEventContext;
-use crate::frame::{FrameGenerationQueue, GenerationConfig};
-use crate::generation::{
-    FailurePolicy, GenerationItem, GenerationNodeType, GenerationOrchestrator, GenerationPlan,
+use crate::context::generation::{
+    FailurePolicy, GenerationExecutor, GenerationItem, GenerationNodeType, GenerationPlan,
     PlanPriority,
 };
+use crate::context::queue::{FrameGenerationQueue, GenerationConfig, QueueEventContext};
 use crate::heads::HeadIndex;
 use crate::ignore;
 use crate::store::persistence::SledNodeRecordStore;
@@ -551,7 +550,7 @@ impl CliContext {
         std::fs::create_dir_all(&frame_storage_path)
             .map_err(|e| ApiError::StorageError(crate::error::StorageError::IoError(e)))?;
         let frame_storage = Arc::new(
-            crate::frame::storage::FrameStorage::new(&frame_storage_path)
+            crate::context::frame::storage::FrameStorage::new(&frame_storage_path)
                 .map_err(|e| ApiError::StorageError(e))?,
         );
         // Load head index from disk, or create empty if not found
@@ -2934,7 +2933,7 @@ impl CliContext {
             );
         }
 
-        // 7. Blocking generation through orchestrator
+        // 7. Blocking generation through context executor
         // Create runtime before calling get_or_create_queue() which needs it for queue.start()
         // Check if we're already in a runtime (shouldn't happen in CLI, but can in tests)
         let rt = if let Ok(_handle) = tokio::runtime::Handle::try_current() {
@@ -2955,8 +2954,8 @@ impl CliContext {
         let queue = self.get_or_create_queue(Some(session_id))?;
         // Drop guard before using block_on (can't block while in runtime context)
         drop(_guard);
-        let orchestrator = GenerationOrchestrator::new(Some(Arc::clone(&self.progress)));
-        let result = rt.block_on(async { orchestrator.execute(queue.as_ref(), plan).await })?;
+        let executor = GenerationExecutor::new(Some(Arc::clone(&self.progress)));
+        let result = rt.block_on(async { executor.execute(queue.as_ref(), plan).await })?;
         if result.total_failed > 0 {
             return Err(ApiError::GenerationFailed(format!(
                 "Generation completed with failures. generated={}, failed={}",
@@ -3820,7 +3819,7 @@ fn format_context_text_output(
     include_deleted: bool,
 ) -> Result<String, ApiError> {
     // Filter deleted frames if not including them
-    let frames: Vec<&crate::frame::Frame> = if include_deleted {
+    let frames: Vec<&crate::context::frame::Frame> = if include_deleted {
         context.frames.iter().collect()
     } else {
         context
@@ -3902,7 +3901,7 @@ fn format_context_json_output(
     use serde_json::json;
 
     // Filter deleted frames if not including them
-    let frames: Vec<&crate::frame::Frame> = if include_deleted {
+    let frames: Vec<&crate::context::frame::Frame> = if include_deleted {
         context.frames.iter().collect()
     } else {
         context
@@ -4126,7 +4125,7 @@ fn summary_descriptor(command: &Commands) -> SummaryCommandDescriptor {
 mod tests {
     use super::*;
     use crate::api::ContextApi;
-    use crate::frame::storage::FrameStorage;
+    use crate::context::frame::storage::FrameStorage;
     use crate::heads::HeadIndex;
     use crate::store::persistence::SledNodeRecordStore;
     use crate::types::Hash;
@@ -4278,8 +4277,8 @@ mod tests {
             tombstoned_at: None,
         };
 
-        let frame1 = crate::frame::Frame::new(
-            crate::frame::Basis::Node(node_id),
+        let frame1 = crate::context::frame::Frame::new(
+            crate::context::frame::Basis::Node(node_id),
             b"Frame 1 content".to_vec(),
             "type1".to_string(),
             "agent1".to_string(),
@@ -4287,8 +4286,8 @@ mod tests {
         )
         .unwrap();
 
-        let frame2 = crate::frame::Frame::new(
-            crate::frame::Basis::Node(node_id),
+        let frame2 = crate::context::frame::Frame::new(
+            crate::context::frame::Basis::Node(node_id),
             b"Frame 2 content".to_vec(),
             "type2".to_string(),
             "agent2".to_string(),
@@ -4326,8 +4325,8 @@ mod tests {
             tombstoned_at: None,
         };
 
-        let frame = crate::frame::Frame::new(
-            crate::frame::Basis::Node(node_id),
+        let frame = crate::context::frame::Frame::new(
+            crate::context::frame::Basis::Node(node_id),
             b"Test content".to_vec(),
             "test".to_string(),
             "agent1".to_string(),

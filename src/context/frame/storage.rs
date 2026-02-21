@@ -4,8 +4,8 @@
 //! Frames are stored at paths based on their FrameID to enable efficient
 //! content-addressed retrieval.
 
+use crate::context::frame::{id, Frame};
 use crate::error::StorageError;
-use crate::frame::Frame;
 use crate::types::FrameID;
 use bincode;
 use std::fs;
@@ -68,7 +68,7 @@ impl FrameStorage {
             StorageError::InvalidPath("Frame missing agent_id in metadata".to_string())
         })?;
 
-        let computed_id = crate::frame::id::compute_frame_id(
+        let computed_id = id::compute_frame_id(
             &frame.basis,
             &frame.content,
             &frame.frame_type,
@@ -217,7 +217,7 @@ impl FrameStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frame::{Basis, Frame};
+    use crate::context::frame::{Basis, Frame};
     use crate::types::NodeID;
     use std::collections::HashMap;
     use tempfile::TempDir;

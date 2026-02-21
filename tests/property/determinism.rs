@@ -1,6 +1,6 @@
 //! Property-based tests for determinism guarantees
 
-use merkle::frame::{Basis, Frame};
+use merkle::context::frame::{id, Basis, Frame};
 use merkle::tree::hasher;
 use merkle::types::NodeID;
 use proptest::prelude::*;
@@ -50,10 +50,10 @@ fn test_frameid_determinism_property() {
 
                 let agent_id = "test-agent";
                 let frame_id1 =
-                    merkle::frame::id::compute_frame_id(&basis, &content, &frame_type, agent_id)
+                    id::compute_frame_id(&basis, &content, &frame_type, agent_id)
                         .unwrap();
                 let frame_id2 =
-                    merkle::frame::id::compute_frame_id(&basis, &content, &frame_type, agent_id)
+                    id::compute_frame_id(&basis, &content, &frame_type, agent_id)
                         .unwrap();
 
                 // Same inputs should always produce same FrameID
@@ -103,9 +103,9 @@ fn test_different_inputs_different_ids() {
 
     let agent_id = "test-agent";
     let frame_id1 =
-        merkle::frame::id::compute_frame_id(&basis1, &content, &frame_type, agent_id).unwrap();
+        id::compute_frame_id(&basis1, &content, &frame_type, agent_id).unwrap();
     let frame_id2 =
-        merkle::frame::id::compute_frame_id(&basis2, &content, &frame_type, agent_id).unwrap();
+        id::compute_frame_id(&basis2, &content, &frame_type, agent_id).unwrap();
 
     // Different basis should produce different FrameID
     assert_ne!(frame_id1, frame_id2);

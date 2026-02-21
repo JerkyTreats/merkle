@@ -4,14 +4,9 @@
 //! Each frame is content-addressed and append-only.
 
 pub mod id;
-pub mod queue;
 pub mod set;
 pub mod storage;
 
-pub use queue::{
-    FrameGenerationQueue, GenerationConfig, GenerationRequest, GenerationRequestOptions, Priority,
-    QueueStats,
-};
 pub use set::FrameMerkleSet;
 pub use storage::FrameStorage;
 

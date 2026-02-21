@@ -1,7 +1,7 @@
 //! Integration tests for Tooling & Integrations
 
 use merkle::api::{ContextApi, ContextView};
-use merkle::frame::{Basis, Frame};
+use merkle::context::frame::{Basis, Frame};
 use merkle::heads::HeadIndex;
 use merkle::store::persistence::SledNodeRecordStore;
 use merkle::tooling::{adapter::ContextApiAdapter, AgentAdapter, BatchOperation, CiIntegration};
@@ -18,7 +18,7 @@ fn create_test_api() -> (ContextApi, TempDir) {
     let frame_storage_path = temp_dir.path().join("frames");
     std::fs::create_dir_all(&frame_storage_path).unwrap();
     let frame_storage =
-        Arc::new(merkle::frame::storage::FrameStorage::new(&frame_storage_path).unwrap());
+        Arc::new(merkle::context::frame::storage::FrameStorage::new(&frame_storage_path).unwrap());
     let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
     let agent_registry = Arc::new(parking_lot::RwLock::new(merkle::agent::AgentRegistry::new()));
     let provider_registry = Arc::new(parking_lot::RwLock::new(

@@ -5,7 +5,7 @@
 //! - Data in one workspace doesn't affect another
 //! - Workspaces can have the same file structure but remain isolated
 
-use merkle::frame::{Basis, Frame};
+use merkle::context::frame::{Basis, Frame};
 use merkle::heads::HeadIndex;
 use merkle::store::{NodeRecord, NodeType};
 use merkle::tooling::cli::CliContext;

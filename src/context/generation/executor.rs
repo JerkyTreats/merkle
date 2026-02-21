@@ -1,9 +1,12 @@
-use crate::error::ApiError;
-use crate::frame::queue::{FrameGenerationQueue, Priority};
-use crate::generation::plan::{
+//! Generation executor: runs a generation plan against a queue submitter.
+//! Owns level-by-level execution and telemetry emission; queue and provider behavior stay in their domains.
+
+use crate::context::generation::plan::{
     FailurePolicy, GenerationErrorDetail, GenerationItem, GenerationPlan, GenerationResult,
     LevelSummary,
 };
+use crate::context::queue::{FrameGenerationQueue, Priority};
+use crate::error::ApiError;
 use crate::telemetry::ProgressRuntime;
 use crate::types::FrameID;
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -34,7 +37,7 @@ impl QueueSubmitter for FrameGenerationQueue {
             Some(item.frame_type.clone()),
             priority,
             None,
-            crate::frame::queue::GenerationRequestOptions {
+            crate::context::queue::GenerationRequestOptions {
                 force: item.force,
                 plan_id: Some(plan_id.to_string()),
             },
@@ -43,11 +46,12 @@ impl QueueSubmitter for FrameGenerationQueue {
     }
 }
 
-pub struct GenerationOrchestrator {
+/// Executes a generation plan by submitting items to a queue and collecting results.
+pub struct GenerationExecutor {
     progress: Option<Arc<ProgressRuntime>>,
 }
 
-impl GenerationOrchestrator {
+impl GenerationExecutor {
     pub fn new(progress: Option<Arc<ProgressRuntime>>) -> Self {
         Self { progress }
     }
@@ -235,7 +239,7 @@ impl GenerationOrchestrator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generation::plan::{FailurePolicy, GenerationNodeType, PlanPriority};
+    use crate::context::generation::plan::{FailurePolicy, GenerationNodeType, PlanPriority};
     use crate::types::Hash;
     use parking_lot::Mutex;
     use std::collections::HashMap;
@@ -300,8 +304,8 @@ mod tests {
             Err(ApiError::GenerationFailed("boom".to_string())),
         );
         let queue = MockQueue::new(outcomes);
-        let orchestrator = GenerationOrchestrator::new(None);
-        let result = orchestrator
+        let executor = GenerationExecutor::new(None);
+        let result = executor
             .execute(&queue, plan(FailurePolicy::Continue))
             .await
             .unwrap();
@@ -317,8 +321,8 @@ mod tests {
             Err(ApiError::GenerationFailed("boom".to_string())),
         );
         let queue = MockQueue::new(outcomes);
-        let orchestrator = GenerationOrchestrator::new(None);
-        let result = orchestrator
+        let executor = GenerationExecutor::new(None);
+        let result = executor
             .execute(&queue, plan(FailurePolicy::StopOnLevelFailure))
             .await
             .unwrap();

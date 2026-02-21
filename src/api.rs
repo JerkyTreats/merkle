@@ -6,12 +6,14 @@
 use crate::agent::AgentRegistry;
 use crate::composition::{compose_frames, CompositionPolicy};
 use crate::concurrency::NodeLockManager;
+use crate::context::frame::{Basis, Frame, FrameStorage};
+use crate::context::query::get_node_query;
+use crate::context::queue::FrameGenerationQueue;
 use crate::error::ApiError;
-use crate::frame::{Basis, Frame, FrameGenerationQueue, FrameMerkleSet, FrameStorage};
 use crate::heads::HeadIndex;
 use crate::store::{NodeRecord, NodeRecordStore};
 use crate::types::{FrameID, NodeID};
-use crate::views::{get_context_view, ViewPolicy};
+use crate::views::ViewPolicy;
 use hex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -365,60 +367,20 @@ impl ContextApi {
         let start = Instant::now();
         debug!("Retrieving node context");
 
-        // Verify node exists and is not tombstoned (active only)
-        let node_record = self
-            .node_store
-            .get(&node_id)
-            .map_err(ApiError::from)?
-            .ok_or_else(|| {
-                warn!("Node not found");
-                ApiError::NodeNotFound(node_id)
-            })?;
-        if node_record.tombstoned_at.is_some() {
-            return Err(ApiError::NodeNotFound(node_id));
-        }
+        let frame_ids = {
+            let head_index = self.head_index.read();
+            head_index.get_all_heads_for_node(&node_id)
+        };
 
-        // Note: frame_set_root from node_record is not used in Phase 2B MVP
-        // In a full implementation, we would use it to retrieve the FrameMerkleSet from storage
-
-        // Get all frame types for this node from head index
-        // Note: In a full implementation, we would retrieve the FrameMerkleSet from storage
-        // using the frame_set_root. For Phase 2B MVP, we use the head index to find frames.
-        let head_index = self.head_index.read();
-        let frame_ids = head_index.get_all_heads_for_node(&node_id);
-        drop(head_index);
-
-        // If no frames, return empty context
-        if frame_ids.is_empty() {
-            return Ok(NodeContext {
-                node_id,
-                node_record,
-                frames: vec![],
-                frame_count: 0,
-            });
-        }
-
-        // Create a temporary FrameMerkleSet from collected frame IDs
-        // This allows us to use the existing get_context_view function
-        let frame_set = FrameMerkleSet::from_frame_ids(frame_ids.iter().copied())
-            .map_err(|e| ApiError::StorageError(e))?;
-
-        // Get context view using the policy
         let view_policy: ViewPolicy = view.into();
-        let selected_frame_ids = get_context_view(&frame_set, &self.frame_storage, &view_policy)
-            .map_err(|e| ApiError::StorageError(e))?;
 
-        // Retrieve full frame objects
-        let mut frames = Vec::new();
-        for frame_id in selected_frame_ids {
-            if let Some(frame) = self.frame_storage.get(&frame_id).map_err(ApiError::from)? {
-                frames.push(frame);
-            }
-        }
-
-        // Get total frame count (we need to count all frames in the set)
-        // For now, use the frame_set length
-        let total_frame_count = frame_set.len();
+        let (node_record, frames, total_frame_count) = get_node_query(
+            self.node_store.as_ref(),
+            &self.frame_storage,
+            &frame_ids,
+            node_id,
+            &view_policy,
+        )?;
 
         let duration = start.elapsed();
         debug!(
@@ -485,7 +447,7 @@ impl ContextApi {
 
         // Verify frame basis matches node_id (if basis is Node-based)
         match &frame.basis {
-            crate::frame::Basis::Node(basis_node_id) => {
+            crate::context::frame::Basis::Node(basis_node_id) => {
                 if *basis_node_id != node_id {
                     return Err(ApiError::InvalidFrame(format!(
                         "Frame basis node_id {:?} does not match requested node_id {:?}",
@@ -493,10 +455,10 @@ impl ContextApi {
                     )));
                 }
             }
-            crate::frame::Basis::Frame(_) => {
+            crate::context::frame::Basis::Frame(_) => {
                 // Frame-based basis is OK (can reference other frames)
             }
-            crate::frame::Basis::Both { node, .. } => {
+            crate::context::frame::Basis::Both { node, .. } => {
                 if *node != node_id {
                     return Err(ApiError::InvalidFrame(format!(
                         "Frame basis node_id {:?} does not match requested node_id {:?}",
@@ -972,7 +934,7 @@ impl ContextApi {
 mod tests {
     use super::*;
     use crate::agent::AgentIdentity;
-    use crate::frame::{Basis, Frame};
+    use crate::context::frame::{Basis, Frame};
     use crate::store::SledNodeRecordStore;
     use crate::views::{FrameFilter, OrderingPolicy};
     use std::collections::HashMap;

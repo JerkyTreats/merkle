@@ -10,7 +10,7 @@ use merkle::agent::{AgentIdentity, AgentRegistry, AgentRole};
 use merkle::api::{ContextApi, ContextView};
 use merkle::concurrency::NodeLockManager;
 use merkle::error::ApiError;
-use merkle::frame::{Basis, Frame, FrameStorage};
+use merkle::context::frame::{Basis, Frame, FrameStorage};
 use merkle::heads::HeadIndex;
 use merkle::store::{NodeRecord, NodeType, SledNodeRecordStore};
 use merkle::types::NodeID;

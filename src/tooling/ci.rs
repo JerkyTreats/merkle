@@ -159,7 +159,7 @@ mod tests {
         let frame_storage_path = temp_dir.path().join("frames");
         std::fs::create_dir_all(&frame_storage_path).unwrap();
         let frame_storage =
-            Arc::new(crate::frame::storage::FrameStorage::new(&frame_storage_path).unwrap());
+            Arc::new(crate::context::frame::storage::FrameStorage::new(&frame_storage_path).unwrap());
         let head_index = Arc::new(parking_lot::RwLock::new(HeadIndex::new()));
         let agent_registry = Arc::new(parking_lot::RwLock::new(crate::agent::AgentRegistry::new()));
         let provider_registry = Arc::new(parking_lot::RwLock::new(

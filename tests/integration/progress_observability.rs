@@ -3,7 +3,7 @@ use std::fs;
 use merkle::agent::{AgentRole, AgentStorage, XdgAgentStorage};
 use merkle::config::AgentConfig;
 use merkle::config::{xdg, ProviderConfig, ProviderType};
-use merkle::frame::{Basis, Frame};
+use merkle::context::frame::{Basis, Frame};
 use merkle::provider::CompletionOptions;
 use merkle::telemetry::{PrunePolicy, SessionStatus};
 use merkle::tooling::cli::{

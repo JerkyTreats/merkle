@@ -54,7 +54,7 @@ Apply these rules when implementing domain extraction and refactors.
 | 3 | Agent foundation and repository ownership | Phase 1, Phase 2 | Completed local |
 | 4 | Config composition root and path ownership | Phase 2, Phase 3 | Completed local |
 | 5 | Telemetry foundation and policy services | Phase 1 | Completed local |
-| 6 | Context query mutation generation and queue ownership | Phase 2, Phase 4, Phase 5 | Planned |
+| 6 | Context query mutation generation and queue ownership | Phase 2, Phase 4, Phase 5 | In progress |
 | 7 | Provider and agent command workflows plus adapter cutover | Phase 2, Phase 3, Phase 4, Phase 6 | Planned |
 | 8 | Workspace lifecycle status and watch ownership | Phase 4, Phase 5, Phase 6, Phase 7 | Planned |
 | 9 | CLI route waves and startup execution cutover | Phase 4, Phase 5, Phase 6, Phase 7, Phase 8 | Planned |
@@ -224,28 +224,32 @@ Telemetry domain under `src/telemetry.rs` and `src/telemetry/` owns events, sess
 | Goal | Move context query mutation generation queue and frame model and storage into context domain ownership. Behavior-named structure: frame query mutation generation queue under `src/context`. |
 | Dependencies | Phase 2, Phase 4, Phase 5 |
 | Docs | context/context_migration_plan.md, context/context_domain_structure.md |
-| Completion | Planned |
+| Completion | In progress |
 
 | Order | Task | Completion |
 |-------|------|------------|
-| 1 | Add context domain root facade and shared types. | Planned |
-| 2 | Move `src/frame` into `src/context/frame` so frame model storage set and id are owned by context domain; queue runtime lands at `src/context/queue`. | Planned |
-| 3 | Extract query service view policy composition and head queries. | Planned |
+| 1 | Add context domain root facade and shared types. | Completed local |
+| 2 | Move `src/frame` into `src/context/frame` so frame model storage set and id are owned by context domain; queue runtime lands at `src/context/queue`. | Completed local |
+| 3 | Extract query service view policy composition and head queries. | In progress; query service and view_policy under `src/context/query`; composition and head_queries pending |
 | 4 | Extract mutation and lifecycle service from legacy API paths with deterministic update order. | Planned |
-| 5 | Extract generation plan and executor into `src/context/generation` and queue runtime into `src/context/queue`; remove from CLI and legacy modules. | Planned |
-| 6 | Route provider dependent generation through provider contracts and services from Phase 2. | Planned |
-| 7 | Route telemetry generation events through telemetry contracts from Phase 5. | Planned |
-| 8 | Remove legacy context policy and top-level `src/frame` from old modules in the same phase window. | Planned |
+| 5 | Extract generation plan and executor into `src/context/generation` and queue runtime into `src/context/queue`; remove from CLI and legacy modules. | Completed local |
+| 6 | Route provider dependent generation through provider contracts and services from Phase 2. | Completed local |
+| 7 | Route telemetry generation events through telemetry contracts from Phase 5. | Completed local |
+| 8 | Remove legacy context policy and top-level `src/frame` from old modules in the same phase window. | Completed local for frame and generation; no top-level `src/frame` or `src/generation`; legacy context policy in api remains for Phase 10 |
 
 | Exit criterion | Completion |
 |----------------|------------|
-| Context contracts consumed by agent adapter and workspace watch are available and tested. | Planned |
-| Frame model and storage live under `src/context/frame`; no top-level `src/frame`. | Planned |
-| Context generation and queue policy are no longer owned by CLI or mixed legacy paths. | Planned |
+| Context contracts consumed by agent adapter and workspace watch are available and tested. | Completed local |
+| Frame model and storage live under `src/context/frame`; no top-level `src/frame`. | Completed local |
+| Context generation and queue policy are no longer owned by CLI or mixed legacy paths. | Completed local |
 
 | Dependency closure solved | Completion |
 |---------------------------|------------|
-| Provides context facade queue and generation contracts required by agent and workspace cutovers. | Planned |
+| Provides context facade queue and generation contracts required by agent and workspace cutovers. | Completed local |
+
+#### Phase 6 — Implementation notes
+
+Context domain under `src/context` with `mod.rs`, `facade.rs`, `types.rs`. Frame model and storage under `src/context/frame/`; queue under `src/context/queue/`. Generation plan and executor under `src/context/generation/` with `plan.rs` and `executor.rs`; type renamed from GenerationOrchestrator to GenerationExecutor; QueueSubmitter trait and FrameGenerationQueue impl live in context. CLI uses `crate::context::generation` and `crate::context::queue` only. Top-level `src/generation` and `src/frame` removed. Query has `context/query/service.rs` and `context/query/view_policy.rs`; composition and head_queries not yet extracted. Mutation extraction pending.
 
 ---
 

@@ -5,7 +5,7 @@
 //! deterministic results. No composite state is persisted—composition is computed on-demand.
 
 use crate::error::ApiError;
-use crate::frame::{Frame, FrameStorage};
+use crate::context::frame::{Frame, FrameStorage};
 use crate::heads::HeadIndex;
 use crate::store::NodeRecordStore;
 use crate::types::NodeID;
@@ -70,16 +70,16 @@ fn compute_relevance_score(
 
     // Boost score if frame is directly associated with target node
     match &frame.basis {
-        crate::frame::Basis::Node(node_id) => {
+        crate::context::frame::Basis::Node(node_id) => {
             if *node_id == target_node_id {
                 score += 1000;
             }
         }
-        crate::frame::Basis::Frame(_) => {
+        crate::context::frame::Basis::Frame(_) => {
             // Frame-based basis gets medium score
             score += 500;
         }
-        crate::frame::Basis::Both { node, .. } => {
+        crate::context::frame::Basis::Both { node, .. } => {
             if *node == target_node_id {
                 score += 1000;
             }
@@ -351,8 +351,8 @@ pub fn compose_frames(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frame::storage::FrameStorage;
-    use crate::frame::{Basis, Frame};
+    use crate::context::frame::storage::FrameStorage;
+    use crate::context::frame::{Basis, Frame};
     use crate::heads::HeadIndex;
     use crate::store::{NodeRecord, NodeRecordStore, NodeType, SledNodeRecordStore};
     use crate::types::FrameID;

@@ -4,8 +4,8 @@
 //! Handles large-scale operations efficiently through batching, rate limiting, and concurrent processing.
 
 use crate::api::{ContextApi, ContextView};
+use crate::context::frame::{Basis, Frame};
 use crate::error::ApiError;
-use crate::frame::{Basis, Frame};
 use crate::provider::ChatMessage;
 use crate::store::NodeRecord;
 use crate::telemetry::{

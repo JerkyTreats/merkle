@@ -5,8 +5,7 @@
 
 use crate::api::ContextApi;
 use crate::error::ApiError;
-use crate::frame::queue::QueueEventContext;
-use crate::frame::{FrameGenerationQueue, GenerationConfig};
+use crate::context::queue::{FrameGenerationQueue, GenerationConfig, QueueEventContext};
 use crate::heads::HeadIndex;
 use crate::ignore;
 use crate::store::{NodeRecord, NodeRecordStore};
@@ -699,7 +698,7 @@ mod tests {
         let frame_storage_path = temp_dir.path().join("frames");
 
         let node_store = Arc::new(crate::store::SledNodeRecordStore::new(&store_path).unwrap());
-        let frame_storage = Arc::new(crate::frame::FrameStorage::new(&frame_storage_path).unwrap());
+        let frame_storage = Arc::new(crate::context::frame::FrameStorage::new(&frame_storage_path).unwrap());
         let head_index = Arc::new(parking_lot::RwLock::new(crate::heads::HeadIndex::new()));
         let agent_registry = Arc::new(parking_lot::RwLock::new(crate::agent::AgentRegistry::new()));
         let provider_registry = Arc::new(parking_lot::RwLock::new(
