@@ -3,7 +3,7 @@
 use merkle::agent::{AgentRole, AgentStorage, XdgAgentStorage};
 use merkle::config::{xdg, AgentConfig, ProviderConfig, ProviderType};
 use merkle::error::ApiError;
-use merkle::tooling::cli::{CliContext, Commands};
+use merkle::cli::{Commands, RunContext};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -132,7 +132,7 @@ fn test_unified_status_all_sections_text() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Status {
             format: "text".to_string(),
@@ -175,7 +175,7 @@ fn test_unified_status_all_sections_json() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Status {
             format: "json".to_string(),
@@ -218,7 +218,7 @@ fn test_unified_status_workspace_only() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Status {
             format: "text".to_string(),
@@ -260,7 +260,7 @@ fn test_unified_status_agents_only() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Status {
             format: "text".to_string(),
@@ -303,7 +303,7 @@ fn test_unified_status_providers_only() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Status {
             format: "text".to_string(),
@@ -332,7 +332,7 @@ fn test_unified_status_with_breakdown() {
         clear_configs();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Status {
             format: "text".to_string(),
@@ -364,7 +364,7 @@ fn test_unified_status_with_test_connectivity() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Status {
             format: "text".to_string(),
@@ -393,7 +393,7 @@ fn test_unified_status_empty_configs() {
         clear_configs();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Status {
             format: "text".to_string(),
@@ -421,7 +421,7 @@ fn test_unified_status_json_workspace_only() {
         clear_configs();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Status {
             format: "json".to_string(),
@@ -458,7 +458,7 @@ fn test_unified_status_json_agents_only() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Status {
             format: "json".to_string(),
@@ -493,7 +493,7 @@ fn test_unified_status_json_providers_only() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Status {
             format: "json".to_string(),

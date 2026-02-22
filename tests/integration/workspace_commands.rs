@@ -5,7 +5,7 @@
 //! not scanned, JSON format).
 
 use merkle::ignore;
-use merkle::tooling::cli::{CliContext, Commands, WorkspaceCommands};
+use merkle::cli::{Commands, RunContext, WorkspaceCommands};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -18,7 +18,7 @@ fn test_ignore_list_empty_missing_file() {
     with_xdg_data_home(&temp_dir, || {
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
         let out = ctx
             .execute(&Commands::Workspace {
                 command: WorkspaceCommands::Ignore {
@@ -40,7 +40,7 @@ fn test_workspace_ignore_add_and_list() {
         fs::create_dir_all(&workspace_root).unwrap();
         let sub = workspace_root.join("ignored_dir");
         fs::create_dir_all(&sub).unwrap();
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
 
         let out = ctx
             .execute(&Commands::Workspace {
@@ -74,7 +74,7 @@ fn test_workspace_ignore_dry_run() {
         fs::create_dir_all(&workspace_root).unwrap();
         let f = workspace_root.join("would_ignore.txt");
         fs::write(&f, "x").unwrap();
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
         let out = ctx
             .execute(&Commands::Workspace {
                 command: WorkspaceCommands::Ignore {
@@ -102,7 +102,7 @@ fn test_scan_then_validate_passed() {
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
         fs::write(workspace_root.join("a.txt"), "a").unwrap();
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
         ctx.execute(&Commands::Scan { force: true }).unwrap();
         let out = ctx
             .execute(&Commands::Workspace {
@@ -123,7 +123,7 @@ fn test_validate_not_scanned_warning() {
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
         fs::write(workspace_root.join("b.txt"), "b").unwrap();
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
         let out = ctx
             .execute(&Commands::Workspace {
                 command: WorkspaceCommands::Validate {
@@ -142,7 +142,7 @@ fn test_validate_format_json() {
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
         fs::write(workspace_root.join("c.txt"), "c").unwrap();
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
         ctx.execute(&Commands::Scan { force: true }).unwrap();
         let out = ctx
             .execute(&Commands::Workspace {
@@ -170,7 +170,7 @@ fn test_scan_without_force_already_exists() {
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
         fs::write(workspace_root.join("d.txt"), "d").unwrap();
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
         ctx.execute(&Commands::Scan { force: true }).unwrap();
         let out = ctx.execute(&Commands::Scan { force: false }).unwrap();
         assert!(out.contains("already exists") && out.contains("--force"));
@@ -184,7 +184,7 @@ fn test_scan_with_force_repopulates() {
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
         fs::write(workspace_root.join("e.txt"), "e").unwrap();
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
         let out1 = ctx.execute(&Commands::Scan { force: true }).unwrap();
         fs::write(workspace_root.join("f.txt"), "f").unwrap();
         let out2 = ctx.execute(&Commands::Scan { force: true }).unwrap();
@@ -202,7 +202,7 @@ fn test_workspace_ignore_path_outside_workspace_errors() {
         fs::create_dir_all(&workspace_root).unwrap();
         let outside = temp_dir.path().join("other").join("path");
         fs::create_dir_all(&outside).unwrap();
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
         let result = ctx.execute(&Commands::Workspace {
             command: WorkspaceCommands::Ignore {
                 path: Some(outside),
@@ -226,7 +226,7 @@ fn test_scan_default_uses_gitignore_when_ignore_list_missing() {
         fs::write(workspace_root.join(".gitignore"), "ignore_me\n").unwrap();
         fs::create_dir_all(workspace_root.join("ignore_me")).unwrap();
         fs::write(workspace_root.join("ignore_me").join("x"), "x").unwrap();
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
         ctx.execute(&Commands::Scan { force: true }).unwrap();
         let records = ctx.api().node_store().list_all().unwrap();
         let paths: Vec<String> = records
@@ -247,7 +247,7 @@ fn test_scan_syncs_gitignore_to_ignore_list() {
         fs::write(workspace_root.join("a.txt"), "a").unwrap();
         fs::write(workspace_root.join(".gitignore"), "synced_ignore\n*.log\n").unwrap();
         fs::create_dir_all(workspace_root.join("synced_ignore")).unwrap();
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
         ctx.execute(&Commands::Scan { force: true }).unwrap();
         let list_path = merkle::ignore::ignore_list_path(&workspace_root).unwrap();
         let contents = fs::read_to_string(&list_path).unwrap();
@@ -274,7 +274,7 @@ fn test_scan_respects_ignore_list() {
         let skip_dir = workspace_root.join("skip_me");
         fs::create_dir_all(&skip_dir).unwrap();
         fs::write(skip_dir.join("file.txt"), "x").unwrap();
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
         ctx.execute(&Commands::Workspace {
             command: WorkspaceCommands::Ignore {
                 path: Some(PathBuf::from("skip_me")),
@@ -308,7 +308,7 @@ fn test_scan_then_status_shows_scanned() {
         fs::create_dir_all(workspace_root.join("ignored")).unwrap();
         fs::write(workspace_root.join("ignored").join("x"), "x").unwrap();
 
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
         ctx.execute(&Commands::Scan { force: true }).unwrap();
 
         let out = ctx

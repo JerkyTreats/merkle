@@ -11,6 +11,7 @@ pub use crate::context::queue::{
     FrameGenerationQueue, GenerationConfig, GenerationRequestOptions, Priority, QueueEventContext,
     QueueStats,
 };
+pub use crate::context::query::{ContextView, ContextViewBuilder, NodeContext};
 pub use crate::context::types::{CompactResult, RestoreResult, TombstoneResult};
 
 /// Placeholder for a single entrypoint that builds a context service from dependencies.

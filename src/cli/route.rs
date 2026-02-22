@@ -76,7 +76,7 @@ impl RunContext {
         std::fs::create_dir_all(&frame_storage_path)
             .map_err(|e| ApiError::StorageError(crate::error::StorageError::IoError(e)))?;
         let frame_storage = Arc::new(
-            crate::context::frame::storage::FrameStorage::new(&frame_storage_path)
+            crate::context::frame::open_storage(&frame_storage_path)
                 .map_err(|e| ApiError::StorageError(e))?,
         );
         let head_index_path = HeadIndex::persistence_path(&workspace_root);

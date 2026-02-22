@@ -41,7 +41,7 @@ cargo test --test integration_tests integration::provider_cli
 cargo test --test integration_tests integration::model_providers
 cargo test --test integration_tests integration::config_integration
 cargo test --test integration_tests integration::unified_status
-cargo test --test phase1_tests
+cargo test --test integration_tests
 ```
 
 ## Progress

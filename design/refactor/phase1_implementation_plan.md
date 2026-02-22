@@ -2,6 +2,8 @@
 
 Date: 2026-02-17
 
+**Note:** The Phase 1 parity suite (`tests/phase1`, `tests/phase1_tests.rs`, and fixtures) was removed in post-Phase 10 cleanup. This document remains for historical reference; use the integration test suite for ongoing gates.
+
 ## Objective
 
 Lock current behavior contracts before extraction work by adding temporary parity gates, deterministic ordering checks, and one shared dependency checklist.
@@ -25,10 +27,10 @@ This plan covers Phase 1 execution detail.
 
 ## Lifetime Policy
 
-Phase 1 tests are temporary migration scaffolding.
+Phase 1 tests were temporary migration scaffolding.
 
-- home during migration: `tests/phase1`
-- removal or fold target: final migration cleanup phase
+- home during migration: `tests/phase1` (removed)
+- removal or fold target: final migration cleanup phase — **done:** suite removed post-Phase 10
 - durable tests can be moved into long term integration homes when migration risk drops
 
 ## Gate Groups
@@ -63,22 +65,19 @@ Phase 1 tests are temporary migration scaffolding.
 - one checklist artifact used by all migration plans
 - each gate includes owner, evidence, command, and status
 
-## Test Artifact Layout
+## Test Artifact Layout (removed)
+
+The following artifacts were removed in post-Phase 10 cleanup:
 
 - `tests/phase1_tests.rs`
-- `tests/phase1/mod.rs`
-- `tests/phase1/support.rs`
-- `tests/phase1/parse_help_parity.rs`
-- `tests/phase1/output_contracts.rs`
-- `tests/phase1/summary_contracts.rs`
-- `tests/phase1/deterministic_ordering.rs`
-- `tests/fixtures/phase1/help/top_level.tokens`
-- `tests/fixtures/phase1/help/context_generate.tokens`
+- `tests/phase1/mod.rs`, `support.rs`, `parse_help_parity.rs`, `output_contracts.rs`, `summary_contracts.rs`, `deterministic_ordering.rs`
+- `tests/fixtures/phase1/help/top_level.tokens`, `context_generate.tokens`
 
-## Gate Commands
+## Gate Commands (historical)
 
 ```bash
-cargo test --test phase1_tests
+# Phase 1 suite removed; use integration tests instead:
+cargo test --test integration_tests
 cargo test --test integration_tests integration::progress_observability::command_families_emit_typed_summaries_with_command_summary
 cargo test --test integration_tests integration::unified_status
 cargo test --test integration_tests integration::context_cli::test_context_generate_rejects_async_flag

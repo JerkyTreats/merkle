@@ -1,6 +1,6 @@
 //! Integration tests for tombstone-based node deletion: delete, restore, compact, list-deleted.
 
-use merkle::tooling::cli::{CliContext, Commands, WorkspaceCommands};
+use merkle::cli::{Commands, RunContext, WorkspaceCommands};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -17,7 +17,7 @@ fn test_workspace_delete_and_list_deleted() {
         fs::create_dir_all(workspace_root.join("sub")).unwrap();
         fs::write(workspace_root.join("sub").join("b.txt"), "b").unwrap();
 
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
         ctx.execute(&Commands::Scan { force: false }).unwrap();
 
         let out = ctx
@@ -51,7 +51,7 @@ fn test_workspace_delete_dry_run() {
         let workspace_root = temp_dir.path().join("ws");
         fs::create_dir_all(&workspace_root).unwrap();
         fs::write(workspace_root.join("f.txt"), "x").unwrap();
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
         ctx.execute(&Commands::Scan { force: false }).unwrap();
 
         let out = ctx
@@ -85,7 +85,7 @@ fn test_workspace_restore() {
         let workspace_root = temp_dir.path().join("ws");
         fs::create_dir_all(&workspace_root).unwrap();
         fs::write(workspace_root.join("r.txt"), "r").unwrap();
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
         ctx.execute(&Commands::Scan { force: false }).unwrap();
         ctx.execute(&Commands::Workspace {
             command: WorkspaceCommands::Delete {
@@ -116,7 +116,7 @@ fn test_workspace_compact_dry_run() {
     with_xdg_data_home(&temp_dir, || {
         let workspace_root = temp_dir.path().join("ws");
         fs::create_dir_all(&workspace_root).unwrap();
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
         let out = ctx
             .execute(&Commands::Workspace {
                 command: WorkspaceCommands::Compact {
@@ -137,7 +137,7 @@ fn test_list_deleted_json_format() {
     with_xdg_data_home(&temp_dir, || {
         let workspace_root = temp_dir.path().join("ws");
         fs::create_dir_all(&workspace_root).unwrap();
-        let ctx = CliContext::new(workspace_root.clone(), None).unwrap();
+        let ctx = RunContext::new(workspace_root.clone(), None).unwrap();
         let out = ctx
             .execute(&Commands::Workspace {
                 command: WorkspaceCommands::ListDeleted {

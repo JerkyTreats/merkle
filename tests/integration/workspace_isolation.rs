@@ -8,7 +8,7 @@
 use merkle::context::frame::{Basis, Frame};
 use merkle::heads::HeadIndex;
 use merkle::store::{NodeRecord, NodeType};
-use merkle::tooling::cli::CliContext;
+use merkle::cli::RunContext;
 use merkle::types::NodeID;
 use std::fs;
 use std::path::PathBuf;
@@ -57,8 +57,8 @@ fn test_workspace_isolation_data_isolation() {
         fs::write(workspace2.path().join("test.txt"), "content2").unwrap();
 
         // Initialize CLI contexts for both workspaces
-        let ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
-        let ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
+        let ctx1 = RunContext::new(workspace1.path().to_path_buf(), None).unwrap();
+        let ctx2 = RunContext::new(workspace2.path().to_path_buf(), None).unwrap();
 
         // Create a test node ID
         let node_id: NodeID = [1u8; 32];
@@ -100,8 +100,8 @@ fn test_workspace_isolation_frame_isolation() {
 
     with_xdg_data_home(&test_dir, || {
         // Initialize CLI contexts for both workspaces
-        let ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
-        let ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
+        let ctx1 = RunContext::new(workspace1.path().to_path_buf(), None).unwrap();
+        let ctx2 = RunContext::new(workspace2.path().to_path_buf(), None).unwrap();
 
         // Create a test frame for workspace 1
         let node_id: NodeID = [1u8; 32];
@@ -141,8 +141,8 @@ fn test_workspace_isolation_head_index_isolation() {
 
     with_xdg_data_home(&test_dir, || {
         // Initialize CLI contexts for both workspaces
-        let ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
-        let ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
+        let ctx1 = RunContext::new(workspace1.path().to_path_buf(), None).unwrap();
+        let ctx2 = RunContext::new(workspace2.path().to_path_buf(), None).unwrap();
 
         let node_id: NodeID = [1u8; 32];
         let frame_id = merkle::types::FrameID::from([2u8; 32]);
@@ -178,8 +178,8 @@ fn test_workspace_isolation_persistence_isolation() {
 
     with_xdg_data_home(&test_dir, || {
         // Initialize CLI contexts for both workspaces
-        let ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
-        let ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
+        let ctx1 = RunContext::new(workspace1.path().to_path_buf(), None).unwrap();
+        let ctx2 = RunContext::new(workspace2.path().to_path_buf(), None).unwrap();
 
         let node_id: NodeID = [1u8; 32];
         let frame_id = merkle::types::FrameID::from([2u8; 32]);
@@ -230,8 +230,8 @@ fn test_workspace_isolation_persistence_isolation() {
         drop(ctx2);
 
         // Create new contexts to verify persistence
-        let ctx1_reload = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
-        let ctx2_reload = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
+        let ctx1_reload = RunContext::new(workspace1.path().to_path_buf(), None).unwrap();
+        let ctx2_reload = RunContext::new(workspace2.path().to_path_buf(), None).unwrap();
 
         // Verify workspace 1 still has its data
         {
@@ -272,8 +272,8 @@ fn test_workspace_isolation_same_structure() {
         fs::write(workspace2.path().join("file2.txt"), "content").unwrap();
 
         // Initialize CLI contexts (just to verify they can be created)
-        let _ctx1 = CliContext::new(workspace1.path().to_path_buf(), None).unwrap();
-        let _ctx2 = CliContext::new(workspace2.path().to_path_buf(), None).unwrap();
+        let _ctx1 = RunContext::new(workspace1.path().to_path_buf(), None).unwrap();
+        let _ctx2 = RunContext::new(workspace2.path().to_path_buf(), None).unwrap();
 
         // Build trees - they should have different root hashes because paths are different
         // (even though content is the same, the workspace paths differ)

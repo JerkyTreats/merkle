@@ -15,4 +15,7 @@ pub use super::types::{
     ProviderStatusOutput, TreeStatus, UnifiedStatusOutput, ValidateResult,
     WorkspaceStatus, WorkspaceStatusRequest, WorkspaceStatusResult,
 };
+pub use super::ci::{
+    BatchOperation, BatchReport, CiIntegration, DiffReport, ValidationReport, WorkspaceReport,
+};
 pub use super::watch::{ChangeEvent, EditorHooks, WatchConfig, WatchDaemon};

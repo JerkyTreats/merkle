@@ -62,7 +62,7 @@ Apply these rules when implementing domain extraction and refactors.
 | 7 | Provider and agent command workflows plus adapter cutover | Phase 2, Phase 3, Phase 4, Phase 6 | Completed local |
 | 8 | Workspace lifecycle status and watch ownership | Phase 4, Phase 5, Phase 6, Phase 7 | Completed local |
 | 9 | CLI route waves and startup execution cutover | Phase 4, Phase 5, Phase 6, Phase 7, Phase 8 | Completed local |
-| 10 | Legacy removal and boundary seal | Phase 1 to Phase 9 | Planned |
+| 10 | Legacy removal and boundary seal | Phase 1 to Phase 9 | Completed local |
 
 ---
 
@@ -370,24 +370,28 @@ Completed: boundary error mapping is wired. The binary calls `merkle::cli::outpu
 | Goal | Remove temporary migration surfaces and enforce final domain boundaries. |
 | Dependencies | Phase 1 to Phase 9 |
 | Docs | god_module_detangling_spec.md, src_module_structure_map.md |
-| Completion | Planned |
+| Completion | Completed local |
 
 | Order | Task | Completion |
 |-------|------|------------|
-| 1 | Remove legacy `src/tooling` ownership paths after all route waves are complete. | Planned |
-| 2 | Remove legacy context policy ownership from `src/api.rs` and related old helper surfaces. | Planned |
+| 1 | Remove legacy `src/tooling` ownership paths after all route waves are complete. | Completed local |
+| 2 | Remove legacy context policy ownership from `src/api.rs` and related old helper surfaces. | Completed local |
 | 3 | Remove legacy `src/progress` ownership once telemetry ownership is complete. | Completed local |
-| 4 | Remove stale exports and stale helper code paths that bypass domain contracts. | Planned |
-| 5 | Enforce boundary guard tests for no cross domain internal reach through. | Planned |
+| 4 | Remove stale exports and stale helper code paths that bypass domain contracts. | Completed local |
+| 5 | Enforce boundary guard tests for no cross domain internal reach through. | Completed local |
 
 | Exit criterion | Completion |
 |----------------|------------|
-| Final module structure matches domain first ownership targets. | Planned |
-| No old mixed ownership surfaces remain active. | Planned |
+| Final module structure matches domain first ownership targets. | Completed local |
+| No old mixed ownership surfaces remain active. | Completed local |
 
 | Dependency closure solved | Completion |
 |---------------------------|------------|
-| Delivers final durable architecture and prevents dependency regressions. | Planned |
+| Delivers final durable architecture and prevents dependency regressions. | Completed local |
+
+#### Phase 10 — Implementation notes
+
+Tooling removed: CI rehomed to `src/workspace/ci.rs`; all tests updated to use `merkle::cli`, `merkle::workspace`, `merkle::agent`; `src/tooling` and `src/tooling.rs` deleted; `pub mod tooling` removed from lib. Context policy: `ContextView`, `ContextViewBuilder`, `NodeContext` moved to `src/context/query/view.rs`; result types re-exported from `context::types` in api; api is thin facade re-exporting these and delegating to context. Composition moved to `src/context/query/composition.rs`; top-level `src/composition.rs` removed. Bypass fix: `context::frame::open_storage` added so CLI uses it instead of `context::frame::storage::FrameStorage::new`. Boundary guard: `scripts/check_domain_boundaries.sh` enforces no `context::frame::storage` in cli, no `crate::composition::`, no `crate::tooling::`; run in CI when available. See `scripts/README.md`.
 
 ---
 

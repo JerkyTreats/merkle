@@ -4,7 +4,7 @@ use clap::Parser;
 use merkle::agent::{AgentRole, AgentStorage, XdgAgentStorage};
 use merkle::config::{xdg, AgentConfig, ProviderConfig, ProviderType};
 use merkle::error::ApiError;
-use merkle::tooling::cli::{Cli, CliContext, Commands, ContextCommands};
+use merkle::cli::{Cli, Commands, ContextCommands, RunContext};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -95,15 +95,15 @@ fn test_context_get_with_path() {
         fs::write(&test_file, "test content").unwrap();
 
         // Initialize CLI context
-        let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
+        let run_context = RunContext::new(workspace_root.clone(), None).unwrap();
 
         // Scan the workspace
-        cli_context
+        run_context
             .execute(&Commands::Scan { force: true })
             .unwrap();
 
         // Get context for the file
-        let result = cli_context.execute(&Commands::Context {
+        let result = run_context.execute(&Commands::Context {
             command: ContextCommands::Get {
                 node: None,
                 path: Some(test_file),
@@ -139,15 +139,15 @@ fn test_context_get_with_node_id() {
         fs::write(&test_file, "test content").unwrap();
 
         // Initialize CLI context
-        let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
+        let run_context = RunContext::new(workspace_root.clone(), None).unwrap();
 
         // Scan the workspace
-        cli_context
+        run_context
             .execute(&Commands::Scan { force: true })
             .unwrap();
 
         // Get root node ID from status (use JSON format to get full hash)
-        let status_output = cli_context
+        let status_output = run_context
             .execute(&Commands::Status {
                 format: "json".to_string(),
                 workspace_only: true,
@@ -163,7 +163,7 @@ fn test_context_get_with_node_id() {
             .unwrap();
 
         // Get context for the root node
-        let result = cli_context.execute(&Commands::Context {
+        let result = run_context.execute(&Commands::Context {
             command: ContextCommands::Get {
                 node: Some(root_hash.to_string()),
                 path: None,
@@ -192,14 +192,14 @@ fn test_context_get_invalid_path() {
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
 
-        let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
+        let run_context = RunContext::new(workspace_root.clone(), None).unwrap();
 
         // Create the file but don't scan it (so it's not in the tree)
         let test_path = workspace_root.join("nonexistent.txt");
         fs::write(&test_path, "test content").unwrap();
 
         // Try to get context for a path not in the tree
-        let result = cli_context.execute(&Commands::Context {
+        let result = run_context.execute(&Commands::Context {
             command: ContextCommands::Get {
                 node: None,
                 path: Some(test_path),
@@ -233,12 +233,12 @@ fn test_context_get_json_format() {
         let test_file = workspace_root.join("test.txt");
         fs::write(&test_file, "test content").unwrap();
 
-        let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-        cli_context
+        let run_context = RunContext::new(workspace_root.clone(), None).unwrap();
+        run_context
             .execute(&Commands::Scan { force: true })
             .unwrap();
 
-        let result = cli_context.execute(&Commands::Context {
+        let result = run_context.execute(&Commands::Context {
             command: ContextCommands::Get {
                 node: None,
                 path: Some(test_file),
@@ -273,12 +273,12 @@ fn test_context_get_combine() {
         let test_file = workspace_root.join("test.txt");
         fs::write(&test_file, "test content").unwrap();
 
-        let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-        cli_context
+        let run_context = RunContext::new(workspace_root.clone(), None).unwrap();
+        run_context
             .execute(&Commands::Scan { force: true })
             .unwrap();
 
-        let result = cli_context.execute(&Commands::Context {
+        let result = run_context.execute(&Commands::Context {
             command: ContextCommands::Get {
                 node: None,
                 path: Some(test_file),
@@ -316,13 +316,13 @@ fn test_context_generate_requires_provider() {
         let test_file = workspace_root.join("test.txt");
         fs::write(&test_file, "test content").unwrap();
 
-        let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-        cli_context
+        let run_context = RunContext::new(workspace_root.clone(), None).unwrap();
+        run_context
             .execute(&Commands::Scan { force: true })
             .unwrap();
 
         // Try to generate without provider
-        let result = cli_context.execute(&Commands::Context {
+        let result = run_context.execute(&Commands::Context {
             command: ContextCommands::Generate {
                 node: None,
                 path: Some(test_file),
@@ -361,15 +361,15 @@ fn test_context_generate_requires_agent_or_default() {
         let test_file = workspace_root.join("test.txt");
         fs::write(&test_file, "test content").unwrap();
 
-        let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-        cli_context
+        let run_context = RunContext::new(workspace_root.clone(), None).unwrap();
+        run_context
             .execute(&Commands::Scan { force: true })
             .unwrap();
 
         // Should work without --agent (uses default)
         // Note: This will fail at generation time if provider is not actually available,
         // but the agent resolution should work
-        let result = cli_context.execute(&Commands::Context {
+        let result = run_context.execute(&Commands::Context {
             command: ContextCommands::Generate {
                 node: None,
                 path: Some(test_file),
@@ -409,13 +409,13 @@ fn test_context_generate_multiple_agents_requires_flag() {
         let test_file = workspace_root.join("test.txt");
         fs::write(&test_file, "test content").unwrap();
 
-        let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-        cli_context
+        let run_context = RunContext::new(workspace_root.clone(), None).unwrap();
+        run_context
             .execute(&Commands::Scan { force: true })
             .unwrap();
 
         // Should fail without --agent when multiple agents exist
-        let result = cli_context.execute(&Commands::Context {
+        let result = run_context.execute(&Commands::Context {
             command: ContextCommands::Generate {
                 node: None,
                 path: Some(test_file),
@@ -446,12 +446,12 @@ fn test_context_get_invalid_ordering() {
         let test_file = workspace_root.join("test.txt");
         fs::write(&test_file, "test content").unwrap();
 
-        let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-        cli_context
+        let run_context = RunContext::new(workspace_root.clone(), None).unwrap();
+        run_context
             .execute(&Commands::Scan { force: true })
             .unwrap();
 
-        let result = cli_context.execute(&Commands::Context {
+        let result = run_context.execute(&Commands::Context {
             command: ContextCommands::Get {
                 node: None,
                 path: Some(test_file),
@@ -482,12 +482,12 @@ fn test_context_get_invalid_format() {
         let test_file = workspace_root.join("test.txt");
         fs::write(&test_file, "test content").unwrap();
 
-        let cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
-        cli_context
+        let run_context = RunContext::new(workspace_root.clone(), None).unwrap();
+        run_context
             .execute(&Commands::Scan { force: true })
             .unwrap();
 
-        let result = cli_context.execute(&Commands::Context {
+        let result = run_context.execute(&Commands::Context {
             command: ContextCommands::Get {
                 node: None,
                 path: Some(test_file),
@@ -528,7 +528,7 @@ fn test_context_generate_mutually_exclusive_node_path() {
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
 
-        let _cli_context = CliContext::new(workspace_root.clone(), None).unwrap();
+        let _run_context = RunContext::new(workspace_root.clone(), None).unwrap();
 
         // This should be caught by clap, but test the execution path anyway
         // Note: clap will prevent both from being set, so this test may not be reachable

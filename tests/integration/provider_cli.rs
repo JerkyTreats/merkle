@@ -2,7 +2,7 @@
 
 use merkle::config::{xdg, ProviderConfig, ProviderType};
 use merkle::error::ApiError;
-use merkle::tooling::cli::{CliContext, Commands, ProviderCommands};
+use merkle::cli::{Commands, ProviderCommands, RunContext};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -58,7 +58,7 @@ fn test_provider_list_empty() {
         }
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::List {
@@ -93,7 +93,7 @@ fn test_provider_list_with_providers() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::List {
@@ -125,7 +125,7 @@ fn test_provider_list_filter_by_type() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::List {
@@ -148,7 +148,7 @@ fn test_provider_list_json_format() {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::List {
@@ -172,7 +172,7 @@ fn test_provider_show() {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Show {
@@ -197,7 +197,7 @@ fn test_provider_show_with_credentials() {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Show {
@@ -218,7 +218,7 @@ fn test_provider_show_not_found() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Show {
@@ -241,7 +241,7 @@ fn test_provider_validate() {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Validate {
@@ -263,7 +263,7 @@ fn test_provider_validate_not_found() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Validate {
@@ -294,7 +294,7 @@ fn test_provider_status_empty() {
             }
         }
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Status {
                 format: "text".to_string(),
@@ -323,7 +323,7 @@ fn test_provider_status_one_provider_text() {
         )
         .unwrap();
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Status {
                 format: "text".to_string(),
@@ -352,7 +352,7 @@ fn test_provider_status_one_provider_json() {
         )
         .unwrap();
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Status {
                 format: "json".to_string(),
@@ -382,7 +382,7 @@ fn test_provider_status_with_test_connectivity() {
         )
         .unwrap();
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Status {
                 format: "text".to_string(),
@@ -407,7 +407,7 @@ fn test_provider_create_non_interactive() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Create {
@@ -437,7 +437,7 @@ fn test_provider_create_missing_required_fields() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Create {
@@ -470,7 +470,7 @@ fn test_provider_edit_with_flags() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Edit {
@@ -499,7 +499,7 @@ fn test_provider_edit_not_found() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Edit {
@@ -530,7 +530,7 @@ fn test_provider_remove() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Remove {
@@ -555,7 +555,7 @@ fn test_provider_remove_not_found() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Remove {
@@ -575,7 +575,7 @@ fn test_provider_list_invalid_type_filter() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::List {
@@ -597,7 +597,7 @@ fn test_provider_show_json_format() {
         create_test_provider("test-openai", ProviderType::OpenAI, "gpt-4", None).unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Show {
@@ -637,7 +637,7 @@ fn test_provider_registry_list_by_type() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
         let registry = cli.api().provider_registry().read();
 
         let openai_providers = registry.list_by_type(Some(ProviderType::OpenAI));

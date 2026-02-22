@@ -6,7 +6,6 @@
 pub mod agent;
 pub mod api;
 pub mod cli;
-pub mod composition;
 pub mod concurrency;
 pub mod config;
 pub mod context;
@@ -18,7 +17,6 @@ pub mod logging;
 pub mod provider;
 pub mod store;
 pub mod telemetry;
-pub mod tooling;
 pub mod tree;
 pub mod types;
 pub mod views;

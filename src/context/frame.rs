@@ -10,7 +10,14 @@ pub mod storage;
 pub use set::FrameMerkleSet;
 pub use storage::FrameStorage;
 
+use crate::error::StorageError;
 use crate::types::{FrameID, NodeID};
+use std::path::Path;
+
+/// Open frame storage at the given path. Use this instead of reaching into `storage` internals.
+pub fn open_storage(path: &Path) -> Result<FrameStorage, StorageError> {
+    storage::FrameStorage::new(path)
+}
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

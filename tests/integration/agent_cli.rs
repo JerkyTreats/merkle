@@ -3,7 +3,7 @@
 use merkle::agent::{AgentRole, AgentStorage, XdgAgentStorage};
 use merkle::config::{xdg, AgentConfig};
 use merkle::error::ApiError;
-use merkle::tooling::cli::{AgentCommands, CliContext, Commands};
+use merkle::cli::{AgentCommands, Commands, RunContext};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -74,7 +74,7 @@ fn test_agent_list_empty() {
         }
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::List {
@@ -108,7 +108,7 @@ fn test_agent_status_empty() {
             }
         }
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
         let result = cli.execute(&Commands::Agent {
             command: AgentCommands::Status {
                 format: "text".to_string(),
@@ -132,7 +132,7 @@ fn test_agent_status_one_agent_text() {
         )
         .unwrap();
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
         let result = cli.execute(&Commands::Agent {
             command: AgentCommands::Status {
                 format: "text".to_string(),
@@ -160,7 +160,7 @@ fn test_agent_status_one_agent_json() {
         )
         .unwrap();
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
         let result = cli.execute(&Commands::Agent {
             command: AgentCommands::Status {
                 format: "json".to_string(),
@@ -192,7 +192,7 @@ fn test_agent_status_multiple_agents() {
         .unwrap();
         create_test_agent("reader-agent", AgentRole::Reader, None).unwrap();
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
         let result = cli.execute(&Commands::Agent {
             command: AgentCommands::Status {
                 format: "text".to_string(),
@@ -220,7 +220,7 @@ fn test_agent_list_text() {
         create_test_agent("test-reader", AgentRole::Reader, None).unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::List {
@@ -250,7 +250,7 @@ fn test_agent_list_json() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::List {
@@ -280,7 +280,7 @@ fn test_agent_list_filtered_by_role() {
         create_test_agent("test-reader", AgentRole::Reader, None).unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::List {
@@ -308,7 +308,7 @@ fn test_agent_show_text() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::Show {
@@ -337,7 +337,7 @@ fn test_agent_show_with_prompt() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::Show {
@@ -366,7 +366,7 @@ fn test_agent_show_json() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::Show {
@@ -387,7 +387,7 @@ fn test_agent_show_not_found() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::Show {
@@ -415,7 +415,7 @@ fn test_agent_validate_valid() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::Validate {
@@ -445,7 +445,7 @@ fn test_agent_validate_missing_prompt() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::Validate {
@@ -483,7 +483,7 @@ fn test_agent_validate_all() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::Validate {
@@ -515,7 +515,7 @@ fn test_agent_validate_all_verbose() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::Validate {
@@ -549,7 +549,7 @@ fn test_agent_validate_all_empty() {
         }
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::Validate {
@@ -577,7 +577,7 @@ fn test_agent_create_non_interactive() {
         let prompt_path = create_test_prompt_file(&test_dir, "new.md");
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::Create {
@@ -604,7 +604,7 @@ fn test_agent_create_reader() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::Create {
@@ -640,7 +640,7 @@ fn test_agent_edit_prompt_path() {
         let new_prompt_path = create_test_prompt_file(&test_dir, "new.md");
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::Edit {
@@ -675,7 +675,7 @@ fn test_agent_edit_role() {
         .unwrap();
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::Edit {
@@ -712,7 +712,7 @@ fn test_agent_remove() {
         assert!(config_path.exists());
 
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::Remove {
@@ -735,7 +735,7 @@ fn test_agent_remove_not_found() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         let workspace = test_dir.path().to_path_buf();
-        let cli = CliContext::new(workspace, None).unwrap();
+        let cli = RunContext::new(workspace, None).unwrap();
 
         let command = Commands::Agent {
             command: AgentCommands::Remove {

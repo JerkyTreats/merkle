@@ -5,7 +5,7 @@ use merkle::context::frame::{Basis, Frame};
 use merkle::heads::HeadIndex;
 use merkle::store::persistence::SledNodeRecordStore;
 use merkle::agent::{AgentAdapter, ContextApiAdapter};
-use merkle::tooling::{BatchOperation, CiIntegration};
+use merkle::workspace::{BatchOperation, CiIntegration};
 use merkle::types::Hash;
 use merkle::views::OrderingPolicy;
 use std::collections::HashMap;

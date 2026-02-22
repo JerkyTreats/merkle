@@ -4,12 +4,12 @@
 //! Composition happens at read-time, is policy-driven, and produces bounded,
 //! deterministic results. No composite state is persisted—composition is computed on-demand.
 
-use crate::error::ApiError;
+use super::view_policy::{FrameFilter, OrderingPolicy};
 use crate::context::frame::{Frame, FrameStorage};
+use crate::error::ApiError;
 use crate::heads::HeadIndex;
 use crate::store::NodeRecordStore;
 use crate::types::NodeID;
-use crate::views::{FrameFilter, OrderingPolicy};
 use serde::{Deserialize, Serialize};
 
 /// Composition source for multi-frame composition

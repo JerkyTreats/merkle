@@ -6,8 +6,8 @@ use merkle::config::{xdg, ProviderConfig, ProviderType};
 use merkle::context::frame::{Basis, Frame};
 use merkle::provider::CompletionOptions;
 use merkle::telemetry::{PrunePolicy, SessionStatus};
-use merkle::tooling::cli::{
-    AgentCommands, CliContext, Commands, ContextCommands, ProviderCommands, WorkspaceCommands,
+use merkle::cli::{
+    AgentCommands, Commands, ContextCommands, ProviderCommands, RunContext, WorkspaceCommands,
 };
 use tempfile::TempDir;
 
@@ -64,7 +64,7 @@ fn scan_emits_session_boundary_events() {
         fs::create_dir_all(&workspace_root).unwrap();
         fs::write(workspace_root.join("a.txt"), "hello").unwrap();
 
-        let cli = CliContext::new(workspace_root, None).unwrap();
+        let cli = RunContext::new(workspace_root, None).unwrap();
         cli.execute(&Commands::Scan { force: true }).unwrap();
 
         let runtime = cli.progress_runtime();
@@ -99,7 +99,7 @@ fn emitted_event_timestamps_are_iso_8601_with_milliseconds() {
         fs::create_dir_all(&workspace_root).unwrap();
         fs::write(workspace_root.join("a.txt"), "hello").unwrap();
 
-        let cli = CliContext::new(workspace_root, None).unwrap();
+        let cli = RunContext::new(workspace_root, None).unwrap();
         cli.execute(&Commands::Scan { force: true }).unwrap();
 
         let runtime = cli.progress_runtime();
@@ -136,7 +136,7 @@ fn scan_emits_batched_progress_events_with_monotonic_counts() {
             fs::write(workspace_root.join(format!("f{i}.txt")), "x").unwrap();
         }
 
-        let cli = CliContext::new(workspace_root, None).unwrap();
+        let cli = RunContext::new(workspace_root, None).unwrap();
         cli.execute(&Commands::Scan { force: true }).unwrap();
 
         let runtime = cli.progress_runtime();
@@ -194,7 +194,7 @@ fn failed_command_emits_session_end() {
         let target = workspace_root.join("a.txt");
         fs::write(&target, "hello").unwrap();
 
-        let cli = CliContext::new(workspace_root.clone(), None).unwrap();
+        let cli = RunContext::new(workspace_root.clone(), None).unwrap();
         cli.execute(&Commands::Scan { force: true }).unwrap();
         let result = cli.execute(&Commands::Context {
             command: ContextCommands::Generate {
@@ -240,7 +240,7 @@ fn context_generate_plan_constructed_includes_path_field() {
         create_test_writer_agent("obs-agent");
         create_test_openai_provider("obs-provider", "gpt-4-test", "http://127.0.0.1:9");
 
-        let cli = CliContext::new(workspace_root.clone(), None).unwrap();
+        let cli = RunContext::new(workspace_root.clone(), None).unwrap();
         cli.execute(&Commands::Scan { force: true }).unwrap();
 
         let result = cli.execute(&Commands::Context {
@@ -304,7 +304,7 @@ fn context_generate_node_skipped_includes_path_field() {
         create_test_writer_agent("skip-agent");
         create_test_openai_provider("skip-provider", "gpt-4-test", "http://127.0.0.1:9");
 
-        let cli = CliContext::new(workspace_root.clone(), None).unwrap();
+        let cli = RunContext::new(workspace_root.clone(), None).unwrap();
         cli.execute(&Commands::Scan { force: true }).unwrap();
 
         let canonical_target = fs::canonicalize(&target).unwrap();
@@ -374,7 +374,7 @@ fn context_get_emits_summary_event() {
         let target = workspace_root.join("a.txt");
         fs::write(&target, "hello").unwrap();
 
-        let cli = CliContext::new(workspace_root.clone(), None).unwrap();
+        let cli = RunContext::new(workspace_root.clone(), None).unwrap();
         cli.execute(&Commands::Scan { force: true }).unwrap();
         cli.execute(&Commands::Context {
             command: ContextCommands::Get {
@@ -419,7 +419,7 @@ fn command_families_emit_typed_summaries_with_command_summary() {
         fs::create_dir_all(&workspace_root).unwrap();
         fs::write(workspace_root.join("a.txt"), "hello").unwrap();
 
-        let cli = CliContext::new(workspace_root, None).unwrap();
+        let cli = RunContext::new(workspace_root, None).unwrap();
 
         let checks: Vec<(Commands, &str, &str)> = vec![
             (
@@ -548,7 +548,7 @@ fn command_summary_success_is_metric_focused_and_bounded() {
         fs::create_dir_all(&workspace_root).unwrap();
         fs::write(workspace_root.join("a.txt"), "hello").unwrap();
 
-        let cli = CliContext::new(workspace_root, None).unwrap();
+        let cli = RunContext::new(workspace_root, None).unwrap();
         cli.execute(&Commands::Status {
             format: "text".to_string(),
             workspace_only: false,
@@ -596,7 +596,7 @@ fn command_summary_failure_message_is_bounded() {
 
         create_test_writer_agent("summary-agent");
 
-        let cli = CliContext::new(workspace_root.clone(), None).unwrap();
+        let cli = RunContext::new(workspace_root.clone(), None).unwrap();
         cli.execute(&Commands::Scan { force: true }).unwrap();
 
         let provider_name = "p".repeat(700);
@@ -657,7 +657,7 @@ fn provider_test_failure_emits_provider_request_failed_event() {
 
         create_test_openai_provider("provider-test-fail", "gpt-4-test", "http://127.0.0.1:9");
 
-        let cli = CliContext::new(workspace_root, None).unwrap();
+        let cli = RunContext::new(workspace_root, None).unwrap();
         let result = cli.execute(&Commands::Provider {
             command: ProviderCommands::Test {
                 provider_name: "provider-test-fail".to_string(),
@@ -703,7 +703,7 @@ fn interrupted_session_remains_readable() {
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
 
-        let cli = CliContext::new(workspace_root, None).unwrap();
+        let cli = RunContext::new(workspace_root, None).unwrap();
         let runtime = cli.progress_runtime();
         let session_id = runtime
             .start_command_session("manual.long_running".to_string())
@@ -731,7 +731,7 @@ fn pruning_removes_only_old_completed_sessions() {
         let workspace_root = temp_dir.path().join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
 
-        let cli = CliContext::new(workspace_root, None).unwrap();
+        let cli = RunContext::new(workspace_root, None).unwrap();
         let runtime = cli.progress_runtime();
 
         let s1 = runtime.start_command_session("one".to_string()).unwrap();

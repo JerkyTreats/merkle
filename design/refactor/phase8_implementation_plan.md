@@ -144,7 +144,7 @@ WorkspaceCommandService consumes agent and provider only for `unified_status` (w
 - Remove or slim [src/workspace_status.rs](../src/workspace_status.rs): remove types and build moved to workspace; move remaining formatters to workspace and remove file, or keep a thin re-export and remove later.
 - Delete [src/tooling/watch.rs](../src/tooling/watch.rs) and [src/tooling/editor.rs](../src/tooling/editor.rs) after CLI and tests use `crate::workspace::watch`. Add compatibility re-export in [src/tooling.rs](../src/tooling.rs) if needed, then remove.
 - Update [src/lib.rs](../src/lib.rs): ensure `workspace` is public; retain or remove `workspace_status` per decision above.
-- Run full test suite (phase1 parity, integration tests including unified_status, deterministic_ordering, watch contract). Fix regressions; ensure workspace uses only public APIs of context, telemetry, agent, and provider.
+- Run full test suite (integration tests including unified_status, deterministic_ordering, watch contract). Fix regressions; ensure workspace uses only public APIs of context, telemetry, agent, and provider.
 
 ---
 
@@ -197,8 +197,6 @@ Use **parent.rs + parent/child.rs** only; no `mod.rs` (per AGENTS.md).
 
 ## Verification commands
 
-- `cargo test --test phase1_tests`
 - `cargo test --test integration_tests integration::unified_status`
 - `cargo test --test integration_tests integration::progress_observability`
-- `cargo test --test phase1_tests phase1::deterministic_ordering`
 - `cargo build` and `cargo test` for workspace and tooling
