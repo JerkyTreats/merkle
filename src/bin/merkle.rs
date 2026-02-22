@@ -5,7 +5,7 @@
 use clap::Parser;
 use merkle::config::ConfigLoader;
 use merkle::logging::{init_logging, LoggingConfig};
-use merkle::tooling::cli::{Cli, CliContext};
+use merkle::cli::{Cli, RunContext};
 use std::path::PathBuf;
 use std::process;
 use tracing::{error, info};
@@ -25,13 +25,14 @@ fn main() {
     info!("Merkle CLI starting");
 
     // Create CLI context
-    let context = match CliContext::new(cli.workspace.clone(), cli.config.clone()) {
+    let context = match RunContext::new(cli.workspace.clone(), cli.config.clone()) {
         Ok(ctx) => {
             info!("CLI context initialized");
             ctx
         }
         Err(e) => {
             error!("Error initializing workspace: {}", e);
+            eprintln!("{}", merkle::cli::map_error(&e));
             process::exit(1);
         }
     };
@@ -44,6 +45,7 @@ fn main() {
         }
         Err(e) => {
             error!("Command failed: {}", e);
+            eprintln!("{}", merkle::cli::map_error(&e));
             process::exit(1);
         }
     }

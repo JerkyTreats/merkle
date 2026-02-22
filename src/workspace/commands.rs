@@ -6,7 +6,8 @@ use crate::agent::AgentRegistry;
 use crate::api::ContextApi;
 use crate::error::ApiError;
 use crate::ignore;
-use crate::store::NodeRecordStore;
+use crate::store::{NodeRecord, NodeRecordStore};
+use crate::telemetry::ProgressRuntime;
 use crate::tree::builder::TreeBuilder;
 use crate::tree::walker::WalkerConfig;
 use crate::types::NodeID;
@@ -16,8 +17,11 @@ use crate::workspace::types::{
     ListDeletedRow, ProviderStatusEntry, ProviderStatusOutput,
     UnifiedStatusOutput, ValidateResult, WorkspaceStatusRequest, WorkspaceStatusResult,
 };
+use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Instant;
 
 /// Resolve path or --node to NodeID. If include_tombstoned is true, use get_by_path (for restore).
 pub fn resolve_workspace_node_id(
@@ -481,6 +485,113 @@ impl WorkspaceCommandService {
             }
         }
         Ok(ListDeletedResult { rows })
+    }
+
+    /// Scan filesystem and rebuild tree: ignore load, TreeBuilder, store population, flush, ignore sync.
+    /// Returns a summary string. Progress/session_id optional for telemetry events.
+    pub fn scan(
+        api: &ContextApi,
+        workspace_root: &PathBuf,
+        force: bool,
+        progress: Option<&Arc<ProgressRuntime>>,
+        session_id: Option<&str>,
+    ) -> Result<String, ApiError> {
+        let scan_started = Instant::now();
+        let ignore_patterns = ignore::load_ignore_patterns(workspace_root)
+            .unwrap_or_else(|_| WalkerConfig::default().ignore_patterns);
+        let walker_config = WalkerConfig {
+            follow_symlinks: false,
+            ignore_patterns,
+            max_depth: None,
+        };
+        let builder =
+            TreeBuilder::new(workspace_root.clone()).with_walker_config(walker_config);
+        let tree = builder.build().map_err(ApiError::StorageError)?;
+        let total_nodes = tree.nodes.len();
+
+        if !force {
+            if api
+                .node_store()
+                .get(&tree.root_id)
+                .map_err(ApiError::from)?
+                .is_some()
+            {
+                if let (Some(prog), Some(sid)) = (progress, session_id) {
+                    prog.emit_event_best_effort(
+                        sid,
+                        "scan_progress",
+                        json!({
+                            "node_count": total_nodes,
+                            "total_nodes": total_nodes
+                        }),
+                    );
+                }
+                let root_hex = hex::encode(tree.root_id);
+                return Ok(format!(
+                    "Tree already exists (root: {}). Use --force to rebuild.",
+                    root_hex
+                ));
+            }
+        }
+
+        let store = api.node_store().as_ref() as &dyn NodeRecordStore;
+        const SCAN_PROGRESS_BATCH_NODES: usize = 128;
+        let mut processed_nodes = 0usize;
+        for (node_id, node) in &tree.nodes {
+            let record = NodeRecord::from_merkle_node(*node_id, node, &tree)
+                .map_err(ApiError::StorageError)?;
+            store.put(&record).map_err(ApiError::from)?;
+            processed_nodes += 1;
+            if let (Some(prog), Some(sid)) = (progress, session_id) {
+                if processed_nodes % SCAN_PROGRESS_BATCH_NODES == 0
+                    || processed_nodes == total_nodes
+                {
+                    prog.emit_event_best_effort(
+                        sid,
+                        "scan_progress",
+                        json!({
+                            "node_count": processed_nodes,
+                            "total_nodes": total_nodes
+                        }),
+                    );
+                }
+            }
+        }
+        if total_nodes == 0 {
+            if let (Some(prog), Some(sid)) = (progress, session_id) {
+                prog.emit_event_best_effort(
+                    sid,
+                    "scan_progress",
+                    json!({
+                        "node_count": 0,
+                        "total_nodes": 0
+                    }),
+                );
+            }
+        }
+        store.flush().map_err(|e| ApiError::StorageError(e))?;
+
+        let _ = ignore::maybe_sync_gitignore_after_tree(
+            workspace_root,
+            tree.find_gitignore_node_id().as_ref(),
+        );
+
+        let root_hex = hex::encode(tree.root_id);
+        if let (Some(prog), Some(sid)) = (progress, session_id) {
+            prog.emit_event_best_effort(
+                sid,
+                "scan_completed",
+                json!({
+                    "force": force,
+                    "node_count": total_nodes,
+                    "duration_ms": scan_started.elapsed().as_millis(),
+                }),
+            );
+        }
+        Ok(format!(
+            "Scanned {} nodes (root: {})",
+            total_nodes, root_hex
+        ))
     }
 
     /// Fan-in workspace + agent + provider status for `merkle status`.

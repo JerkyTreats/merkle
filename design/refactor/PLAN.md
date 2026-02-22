@@ -61,7 +61,7 @@ Apply these rules when implementing domain extraction and refactors.
 | 6 | Context query mutation generation and queue ownership | Phase 2, Phase 4, Phase 5 | In progress |
 | 7 | Provider and agent command workflows plus adapter cutover | Phase 2, Phase 3, Phase 4, Phase 6 | Completed local |
 | 8 | Workspace lifecycle status and watch ownership | Phase 4, Phase 5, Phase 6, Phase 7 | Completed local |
-| 9 | CLI route waves and startup execution cutover | Phase 4, Phase 5, Phase 6, Phase 7, Phase 8 | Planned |
+| 9 | CLI route waves and startup execution cutover | Phase 4, Phase 5, Phase 6, Phase 7, Phase 8 | Completed local |
 | 10 | Legacy removal and boundary seal | Phase 1 to Phase 9 | Planned |
 
 ---
@@ -331,27 +331,35 @@ Workspace domain under `src/workspace.rs` plus `src/workspace/` with commands, f
 | Goal | Slim CLI to parse route help output and boundary error mapping only. |
 | Dependencies | Phase 4, Phase 5, Phase 6, Phase 7, Phase 8 |
 | Docs | cli/cli_migration_plan.md |
-| Completion | Planned |
+| Completion | Completed local |
 
 | Order | Task | Completion |
 |-------|------|------------|
-| 1 | Complete CLI foundation modules for parse help route output and presentation ownership. | Planned |
-| 2 | Execute route wave one for workspace commands using workspace services from Phase 8. | Planned |
-| 3 | Execute route wave two for agent and provider commands using services from Phase 7. | Planned |
-| 4 | Execute route wave three for context commands using context facade contracts from Phase 6. | Planned |
-| 5 | Execute route wave four for unified status assembly using workspace agent and provider status contracts. | Planned |
-| 6 | Execute route wave five for watch and init using workspace watch and config composition contracts. | Planned |
-| 7 | Cut over startup and execution policy so CLI uses config composition facade and telemetry services only. | Planned |
-| 8 | Remove legacy route tables and orchestration code from old CLI surfaces in the same phase window. | Planned |
+| 1 | Complete CLI foundation modules for parse help route output and presentation ownership. | Completed local |
+| 2 | Execute route wave one for workspace commands using workspace services from Phase 8. | Completed local |
+| 3 | Execute route wave two for agent and provider commands using services from Phase 7. | Completed local |
+| 4 | Execute route wave three for context commands using context facade contracts from Phase 6. | Completed local |
+| 5 | Execute route wave four for unified status assembly using workspace agent and provider status contracts. | Completed local |
+| 6 | Execute route wave five for watch and init using workspace watch and config composition contracts. | Completed local |
+| 7 | Cut over startup and execution policy so CLI uses config composition facade and telemetry services only. | Completed local |
+| 8 | Remove legacy route tables and orchestration code from old CLI surfaces in the same phase window. | Completed local |
 
 | Exit criterion | Completion |
 |----------------|------------|
-| CLI owns only boundary responsibilities and one route table. | Planned |
-| No domain orchestration policy remains in CLI modules. | Planned |
+| CLI owns only boundary responsibilities and one route table. | Completed local |
+| No domain orchestration policy remains in CLI modules. | Completed local |
 
 | Dependency closure solved | Completion |
 |---------------------------|------------|
-| Completes shared shell cutover gates across provider agent config context workspace and telemetry plans. | Planned |
+| Completes shared shell cutover gates across provider agent config context workspace and telemetry plans. | Completed local |
+
+#### Phase 9 — Implementation notes
+
+CLI domain under `src/cli.rs` with `parse`, `help`, `output`, `presentation`, `route`. Single route table and `RunContext` in `src/cli/route.rs`: `RunContext::new` uses ConfigLoader only; `RunContext::execute` dispatches all variants to domain services and presentation. Context generate in `src/context/generation/run.rs` (`run_generate`); context get in `src/context/query/get.rs` (`get_node_for_cli`). Binary uses `merkle::cli::{Cli, RunContext}` and `context.execute(&cli.command)`. `src/tooling/cli.rs` is a thin re-export: `pub use crate::cli::{...}; pub use crate::cli::RunContext as CliContext`. No orchestration or duplicate formatters in tooling; Phase 1 and integration tests pass. `src/cli/output.rs` defines `map_error` for boundary error mapping; route and binary still present errors via `ApiError` display only.
+
+#### Phase 9 — Open work
+
+Completed: boundary error mapping is wired. The binary calls `merkle::cli::output::map_error` when presenting startup failure (RunContext::new) and command failure (execute) to stderr; `#[allow(dead_code)]` removed from `map_error`.
 
 ---
 

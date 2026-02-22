@@ -5,6 +5,7 @@
 
 pub mod agent;
 pub mod api;
+pub mod cli;
 pub mod composition;
 pub mod concurrency;
 pub mod config;
