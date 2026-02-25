@@ -30,6 +30,7 @@ pub struct AgentListItem {
 pub struct AgentShowResult {
     pub agent_id: String,
     pub role: AgentRole,
+    pub prompt_path: Option<String>,
     pub prompt_content: Option<String>,
 }
 
@@ -151,6 +152,30 @@ impl AgentCommandService {
         include_prompt: bool,
     ) -> Result<AgentShowResult, ApiError> {
         let agent = registry.get_or_error(agent_id)?;
+        let config_path = registry.agent_config_path(agent_id)?;
+        let prompt_path = if config_path.exists() {
+            let content = std::fs::read_to_string(&config_path).map_err(|e| {
+                ApiError::ConfigError(format!("Failed to read config: {}", e))
+            })?;
+            let agent_config: AgentConfig = toml::from_str(&content).map_err(|e| {
+                ApiError::ConfigError(format!("Failed to parse config: {}", e))
+            })?;
+            agent_config.system_prompt_path.map(|path| {
+                let base_dir = crate::config::xdg::config_home()
+                    .map(|p| p.join("merkle"))
+                    .ok();
+                if let Some(base_dir) = base_dir {
+                    match resolve_prompt_path(&path, &base_dir) {
+                        Ok(resolved) => resolved.display().to_string(),
+                        Err(_) => path,
+                    }
+                } else {
+                    path
+                }
+            })
+        } else {
+            None
+        };
         let prompt_content = if include_prompt {
             agent.metadata.get("system_prompt").cloned()
         } else {
@@ -159,6 +184,7 @@ impl AgentCommandService {
         Ok(AgentShowResult {
             agent_id: agent.agent_id.clone(),
             role: agent.role,
+            prompt_path,
             prompt_content,
         })
     }

@@ -45,7 +45,11 @@ pub fn format_agent_show_result_text(result: &AgentShowResult) -> String {
     };
     let mut output = format!("Agent: {}\n", result.agent_id);
     output.push_str(&format!("Role: {}\n", role_str));
-    output.push_str("Prompt: [see config]\n");
+    if let Some(prompt_path) = &result.prompt_path {
+        output.push_str(&format!("Prompt Path: {}\n", prompt_path));
+    } else {
+        output.push_str("Prompt Path: [none]\n");
+    }
     if let Some(prompt) = &result.prompt_content {
         output.push_str("\nPrompt Content:\n");
         output.push_str(prompt);
@@ -61,6 +65,7 @@ pub fn format_agent_show_result_json(result: &AgentShowResult) -> String {
     let mut out = json!({
         "agent_id": result.agent_id,
         "role": role_str,
+        "prompt_path": result.prompt_path,
     });
     if let Some(p) = &result.prompt_content {
         out["prompt_content"] = json!(p);
