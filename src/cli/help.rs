@@ -36,6 +36,7 @@ pub fn workspace_command_name(command: &WorkspaceCommands) -> &'static str {
 pub fn context_command_name(command: &ContextCommands) -> &'static str {
     match command {
         ContextCommands::Generate { .. } => "generate",
+        ContextCommands::Regenerate { .. } => "regenerate",
         ContextCommands::Get { .. } => "get",
     }
 }

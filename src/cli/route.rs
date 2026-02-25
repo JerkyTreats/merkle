@@ -1333,6 +1333,33 @@ impl RunContext {
                     &request,
                 )
             }
+            ContextCommands::Regenerate {
+                node,
+                path,
+                path_positional,
+                agent,
+                provider,
+                frame_type,
+                recursive,
+            } => {
+                let path_merged = path.as_ref().or(path_positional.as_ref());
+                let request = GenerateRequest {
+                    node: node.clone(),
+                    path: path_merged.cloned(),
+                    agent: agent.clone(),
+                    provider: provider.clone(),
+                    frame_type: frame_type.clone(),
+                    force: true,
+                    no_recursive: !*recursive,
+                };
+                run_generate(
+                    Arc::clone(&self.api),
+                    &self.workspace_root,
+                    Some(Arc::clone(&self.progress)),
+                    Some(session_id),
+                    &request,
+                )
+            }
             ContextCommands::Get {
                 node,
                 path,

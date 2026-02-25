@@ -438,6 +438,36 @@ pub enum ContextCommands {
         #[arg(long)]
         no_recursive: bool,
     },
+    /// Re generate a context frame for a node and prefer directory only reroll
+    Regenerate {
+        /// Target node by NodeID (hex string)
+        #[arg(long, conflicts_with_all = ["path", "path_positional"])]
+        node: Option<String>,
+
+        /// Target node by workspace-relative or absolute path
+        #[arg(long, value_name = "PATH", conflicts_with = "node")]
+        path: Option<PathBuf>,
+
+        /// Target path (positional; same as --path)
+        #[arg(value_name = "PATH", index = 1, conflicts_with = "node")]
+        path_positional: Option<PathBuf>,
+
+        /// Agent to use for generation
+        #[arg(long)]
+        agent: Option<String>,
+
+        /// Provider to use for generation (required)
+        #[arg(long)]
+        provider: Option<String>,
+
+        /// Frame type (defaults to context-<agent_id>)
+        #[arg(long)]
+        frame_type: Option<String>,
+
+        /// Regenerate directory target recursively instead of only rerolling the directory frame
+        #[arg(long)]
+        recursive: bool,
+    },
     /// Retrieve context frames for a node
     Get {
         /// Target node by NodeID (hex string)
