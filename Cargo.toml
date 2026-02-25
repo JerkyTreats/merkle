@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Meld Contributors"]
 description = "Deterministic filesystem state management using Merkle trees"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/yourorg/meld"
+repository = "https://github.com/jerkytreats/meld"
 
 [dependencies]
 # Hashing
