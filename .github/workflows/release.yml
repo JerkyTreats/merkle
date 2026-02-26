@@ -20,7 +20,9 @@ jobs:
       - uses: googleapis/release-please-action@v4
         id: release
         with:
-          release-type: rust
+          command: manifest
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
 
   # Publish to crates.io on release
   publish:

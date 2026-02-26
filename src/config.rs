@@ -2,7 +2,7 @@
 //!
 //! Runtime-driven configuration system that enables dynamic agent behavior and model provider
 //! management. Supports hierarchical configuration with environment variable overrides and
-//! runtime validation.
+//! runtime validation. Tests included. 
 
 #[cfg(test)]
 use crate::agent::AgentRole;
