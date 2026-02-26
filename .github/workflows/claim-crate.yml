@@ -1,0 +1,21 @@
+name: Claim Crate Name
+
+on:
+  schedule:
+    # Run every 5 minutes starting from 08:30 UTC on Feb 26
+    - cron: '*/5 8-9 26 2 *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  claim:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Attempt to publish
+        run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
