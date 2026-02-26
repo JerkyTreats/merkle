@@ -4,11 +4,30 @@
   "packages": {
     ".": {
       "component": "meld",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "exclude-paths": [
+        ".github",
+        "docs",
+        "design",
+        "prompts",
+        "scripts",
+        ".gitignore",
+        ".editorconfig",
+        "README.md",
+        "CONTRIBUTING.md",
+        "LICENSE",
+        "LICENSE-MIT",
+        "LICENSE-APACHE"
+      ]
     }
   },
   "bump-minor-pre-major": true,
   "bump-patch-for-minor-pre-major": true,
   "include-component-in-tag": false,
-  "include-v-in-tag": true
+  "include-v-in-tag": true,
+  "changelog-sections": [
+    {"type": "feat", "section": "Features"},
+    {"type": "fix", "section": "Bug Fixes"},
+    {"type": "perf", "section": "Performance Improvements"}
+  ]
 }
