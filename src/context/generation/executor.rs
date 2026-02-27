@@ -12,6 +12,7 @@ use crate::types::FrameID;
 use futures::stream::{FuturesUnordered, StreamExt};
 use serde_json::json;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[allow(async_fn_in_trait)]
 pub trait QueueSubmitter: Send + Sync {
@@ -20,6 +21,7 @@ pub trait QueueSubmitter: Send + Sync {
         item: &GenerationItem,
         priority: Priority,
         plan_id: &str,
+        wait_timeout: Option<Duration>,
     ) -> Result<FrameID, ApiError>;
 }
 
@@ -29,6 +31,7 @@ impl QueueSubmitter for FrameGenerationQueue {
         item: &GenerationItem,
         priority: Priority,
         plan_id: &str,
+        wait_timeout: Option<Duration>,
     ) -> Result<FrameID, ApiError> {
         self.enqueue_and_wait_with_options(
             item.node_id,
@@ -36,7 +39,7 @@ impl QueueSubmitter for FrameGenerationQueue {
             item.provider_name.clone(),
             Some(item.frame_type.clone()),
             priority,
-            None,
+            wait_timeout,
             crate::context::queue::GenerationRequestOptions {
                 force: item.force,
                 plan_id: Some(plan_id.to_string()),
@@ -49,11 +52,27 @@ impl QueueSubmitter for FrameGenerationQueue {
 /// Executes a generation plan by submitting items to a queue and collecting results.
 pub struct GenerationExecutor {
     progress: Option<Arc<ProgressRuntime>>,
+    wait_timeout: Option<Duration>,
 }
 
 impl GenerationExecutor {
+    const DEFAULT_WAIT_TIMEOUT: Duration = Duration::from_secs(300);
+
     pub fn new(progress: Option<Arc<ProgressRuntime>>) -> Self {
-        Self { progress }
+        Self {
+            progress,
+            wait_timeout: Some(Self::DEFAULT_WAIT_TIMEOUT),
+        }
+    }
+
+    pub fn with_wait_timeout(
+        progress: Option<Arc<ProgressRuntime>>,
+        wait_timeout: Option<Duration>,
+    ) -> Self {
+        Self {
+            progress,
+            wait_timeout,
+        }
     }
 
     pub async fn execute<Q: QueueSubmitter>(
@@ -109,9 +128,10 @@ impl GenerationExecutor {
                 );
 
                 let submit_plan_id = plan.plan_id.clone();
+                let wait_timeout = self.wait_timeout;
                 futures.push(async move {
                     let res = queue
-                        .enqueue_and_wait_item(item, queue_priority, &submit_plan_id)
+                        .enqueue_and_wait_item(item, queue_priority, &submit_plan_id, wait_timeout)
                         .await;
                     (item, res)
                 });
@@ -246,12 +266,14 @@ mod tests {
 
     struct MockQueue {
         outcomes: Mutex<HashMap<String, Result<FrameID, ApiError>>>,
+        received_timeouts: Mutex<Vec<Option<Duration>>>,
     }
 
     impl MockQueue {
         fn new(outcomes: HashMap<String, Result<FrameID, ApiError>>) -> Self {
             Self {
                 outcomes: Mutex::new(outcomes),
+                received_timeouts: Mutex::new(Vec::new()),
             }
         }
     }
@@ -262,7 +284,9 @@ mod tests {
             item: &GenerationItem,
             _priority: Priority,
             _plan_id: &str,
+            wait_timeout: Option<Duration>,
         ) -> Result<FrameID, ApiError> {
+            self.received_timeouts.lock().push(wait_timeout);
             self.outcomes
                 .lock()
                 .remove(&hex::encode(item.node_id))
@@ -328,5 +352,37 @@ mod tests {
             .unwrap();
         assert_eq!(result.level_summaries.len(), 1);
         assert_eq!(result.total_failed, 1);
+    }
+
+    #[tokio::test]
+    async fn executor_uses_default_wait_timeout() {
+        let queue = MockQueue::new(HashMap::new());
+        let executor = GenerationExecutor::new(None);
+        let _ = executor
+            .execute(&queue, plan(FailurePolicy::Continue))
+            .await
+            .unwrap();
+
+        let timeouts = queue.received_timeouts.lock();
+        assert!(!timeouts.is_empty());
+        assert!(timeouts
+            .iter()
+            .all(|value| *value == Some(Duration::from_secs(300))));
+    }
+
+    #[tokio::test]
+    async fn executor_allows_overriding_wait_timeout() {
+        let queue = MockQueue::new(HashMap::new());
+        let executor = GenerationExecutor::with_wait_timeout(None, Some(Duration::from_secs(2)));
+        let _ = executor
+            .execute(&queue, plan(FailurePolicy::Continue))
+            .await
+            .unwrap();
+
+        let timeouts = queue.received_timeouts.lock();
+        assert!(!timeouts.is_empty());
+        assert!(timeouts
+            .iter()
+            .all(|value| *value == Some(Duration::from_secs(2))));
     }
 }

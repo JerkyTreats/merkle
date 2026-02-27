@@ -143,9 +143,7 @@ impl ProviderCommandService {
         registry: &ProviderRegistry,
         type_filter: Option<&str>,
     ) -> Result<ProviderListResult, ApiError> {
-        let provider_type = type_filter
-            .map(Self::parse_provider_type)
-            .transpose()?;
+        let provider_type = type_filter.map(Self::parse_provider_type).transpose()?;
         let providers = registry.list_by_type(provider_type);
         Ok(ProviderListResult {
             providers: providers.into_iter().cloned().collect(),

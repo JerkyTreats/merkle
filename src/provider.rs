@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 pub mod clients;
 pub mod commands;
@@ -210,6 +211,18 @@ fn map_http_error(error: reqwest::Error) -> ApiError {
     }
 }
 
+const PROVIDER_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const PROVIDER_HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+
+fn build_provider_http_client() -> Result<Client, ApiError> {
+    Client::builder()
+        .no_proxy()
+        .connect_timeout(PROVIDER_HTTP_CONNECT_TIMEOUT)
+        .timeout(PROVIDER_HTTP_REQUEST_TIMEOUT)
+        .build()
+        .map_err(|e| ApiError::ProviderError(format!("Failed to create HTTP client: {}", e)))
+}
+
 /// OpenAI provider client
 pub struct OpenAIClient {
     client: Client,
@@ -220,10 +233,7 @@ pub struct OpenAIClient {
 
 impl OpenAIClient {
     pub fn new(model: String, api_key: String, base_url: Option<String>) -> Result<Self, ApiError> {
-        let client = Client::builder()
-            .no_proxy()
-            .build()
-            .map_err(|e| ApiError::ProviderError(format!("Failed to create HTTP client: {}", e)))?;
+        let client = build_provider_http_client()?;
         let base_url = base_url.unwrap_or_else(|| "https://api.openai.com/v1".to_string());
 
         Ok(Self {
@@ -385,10 +395,7 @@ pub struct AnthropicClient {
 
 impl AnthropicClient {
     pub fn new(model: String, api_key: String) -> Result<Self, ApiError> {
-        let client = Client::builder()
-            .no_proxy()
-            .build()
-            .map_err(|e| ApiError::ProviderError(format!("Failed to create HTTP client: {}", e)))?;
+        let client = build_provider_http_client()?;
         Ok(Self {
             client,
             model,
@@ -553,10 +560,7 @@ pub struct OllamaClient {
 impl OllamaClient {
     pub fn new(model: String, base_url: Option<String>) -> Result<Self, ApiError> {
         let base_url = base_url.unwrap_or_else(|| "http://localhost:11434".to_string());
-        let client = Client::builder()
-            .no_proxy()
-            .build()
-            .map_err(|e| ApiError::ProviderError(format!("Failed to create HTTP client: {}", e)))?;
+        let client = build_provider_http_client()?;
 
         Ok(Self {
             client,
@@ -705,10 +709,7 @@ pub struct CustomLocalClient {
 
 impl CustomLocalClient {
     pub fn new(model: String, endpoint: String, api_key: Option<String>) -> Result<Self, ApiError> {
-        let client = Client::builder()
-            .no_proxy()
-            .build()
-            .map_err(|e| ApiError::ProviderError(format!("Failed to create HTTP client: {}", e)))?;
+        let client = build_provider_http_client()?;
         Ok(Self {
             client,
             model,
