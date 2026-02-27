@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.2](https://github.com/JerkyTreats/meld/compare/v1.0.1...v1.0.2) (2026-02-27)
+
+
+### Bug Fixes
+
+* **provider:** add default request wait timeouts ([458a98f](https://github.com/JerkyTreats/meld/commit/458a98f8ec3fc2ef87aeb810ae5e791fab528718))
+* **provider:** infer https for local endpoints and prompt local api key ([f3f40c9](https://github.com/JerkyTreats/meld/commit/f3f40c97b4cf87ecfe6de7acaea2e9fabaa9be0a))
+
 ## [1.0.1](https://github.com/JerkyTreats/meld/compare/v1.0.0...v1.0.1) (2026-02-26)
 
 
