@@ -658,7 +658,11 @@ fn test_agent_edit_prompt_path() {
         // Verify config was updated
         let config_path = XdgAgentStorage::new().path_for("test-agent").unwrap();
         let content = fs::read_to_string(&config_path).unwrap();
-        assert!(content.contains("new.md"));
+        assert!(content.contains("prompts/test-agent.md"));
+
+        // Prompt files are normalized into XDG prompts using agent id filename
+        let copied_prompt = xdg::prompts_dir().unwrap().join("test-agent.md");
+        assert!(copied_prompt.exists());
     });
 }
 

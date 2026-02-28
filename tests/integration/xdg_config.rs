@@ -398,7 +398,7 @@ system_prompt_path = "~/test_prompts/test.md"
 }
 
 #[test]
-fn test_agent_registry_load_from_xdg_missing_prompt_skipped() {
+fn test_agent_registry_load_from_xdg_missing_prompt_retained_for_validation() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         let agents_dir = XdgAgentStorage::new().agents_dir().unwrap();
@@ -418,8 +418,17 @@ system_prompt_path = "/nonexistent/prompt.md"
         let mut registry = AgentRegistry::new();
         registry.load_from_xdg().unwrap();
 
-        // Agent should be skipped due to missing prompt file
-        assert!(registry.get("test-agent").is_none());
+        // Agent should remain loaded and be validated as invalid later
+        assert!(registry.get("test-agent").is_some());
+
+        let validation = registry.validate_agent("test-agent").unwrap();
+        assert!(!validation.is_valid());
+        assert!(
+            validation
+                .errors
+                .iter()
+                .any(|e| e.contains("Prompt file not found"))
+        );
     });
 }
 
@@ -451,7 +460,7 @@ role = "Reader"
 }
 
 #[test]
-fn test_agent_registry_load_from_xdg_writer_missing_prompt_skipped() {
+fn test_agent_registry_load_from_xdg_writer_missing_prompt_retained_for_validation() {
     let test_dir = TempDir::new().unwrap();
     with_xdg_env(&test_dir, || {
         let agents_dir = XdgAgentStorage::new().agents_dir().unwrap();
@@ -470,8 +479,17 @@ role = "Writer"
         let mut registry = AgentRegistry::new();
         registry.load_from_xdg().unwrap();
 
-        // Writer agent without prompt should be skipped
-        assert!(registry.get("writer").is_none());
+        // Writer agent without prompt should remain loaded and fail validation
+        assert!(registry.get("writer").is_some());
+
+        let validation = registry.validate_agent("writer").unwrap();
+        assert!(!validation.is_valid());
+        assert!(
+            validation
+                .errors
+                .iter()
+                .any(|e| e.contains("Missing system_prompt_path"))
+        );
     });
 }
 
