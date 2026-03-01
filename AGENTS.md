@@ -35,12 +35,22 @@ Maintaining backwards compatibility tends to clutter codebases, and its not a re
 - Keep diagrams close to the related plan or spec section so design intent and ownership boundaries remain explicit.
 - Use concise labels that match domain terms used in code and design docs.
 
+## Policy Proposal Flow
+
+- When a user proposes a policy change, first evaluate proposal strengths.
+- Then evaluate proposal weaknesses and likely tradeoffs.
+- Provide a clear recommendation with rationale.
+- Ask the user for explicit confirmation before editing policy files.
+- Do not apply policy proposal edits until user confirmation is received.
+
 
 ## Commits
 
 Use `conventional commits` when instructed to commit.
 
-- Approved commit `type` values include `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`, `chore`, and `policy`.
+- Approved commit `type` values include `feat`, `fix`, `perf`, `refactor`, `docs`, `design`, `test`, `build`, `ci`, `chore`, and `policy`.
+- Use `design` for changes under `design/` that update plans, specs, architecture docs, or workflow docs.
+- When a commit mixes `design/` updates with runtime code changes, keep the runtime focused commit type and describe design impact in the commit body.
 - Use `policy` for repository governance updates such as standards, process rules, and enforcement workflow changes.
 - For `policy` commits, include at least one governance trace footer such as `Policy-Ref:` or `Discussion:`.
 - Write the subject as a declarative summary of what changed.
