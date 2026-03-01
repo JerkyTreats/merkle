@@ -16,9 +16,9 @@ This cleanup reduces blast radius by isolating boundaries and removing cross dom
 
 ## Related Specs
 
-1. [Domain Metadata Separation Spec](domain_metadata_separation_spec.md)
-2. [Frame Integrity Boundary Spec](frame_integrity_boundary_spec.md)
-3. [Generation Orchestration Split Spec](generation_orchestration_split_spec.md)
+1. [Domain Metadata Cleanup](domain_metadata/README.md)
+2. [Frame Integrity Boundary Cleanup](frame_integrity/README.md)
+3. [Generation Orchestration Boundary Cleanup](generation_orchestration/README.md)
 
 ## Scope
 
@@ -38,6 +38,21 @@ This cleanup reduces blast radius by isolating boundaries and removing cross dom
 1. domain metadata separation
 2. frame integrity boundary cleanup
 3. generation orchestration split
+
+## Resolution Decisions
+
+- frame metadata validation ownership is unified in `src/metadata/frame_write_contract.rs`
+- `ContextApi::put_frame` remains the single write entry and delegates validation only
+- compatibility wrapper migration tracks are excluded from this cleanup set
+- module layout changes must follow project rule and avoid `mod.rs` targets
+
+## Cohesive Ordered Set
+
+1. normalize module layout where cleanup targets still use `mod.rs`
+2. implement domain metadata type separation and cross domain adapters
+3. activate shared frame write contract at the write entry boundary
+4. complete frame integrity structural hash decoupling and typed policy errors
+5. split generation orchestration units with parity gates and keep queue lifecycle stable
 
 ## Exit Criteria
 
