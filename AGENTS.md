@@ -29,6 +29,12 @@ Maintaining backwards compatibility tends to clutter codebases, and its not a re
 - Until that rollout is complete, always call out each command surface where path is not the default behavior.
 - When writing plans, specs, reviews, and implementation notes, include a short exception list for non default path behavior.
 
+## Architecture Diagrams
+
+- Prefer Mermaid style diagrams for architecture and workflow visuals when a diagram improves clarity.
+- Keep diagrams close to the related plan or spec section so design intent and ownership boundaries remain explicit.
+- Use concise labels that match domain terms used in code and design docs.
+
 
 ## Commits
 
