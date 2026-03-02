@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0](https://github.com/JerkyTreats/meld/compare/v1.0.2...v1.1.0) (2026-03-02)
+
+
+### Features
+
+* **logging:** enable default file logging with cross platform path resolution ([f3cc1ee](https://github.com/JerkyTreats/meld/commit/f3cc1ee012692d6ca23d5740e714e29af9b641e2))
+
+
+### Bug Fixes
+
+* **context:** ground file generation prompts on source content ([06bd0a2](https://github.com/JerkyTreats/meld/commit/06bd0a21c93ed57b0b8bb6185c1551d468610e16))
+
 ## [1.0.2](https://github.com/JerkyTreats/meld/compare/v1.0.1...v1.0.2) (2026-02-27)
 
 
