@@ -3,7 +3,6 @@
 use meld::agent::{AgentRegistry, AgentRole};
 use meld::config::{AgentConfig, ConfigLoader, MerkleConfig, ProviderConfig, ProviderType};
 use meld::provider::CompletionOptions;
-use std::collections::HashMap;
 use tempfile::TempDir;
 
 #[test]
@@ -149,7 +148,7 @@ fn test_config_validation_errors() {
             role: AgentRole::Writer,
             system_prompt: None,
             system_prompt_path: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
         },
     );
 
@@ -214,6 +213,35 @@ another_key = "another_value"
     assert_eq!(
         agent.metadata.get("another_key"),
         Some(&"another_value".to_string())
+    );
+}
+
+#[test]
+fn test_config_agent_metadata_isolation_from_frame_policy_keys() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_file = temp_dir.path().join("test_config.toml");
+
+    std::fs::write(
+        &config_file,
+        r#"
+[agents.test-agent]
+agent_id = "test-agent"
+role = "Writer"
+system_prompt = "Test prompt"
+[agents.test-agent.metadata]
+frame_policy_external_key = "agent_domain_value"
+"#,
+    )
+    .unwrap();
+
+    let config = ConfigLoader::load_from_file(&config_file).unwrap();
+    let mut registry = AgentRegistry::new();
+    registry.load_from_config(&config).unwrap();
+
+    let agent = registry.get("test-agent").unwrap();
+    assert_eq!(
+        agent.metadata.get("frame_policy_external_key"),
+        Some(&"agent_domain_value".to_string())
     );
 }
 

@@ -283,7 +283,7 @@ mod tests {
             role: AgentRole::Writer,
             system_prompt: Some("Test prompt".to_string()),
             system_prompt_path: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
         };
         assert!(agent.validate(&providers).is_ok());
 
@@ -293,7 +293,7 @@ mod tests {
             role: AgentRole::Writer,
             system_prompt: None,
             system_prompt_path: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
         };
         assert!(agent_bad.validate(&providers).is_err());
 
@@ -303,7 +303,7 @@ mod tests {
             role: AgentRole::Reader,
             system_prompt: None,
             system_prompt_path: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
         };
         assert!(agent_reader.validate(&providers).is_ok());
     }
@@ -333,7 +333,7 @@ mod tests {
                 role: AgentRole::Writer,
                 system_prompt: Some("Test".to_string()),
                 system_prompt_path: None,
-                metadata: HashMap::new(),
+                metadata: Default::default(),
             },
         );
 
@@ -347,7 +347,7 @@ mod tests {
                 role: AgentRole::Reader,
                 system_prompt: None,
                 system_prompt_path: None,
-                metadata: HashMap::new(),
+                metadata: Default::default(),
             },
         );
 

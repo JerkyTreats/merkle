@@ -246,3 +246,35 @@ fn retry_open_store(
     }
     unreachable!()
 }
+
+/// Test node metadata isolation from frame metadata policy keys.
+#[test]
+fn test_node_metadata_accepts_keys_outside_frame_policy() {
+    let temp_dir = TempDir::new().unwrap();
+    let store = SledNodeRecordStore::new(temp_dir.path()).unwrap();
+    let node_id = [99u8; 32];
+
+    let mut record = NodeRecord {
+        node_id,
+        path: std::path::PathBuf::from("/tmp/node-metadata.txt"),
+        node_type: NodeType::File {
+            size: 1,
+            content_hash: [3u8; 32],
+        },
+        children: vec![],
+        parent: None,
+        frame_set_root: None,
+        metadata: Default::default(),
+        tombstoned_at: None,
+    };
+    record
+        .metadata
+        .insert("node_custom_key".to_string(), "node_custom_value".to_string());
+
+    store.put(&record).unwrap();
+    let stored = store.get(&node_id).unwrap().unwrap();
+    assert_eq!(
+        stored.metadata.get("node_custom_key"),
+        Some(&"node_custom_value".to_string())
+    );
+}

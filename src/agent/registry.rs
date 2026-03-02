@@ -2,6 +2,9 @@
 
 use crate::agent::identity::{AgentIdentity, AgentRole, ValidationResult};
 use crate::agent::profile::AgentConfig;
+use crate::agent::profile::prompt_contract::{
+    KEY_SYSTEM_PROMPT, KEY_USER_PROMPT_DIRECTORY, KEY_USER_PROMPT_FILE,
+};
 use crate::agent::storage::AgentStorage;
 use crate::error::ApiError;
 use std::collections::HashMap;
@@ -69,7 +72,7 @@ impl AgentRegistry {
             if let Some(system_prompt) = &agent_config.system_prompt {
                 identity
                     .metadata
-                    .insert("system_prompt".to_string(), system_prompt.clone());
+                    .insert(KEY_SYSTEM_PROMPT.to_string(), system_prompt.clone());
             }
 
             // Copy metadata from config
@@ -91,7 +94,7 @@ impl AgentRegistry {
                 if !prompt.is_empty() {
                     identity
                         .metadata
-                        .insert("system_prompt".to_string(), prompt);
+                        .insert(KEY_SYSTEM_PROMPT.to_string(), prompt);
                 }
             }
             for (key, value) in &stored.config.metadata {
@@ -237,7 +240,7 @@ impl AgentRegistry {
             }
 
             // Check for user prompt templates in metadata
-            if agent.metadata.get("user_prompt_file").is_some() {
+            if agent.metadata.get(KEY_USER_PROMPT_FILE).is_some() {
                 result.add_check("user_prompt_file template present", true);
             } else {
                 result.add_error(
@@ -245,7 +248,7 @@ impl AgentRegistry {
                 );
             }
 
-            if agent.metadata.get("user_prompt_directory").is_some() {
+            if agent.metadata.get(KEY_USER_PROMPT_DIRECTORY).is_some() {
                 result.add_check("user_prompt_directory template present", true);
             } else {
                 result.add_error(

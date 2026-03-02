@@ -2,6 +2,7 @@
 
 use crate::api::NodeContext;
 use crate::error::ApiError;
+use crate::metadata::frame_types::project_visible_metadata;
 use serde_json::json;
 
 pub fn format_context_text_output(
@@ -17,12 +18,7 @@ pub fn format_context_text_output(
         context
             .frames
             .iter()
-            .filter(|f| {
-                !f.metadata
-                    .get("deleted")
-                    .map(|v| v == "true")
-                    .unwrap_or(false)
-            })
+            .filter(|f| !f.is_deleted())
             .collect()
     };
 
@@ -58,11 +54,10 @@ pub fn format_context_text_output(
                 }
                 output.push_str(&format!("Timestamp: {:?}\n", frame.timestamp));
                 if !frame.metadata.is_empty() {
+                    let projected = project_visible_metadata(&frame.metadata);
                     output.push_str("Metadata:\n");
-                    for (key, value) in &frame.metadata {
-                        if key != "agent_id" && key != "deleted" {
-                            output.push_str(&format!("  {}: {}\n", key, value));
-                        }
+                    for (key, value) in projected {
+                        output.push_str(&format!("  {}: {}\n", key, value));
                     }
                 }
                 output.push_str("\n");
@@ -89,12 +84,7 @@ pub fn format_context_json_output(
         context
             .frames
             .iter()
-            .filter(|f| {
-                !f.metadata
-                    .get("deleted")
-                    .map(|v| v == "true")
-                    .unwrap_or(false)
-            })
+            .filter(|f| !f.is_deleted())
             .collect()
     };
 
@@ -110,7 +100,7 @@ pub fn format_context_json_output(
                 if let Some(agent_id) = frame.agent_id() {
                     frame_obj["agent_id"] = json!(agent_id);
                 }
-                frame_obj["metadata"] = json!(frame.metadata);
+                frame_obj["metadata"] = json!(project_visible_metadata(&frame.metadata));
             }
             if let Ok(text) = frame.text_content() {
                 frame_obj["content"] = json!(text);

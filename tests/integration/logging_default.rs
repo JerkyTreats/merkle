@@ -71,3 +71,49 @@ fn test_default_logging_writes_to_file() {
         content.lines().next().unwrap_or("")
     );
 }
+
+#[test]
+fn test_verbose_logging_mirrors_to_stderr_and_file() {
+    let temp_dir = TempDir::new().unwrap();
+    let state_home = temp_dir.path().to_path_buf();
+    let data_home = temp_dir.path().join("data");
+    let config_home = temp_dir.path().join("config");
+    let home = temp_dir.path().join("home");
+    let workspace = temp_dir.path().join("ws");
+    fs::create_dir_all(&data_home).unwrap();
+    fs::create_dir_all(&config_home).unwrap();
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&workspace).unwrap();
+
+    let bin = env!("CARGO_BIN_EXE_meld");
+    let output = Command::new(bin)
+        .env("XDG_STATE_HOME", state_home.as_os_str())
+        .env("XDG_DATA_HOME", data_home.as_os_str())
+        .env("XDG_CONFIG_HOME", config_home.as_os_str())
+        .env("HOME", home.as_os_str())
+        .arg("--workspace")
+        .arg(&workspace)
+        .arg("--verbose")
+        .arg("status")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "meld --verbose status should succeed: stderr={:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.trim().is_empty(),
+        "verbose mode should emit logs to stderr"
+    );
+
+    let log_path = expected_log_path(&state_home, &workspace);
+    assert!(
+        log_path.exists(),
+        "log file should exist at {}",
+        log_path.display()
+    );
+}

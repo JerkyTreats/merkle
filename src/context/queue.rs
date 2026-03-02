@@ -4,8 +4,11 @@
 //! Handles large-scale operations efficiently through batching, rate limiting, and concurrent processing.
 
 use crate::api::{ContextApi, ContextView};
+use crate::agent::profile::prompt_contract::PromptContract;
 use crate::context::frame::{Basis, Frame};
 use crate::error::ApiError;
+use crate::metadata::frame_types::FrameMetadata;
+use crate::metadata::frame_write_contract::{build_generated_metadata, validate_frame_metadata};
 use crate::provider::ChatMessage;
 use crate::store::NodeRecord;
 use crate::telemetry::{
@@ -21,6 +24,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::{oneshot, Mutex, Notify, Semaphore};
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
+
+type GeneratedMetadataBuilder =
+    dyn Fn(&str, &str, &str, &str, &str) -> FrameMetadata + Send + Sync;
 
 /// Priority level for generation requests
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -303,6 +309,8 @@ pub struct FrameGenerationQueue {
     event_context: Option<QueueEventContext>,
     /// Index of active requests (queued or in-flight) by dedupe identity
     dedupe_index: Arc<Mutex<HashMap<RequestIdentity, DedupeEntry>>>,
+    /// Builder for generated frame metadata.
+    metadata_builder: Arc<GeneratedMetadataBuilder>,
 }
 
 impl FrameGenerationQueue {
@@ -318,6 +326,24 @@ impl FrameGenerationQueue {
         config: GenerationConfig,
         event_context: Option<QueueEventContext>,
     ) -> Self {
+        Self::with_custom_metadata_builder(
+            api,
+            config,
+            event_context,
+            build_generated_metadata,
+        )
+    }
+
+    /// Create a queue with a custom generated metadata builder.
+    pub fn with_custom_metadata_builder<F>(
+        api: Arc<ContextApi>,
+        config: GenerationConfig,
+        event_context: Option<QueueEventContext>,
+        metadata_builder: F,
+    ) -> Self
+    where
+        F: Fn(&str, &str, &str, &str, &str) -> FrameMetadata + Send + Sync + 'static,
+    {
         Self {
             queue: Arc::new(Mutex::new(BinaryHeap::new())),
             notify: Arc::new(Notify::new()),
@@ -329,6 +355,7 @@ impl FrameGenerationQueue {
             stats: Arc::new(RwLock::new(QueueStats::default())),
             event_context,
             dedupe_index: Arc::new(Mutex::new(HashMap::new())),
+            metadata_builder: Arc::new(metadata_builder),
         }
     }
 
@@ -737,6 +764,7 @@ impl FrameGenerationQueue {
             let stats = Arc::clone(&self.stats);
             let event_context = self.event_context.clone();
             let dedupe_index = Arc::clone(&self.dedupe_index);
+            let metadata_builder = Arc::clone(&self.metadata_builder);
 
             let handle = tokio::spawn(async move {
                 Self::worker_loop(
@@ -750,6 +778,7 @@ impl FrameGenerationQueue {
                     stats,
                     event_context,
                     dedupe_index,
+                    metadata_builder,
                 )
                 .await;
             });
@@ -842,6 +871,7 @@ impl FrameGenerationQueue {
         stats: Arc<RwLock<QueueStats>>,
         event_context: Option<QueueEventContext>,
         dedupe_index: Arc<Mutex<HashMap<RequestIdentity, DedupeEntry>>>,
+        metadata_builder: Arc<GeneratedMetadataBuilder>,
     ) {
         debug!(worker_id, "Worker started");
 
@@ -935,8 +965,14 @@ impl FrameGenerationQueue {
             };
 
             // Process request
-            let result =
-                Self::process_request(&request, &api, &config, event_context.clone()).await;
+            let result = Self::process_request(
+                &request,
+                &api,
+                &config,
+                event_context.clone(),
+                metadata_builder.as_ref(),
+            )
+            .await;
 
             // Determine if we should retry (before sending result to completion channel)
             let should_retry = {
@@ -1028,6 +1064,7 @@ impl FrameGenerationQueue {
         api: &ContextApi,
         _config: &GenerationConfig,
         event_context: Option<QueueEventContext>,
+        metadata_builder: &GeneratedMetadataBuilder,
     ) -> Result<FrameID, ApiError> {
         debug!(
             request_id = ?request.request_id,
@@ -1062,30 +1099,25 @@ impl FrameGenerationQueue {
             .map_err(ApiError::from)?
             .ok_or_else(|| ApiError::NodeNotFound(request.node_id))?;
 
-        // Validate agent has required prompts
-        let missing_prompts = Self::validate_agent_prompts(&agent, &node_record);
-        if !missing_prompts.is_empty() {
-            error!(
-                agent_id = %request.agent_id,
-                node_id = %hex::encode(request.node_id),
-                missing = ?missing_prompts,
-                "Agent missing required prompts. Skipping generation."
-            );
-            return Err(ApiError::ConfigError(format!(
-                "Agent '{}' missing required prompts: {}",
-                request.agent_id,
-                missing_prompts.join(", ")
-            )));
-        }
-
-        // Generate prompts
-        let (system_prompt, user_prompt) = Self::generate_prompts(&agent, &node_record)?;
+        // Resolve agent prompt contract once through the explicit adapter.
+        let prompt_contract = PromptContract::from_agent(&agent)?;
+        let (system_prompt, user_prompt) = Self::generate_prompts(&prompt_contract, &node_record);
 
         // Create provider client (need to get registry again, but drop before await)
         let client = {
             let provider_registry = api.provider_registry().read();
             provider_registry.create_client(&request.provider_name)?
         };
+
+        // Build and validate metadata through the shared write contract before provider IO.
+        let generated_metadata = metadata_builder(
+            &request.agent_id,
+            &request.provider_name,
+            client.model_name(),
+            &provider_type_str,
+            &user_prompt,
+        );
+        validate_frame_metadata(&generated_metadata, &request.agent_id)?;
 
         // Build prompt context based on node kind.
         // File nodes are grounded on live file bytes, while directory nodes
@@ -1230,18 +1262,13 @@ impl FrameGenerationQueue {
         // Create frame with generated content
         let basis = Basis::Node(request.node_id);
         let content = response.content.into_bytes();
-        let mut metadata = HashMap::new();
-        metadata.insert("provider".to_string(), request.provider_name.clone());
-        metadata.insert("model".to_string(), client.model_name().to_string());
-        metadata.insert("provider_type".to_string(), provider_type_str.to_string());
-        metadata.insert("prompt".to_string(), user_prompt);
 
         let frame = Frame::new(
             basis,
             content,
             request.frame_type.clone(),
             request.agent_id.clone(),
-            metadata,
+            generated_metadata,
         )?;
 
         // Store frame using put_frame
@@ -1371,90 +1398,26 @@ impl FrameGenerationQueue {
         ))
     }
 
-    /// Validate that agent has all required prompts
-    pub fn validate_agent_prompts(
-        agent: &crate::agent::AgentIdentity,
-        node_record: &NodeRecord,
-    ) -> Vec<String> {
-        let mut missing = Vec::new();
+    /// Generate prompts from the explicit prompt contract adapter.
+    fn generate_prompts(prompt_contract: &PromptContract, node_record: &NodeRecord) -> (String, String) {
+        let user_prompt = prompt_contract.render_user_prompt(
+            node_record.node_type.clone(),
+            &node_record.path.display().to_string(),
+            match node_record.node_type {
+                crate::store::NodeType::File { size, .. } => Some(size),
+                crate::store::NodeType::Directory => None,
+            },
+        );
 
-        if !agent.metadata.contains_key("system_prompt") {
-            missing.push("system_prompt".to_string());
-        }
-
-        match node_record.node_type {
-            crate::store::NodeType::File { .. } => {
-                if !agent.metadata.contains_key("user_prompt_file") {
-                    missing.push("user_prompt_file".to_string());
-                }
-            }
-            crate::store::NodeType::Directory => {
-                if !agent.metadata.contains_key("user_prompt_directory") {
-                    missing.push("user_prompt_directory".to_string());
-                }
-            }
-        }
-
-        missing
-    }
-
-    /// Generate prompts from agent metadata
-    fn generate_prompts(
-        agent: &crate::agent::AgentIdentity,
-        node_record: &NodeRecord,
-    ) -> Result<(String, String), ApiError> {
-        // Get system prompt
-        let system_prompt = agent
-            .metadata
-            .get("system_prompt")
-            .ok_or_else(|| {
-                ApiError::ConfigError(format!("Agent '{}' missing system_prompt", agent.agent_id))
-            })?
-            .clone();
-
-        // Get user prompt template based on node type
-        let user_prompt_template = match node_record.node_type {
-            crate::store::NodeType::File { .. } => {
-                agent.metadata.get("user_prompt_file").ok_or_else(|| {
-                    ApiError::ConfigError(format!(
-                        "Agent '{}' missing user_prompt_file",
-                        agent.agent_id
-                    ))
-                })?
-            }
-            crate::store::NodeType::Directory => {
-                agent.metadata.get("user_prompt_directory").ok_or_else(|| {
-                    ApiError::ConfigError(format!(
-                        "Agent '{}' missing user_prompt_directory",
-                        agent.agent_id
-                    ))
-                })?
-            }
-        };
-
-        // Replace placeholders in template
-        let mut user_prompt = user_prompt_template
-            .replace("{path}", &node_record.path.display().to_string())
-            .replace(
-                "{node_type}",
-                match node_record.node_type {
-                    crate::store::NodeType::File { .. } => "File",
-                    crate::store::NodeType::Directory => "Directory",
-                },
-            );
-
-        // For file nodes, add file size if available
-        if let crate::store::NodeType::File { size, .. } = node_record.node_type {
-            user_prompt = user_prompt.replace("{file_size}", &size.to_string());
-        }
-
-        Ok((system_prompt, user_prompt))
+        (prompt_contract.system_prompt.clone(), user_prompt)
     }
 
     /// Check if an error is retryable
     fn is_retryable_error(error: &ApiError) -> bool {
         match error {
             ApiError::ConfigError(_) => false, // Don't retry config errors
+            ApiError::MissingPromptContractField { .. } => false,
+            ApiError::FrameMetadataPolicyViolation(_) => false,
             ApiError::ProviderNotConfigured(_) => false,
             ApiError::ProviderRateLimit(_) => true,
             ApiError::ProviderRequestFailed(_) => true,

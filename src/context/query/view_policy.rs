@@ -57,11 +57,7 @@ pub fn get_context_view(
         .filter(|(_, frame)| {
             policy.filters.iter().all(|filter| match filter {
                 FrameFilter::ByType(filter_type) => frame.frame_type == *filter_type,
-                FrameFilter::ByAgent(filter_agent) => frame
-                    .metadata
-                    .get("agent_id")
-                    .map(|a| a == filter_agent)
-                    .unwrap_or(false),
+                FrameFilter::ByAgent(filter_agent) => frame.agent_id() == Some(filter_agent.as_str()),
             })
         })
         .collect();
@@ -76,8 +72,8 @@ pub fn get_context_view(
         }
         OrderingPolicy::Agent => {
             sorted_frames.sort_by(|(_, a), (_, b)| {
-                let agent_a = a.metadata.get("agent_id").map(|s| s.as_str()).unwrap_or("");
-                let agent_b = b.metadata.get("agent_id").map(|s| s.as_str()).unwrap_or("");
+                let agent_a = a.agent_id().unwrap_or("");
+                let agent_b = b.agent_id().unwrap_or("");
                 agent_a.cmp(agent_b)
             });
         }

@@ -14,6 +14,7 @@ pub mod heads;
 pub mod ignore;
 pub mod init;
 pub mod logging;
+pub mod metadata;
 pub mod provider;
 pub mod store;
 pub mod telemetry;

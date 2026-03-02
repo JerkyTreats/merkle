@@ -59,7 +59,7 @@ fn create_test_node_record(node_id: NodeID) -> NodeRecord {
         children: vec![],
         parent: None,
         frame_set_root: None,
-        metadata: HashMap::new(),
+        metadata: Default::default(),
         tombstoned_at: None,
     }
 }
@@ -373,4 +373,33 @@ fn test_error_handling_invalid_frame_basis() {
         Err(ApiError::InvalidFrame(_)) => {}
         _ => panic!("Expected InvalidFrame error"),
     }
+}
+
+#[test]
+fn test_put_frame_rejects_non_frame_metadata_key() {
+    let (api, _temp_dir) = create_test_api();
+    let node_id: NodeID = [3u8; 32];
+
+    let node_record = create_test_node_record(node_id);
+    api.node_store().put(&node_record).unwrap();
+
+    {
+        let mut registry = api.agent_registry().write();
+        registry.register(AgentIdentity::new("writer-1".to_string(), AgentRole::Writer));
+    }
+
+    let basis = Basis::Node(node_id);
+    let content = b"test content".to_vec();
+    let frame_type = "test".to_string();
+    let agent_id = "writer-1".to_string();
+    let mut metadata = HashMap::new();
+    metadata.insert("leaked_key".to_string(), "value".to_string());
+
+    let frame = Frame::new(basis, content, frame_type, agent_id.clone(), metadata).unwrap();
+    let result = api.put_frame(node_id, frame, agent_id);
+
+    assert!(matches!(
+        result,
+        Err(ApiError::FrameMetadataPolicyViolation(_))
+    ));
 }

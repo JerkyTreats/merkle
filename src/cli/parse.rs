@@ -19,7 +19,7 @@ pub struct Cli {
     #[arg(long)]
     pub config: Option<PathBuf>,
 
-    /// Enable verbose logging (sets level to debug)
+    /// Enable verbose logging and mirror logs to stderr unless output is explicitly set
     #[arg(long, default_value = "false")]
     pub verbose: bool,
 

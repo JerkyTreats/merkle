@@ -24,7 +24,7 @@ fn create_test_agent(
         role,
         system_prompt: None,
         system_prompt_path: prompt_path.map(|s| s.to_string()),
-        metadata: std::collections::HashMap::new(),
+        metadata: Default::default(),
     };
 
     // Add user prompt templates for writer roles

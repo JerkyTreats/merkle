@@ -1,10 +1,12 @@
 //! Integration tests for Context CLI commands
 
 use clap::Parser;
-use meld::agent::{AgentRole, AgentStorage, XdgAgentStorage};
+use meld::agent::{AgentIdentity, AgentRole, AgentStorage, XdgAgentStorage};
 use meld::config::{xdg, AgentConfig, ProviderConfig, ProviderType};
+use meld::context::frame::{Basis, Frame};
 use meld::error::ApiError;
 use meld::cli::{Cli, Commands, ContextCommands, RunContext};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -28,7 +30,7 @@ fn create_test_agent(
         role,
         system_prompt: None,
         system_prompt_path: prompt_path.map(|s| s.to_string()),
-        metadata: std::collections::HashMap::new(),
+        metadata: Default::default(),
     };
 
     if role != AgentRole::Reader {
@@ -260,6 +262,102 @@ fn test_context_get_json_format() {
         let _json: serde_json::Value = serde_json::from_str(&output).unwrap();
         assert!(output.contains("node_id"));
         assert!(output.contains("frames"));
+    });
+}
+
+#[test]
+fn test_context_get_json_metadata_projection_filters_internal_keys() {
+    let temp_dir = TempDir::new().unwrap();
+    with_xdg_env(&temp_dir, || {
+        let workspace_root = temp_dir.path().join("workspace");
+        fs::create_dir_all(&workspace_root).unwrap();
+
+        let test_file = workspace_root.join("test.txt");
+        fs::write(&test_file, "test content").unwrap();
+
+        let run_context = RunContext::new(workspace_root.clone(), None).unwrap();
+        run_context
+            .execute(&Commands::Scan { force: true })
+            .unwrap();
+
+        {
+            let mut registry = run_context.api().agent_registry().write();
+            registry.register(AgentIdentity::new(
+                "writer-metadata".to_string(),
+                AgentRole::Writer,
+            ));
+        }
+
+        let node_id = run_context
+            .api()
+            .node_store()
+            .find_by_path(&test_file)
+            .unwrap()
+            .unwrap()
+            .node_id;
+
+        let mut metadata = HashMap::new();
+        metadata.insert("provider".to_string(), "test-provider".to_string());
+        metadata.insert("model".to_string(), "test-model".to_string());
+        metadata.insert("provider_type".to_string(), "ollama".to_string());
+        metadata.insert("prompt".to_string(), "Summarize file".to_string());
+        metadata.insert("deleted".to_string(), "true".to_string());
+
+        let frame = Frame::new(
+            Basis::Node(node_id),
+            b"metadata projection".to_vec(),
+            "context-writer-metadata".to_string(),
+            "writer-metadata".to_string(),
+            metadata,
+        )
+        .unwrap();
+        run_context
+            .api()
+            .put_frame(node_id, frame, "writer-metadata".to_string())
+            .unwrap();
+
+        let output = run_context
+            .execute(&Commands::Context {
+                command: ContextCommands::Get {
+                    node: None,
+                    path: Some(test_file),
+                    agent: None,
+                    frame_type: None,
+                    max_frames: 10,
+                    ordering: "recency".to_string(),
+                    combine: false,
+                    separator: "\n\n---\n\n".to_string(),
+                    format: "json".to_string(),
+                    include_metadata: true,
+                    include_deleted: true,
+                },
+            })
+            .unwrap();
+
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        let frames = parsed["frames"].as_array().unwrap();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0]["agent_id"].as_str(), Some("writer-metadata"));
+
+        let metadata_obj = frames[0]["metadata"].as_object().unwrap();
+        assert!(!metadata_obj.contains_key("agent_id"));
+        assert!(!metadata_obj.contains_key("deleted"));
+        assert_eq!(
+            metadata_obj.get("provider").and_then(|v| v.as_str()),
+            Some("test-provider")
+        );
+        assert_eq!(
+            metadata_obj.get("model").and_then(|v| v.as_str()),
+            Some("test-model")
+        );
+        assert_eq!(
+            metadata_obj.get("provider_type").and_then(|v| v.as_str()),
+            Some("ollama")
+        );
+        assert_eq!(
+            metadata_obj.get("prompt").and_then(|v| v.as_str()),
+            Some("Summarize file")
+        );
     });
 }
 

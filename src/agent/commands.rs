@@ -8,7 +8,6 @@ use crate::agent::profile::AgentConfig;
 use crate::agent::registry::AgentRegistry;
 use crate::error::ApiError;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 pub struct AgentCommandService;
@@ -271,7 +270,7 @@ impl AgentCommandService {
             role,
             system_prompt: None,
             system_prompt_path: normalized_prompt_path.clone(),
-            metadata: HashMap::new(),
+            metadata: Default::default(),
         };
         if role != AgentRole::Reader {
             if let Some(ref path) = normalized_prompt_path {
@@ -473,7 +472,7 @@ mod tests {
         let test_dir = TempDir::new().unwrap();
         with_xdg_config_home(&test_dir, || {
             let registry = AgentRegistry::new();
-            let mut metadata = HashMap::new();
+            let mut metadata = crate::agent::profile::AgentMetadata::new();
             metadata.insert(
                 "user_prompt_file".to_string(),
                 "Analyze the file at {path}".to_string(),

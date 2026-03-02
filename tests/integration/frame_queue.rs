@@ -10,6 +10,7 @@
 //! - Worker lifecycle
 
 use meld::api::ContextApi;
+use meld::agent::{AgentIdentity, AgentRole};
 use meld::error::ApiError;
 use meld::context::frame::storage::FrameStorage;
 use meld::context::queue::{
@@ -17,7 +18,9 @@ use meld::context::queue::{
     QueueEventContext,
 };
 use meld::heads::HeadIndex;
+use meld::metadata::FrameMetadata;
 use meld::store::persistence::SledNodeRecordStore;
+use meld::store::{NodeRecord, NodeType};
 use meld::telemetry::ProgressRuntime;
 use meld::types::Hash;
 use std::sync::Arc;
@@ -680,6 +683,129 @@ async fn test_batch_enqueue_emits_request_enqueued_per_item() {
         .filter(|e| e.event_type == "request_enqueued")
         .count();
     assert_eq!(enqueued_count, 3);
+}
+
+#[tokio::test]
+async fn test_queue_missing_prompt_contract_field_fails_deterministically() {
+    let (api, _temp_dir) = create_test_api();
+    let api = Arc::new(api);
+
+    let node_id = Hash::from([55u8; 32]);
+    api.node_store()
+        .put(&NodeRecord {
+            node_id,
+            path: std::path::PathBuf::from("/tmp/test-file.rs"),
+            node_type: NodeType::File {
+                size: 12,
+                content_hash: [7u8; 32],
+            },
+            children: vec![],
+            parent: None,
+            frame_set_root: None,
+            metadata: Default::default(),
+            tombstoned_at: None,
+        })
+        .unwrap();
+
+    {
+        let mut registry = api.agent_registry().write();
+        let mut identity = AgentIdentity::new("writer-missing".to_string(), AgentRole::Writer);
+        identity
+            .metadata
+            .insert("system_prompt".to_string(), "system".to_string());
+        registry.register(identity);
+    }
+
+    let queue = FrameGenerationQueue::new(api, GenerationConfig::default());
+    queue.start().unwrap();
+
+    let result = queue
+        .enqueue_and_wait(
+            node_id,
+            "writer-missing".to_string(),
+            "test-provider".to_string(),
+            Some("context-writer-missing".to_string()),
+            Priority::Normal,
+            Some(Duration::from_secs(2)),
+        )
+        .await;
+
+    queue.stop().await.unwrap();
+
+    assert!(matches!(
+        result,
+        Err(ApiError::MissingPromptContractField {
+            field: "user_prompt_file",
+            ..
+        })
+    ));
+}
+
+#[tokio::test]
+async fn test_queue_rejects_generated_metadata_policy_violation() {
+    let (api, _temp_dir) = create_test_api();
+    let api = Arc::new(api);
+
+    let node_id = Hash::from([56u8; 32]);
+    api.node_store()
+        .put(&NodeRecord {
+            node_id,
+            path: std::path::PathBuf::from("/tmp/test-dir"),
+            node_type: NodeType::Directory,
+            children: vec![],
+            parent: None,
+            frame_set_root: None,
+            metadata: Default::default(),
+            tombstoned_at: None,
+        })
+        .unwrap();
+
+    {
+        let mut registry = api.agent_registry().write();
+        let mut identity = AgentIdentity::new("writer-policy".to_string(), AgentRole::Writer);
+        identity
+            .metadata
+            .insert("system_prompt".to_string(), "system".to_string());
+        identity.metadata.insert(
+            "user_prompt_file".to_string(),
+            "Analyze file {path}".to_string(),
+        );
+        identity.metadata.insert(
+            "user_prompt_directory".to_string(),
+            "Analyze directory {path}".to_string(),
+        );
+        registry.register(identity);
+    }
+
+    let queue = FrameGenerationQueue::with_custom_metadata_builder(
+        api,
+        GenerationConfig::default(),
+        None,
+        |_, _, _, _, _| {
+            let mut metadata = FrameMetadata::new();
+            metadata.insert("leaked_key".to_string(), "value".to_string());
+            metadata
+        },
+    );
+    queue.start().unwrap();
+
+    let result = queue
+        .enqueue_and_wait(
+            node_id,
+            "writer-policy".to_string(),
+            "test-provider".to_string(),
+            Some("context-writer-policy".to_string()),
+            Priority::Normal,
+            Some(Duration::from_secs(2)),
+        )
+        .await;
+
+    queue.stop().await.unwrap();
+
+    assert!(matches!(
+        result,
+        Err(ApiError::FrameMetadataPolicyViolation(_))
+    ));
 }
 
 // Note: Full integration tests with actual frame generation would require

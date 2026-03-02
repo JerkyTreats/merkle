@@ -7,7 +7,6 @@
 use crate::agent::{AgentRegistry, AgentRole, AgentStorage, XdgAgentStorage};
 use crate::config::{xdg, AgentConfig};
 use crate::error::ApiError;
-use std::collections::HashMap;
 
 /// Default prompts embedded in binary at compile time
 pub const DEFAULT_PROMPTS: &[(&str, &str)] = &[
@@ -139,7 +138,7 @@ pub fn initialize_agents(force: bool) -> Result<InitResult, ApiError> {
             role: agent.role,
             system_prompt: None,
             system_prompt_path: agent.prompt_file.map(|s| s.to_string()),
-            metadata: HashMap::new(),
+            metadata: Default::default(),
         };
 
         // Add user prompt templates to metadata
@@ -292,7 +291,7 @@ mod tests {
                 role: agent.role,
                 system_prompt: None,
                 system_prompt_path: agent.prompt_file.map(|s| s.to_string()),
-                metadata: HashMap::new(),
+                metadata: Default::default(),
             };
 
             if let Some(user_prompt_file) = agent.user_prompt_file {

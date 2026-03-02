@@ -262,11 +262,7 @@ pub fn compose_frames(
         .filter(|(_, frame)| {
             policy.filters.iter().all(|filter| match filter {
                 FrameFilter::ByType(filter_type) => frame.frame_type == *filter_type,
-                FrameFilter::ByAgent(filter_agent) => frame
-                    .metadata
-                    .get("agent_id")
-                    .map(|a| a == filter_agent)
-                    .unwrap_or(false),
+                FrameFilter::ByAgent(filter_agent) => frame.agent_id() == Some(filter_agent.as_str()),
             })
         })
         .collect();
@@ -297,11 +293,7 @@ pub fn compose_frames(
                     use std::collections::hash_map::DefaultHasher;
                     use std::hash::{Hash, Hasher};
                     let mut hasher = DefaultHasher::new();
-                    frame
-                        .metadata
-                        .get("agent_id")
-                        .unwrap_or(&String::new())
-                        .hash(&mut hasher);
+                    frame.agent_id().unwrap_or("").hash(&mut hasher);
                     hasher.finish() as i64
                 }
             };
@@ -321,16 +313,8 @@ pub fn compose_frames(
             scored_frames.sort_by(|(_, _, frame_a), (_, _, frame_b)| match policy.ordering {
                 OrderingPolicy::Type => frame_a.frame_type.cmp(&frame_b.frame_type),
                 OrderingPolicy::Agent => {
-                    let agent_a = frame_a
-                        .metadata
-                        .get("agent_id")
-                        .map(|s| s.as_str())
-                        .unwrap_or("");
-                    let agent_b = frame_b
-                        .metadata
-                        .get("agent_id")
-                        .map(|s| s.as_str())
-                        .unwrap_or("");
+                    let agent_a = frame_a.agent_id().unwrap_or("");
+                    let agent_b = frame_b.agent_id().unwrap_or("");
                     agent_a.cmp(agent_b)
                 }
                 _ => unreachable!(),
@@ -376,7 +360,7 @@ mod tests {
             children,
             parent,
             frame_set_root: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
             tombstoned_at: None,
         }
     }

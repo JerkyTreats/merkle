@@ -5,7 +5,6 @@
 
 use meld::heads::HeadIndex;
 use meld::store::{NodeRecord, NodeRecordStore, NodeType, SledNodeRecordStore};
-use std::collections::HashMap;
 use std::time::Instant;
 use tempfile::TempDir;
 
@@ -38,7 +37,7 @@ fn test_node_record_store_o1_lookup() {
                 children: vec![],
                 parent: None,
                 frame_set_root: None,
-                metadata: HashMap::new(),
+                metadata: Default::default(),
                 tombstoned_at: None,
             };
             records.push(record);

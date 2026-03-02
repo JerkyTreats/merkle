@@ -11,6 +11,7 @@ use crate::context::query::get_node_query;
 use crate::context::queue::FrameGenerationQueue;
 use crate::error::ApiError;
 use crate::heads::HeadIndex;
+use crate::metadata::frame_write_contract::validate_frame_metadata;
 use crate::store::NodeRecordStore;
 use crate::types::{FrameID, NodeID};
 use crate::views::ViewPolicy;
@@ -234,19 +235,8 @@ impl ContextApi {
             }
         }
 
-        // Verify agent_id in frame metadata matches provided agent_id
-        if let Some(frame_agent_id) = frame.metadata.get("agent_id") {
-            if frame_agent_id != &agent_id {
-                return Err(ApiError::InvalidFrame(format!(
-                    "Frame metadata agent_id '{}' does not match provided agent_id '{}'",
-                    frame_agent_id, agent_id
-                )));
-            }
-        } else {
-            return Err(ApiError::InvalidFrame(
-                "Frame missing agent_id in metadata".to_string(),
-            ));
-        }
+        // Shared frame metadata write contract boundary.
+        validate_frame_metadata(&frame.metadata, &agent_id)?;
 
         // Acquire write lock for this node (atomic operation)
         let lock = self.lock_manager.get_lock(&node_id);
@@ -470,7 +460,7 @@ impl ContextApi {
         // Check if any frame has this agent_id in metadata
         for frame_id in frame_ids {
             if let Some(frame) = self.frame_storage.get(&frame_id).map_err(ApiError::from)? {
-                if let Some(frame_agent_id) = frame.metadata.get("agent_id") {
+                if let Some(frame_agent_id) = frame.agent_id() {
                     if frame_agent_id == agent_id {
                         return Ok(true);
                     }
@@ -746,7 +736,7 @@ mod tests {
             children: vec![],
             parent: None,
             frame_set_root: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
             tombstoned_at: None,
         }
     }

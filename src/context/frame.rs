@@ -11,6 +11,7 @@ pub use set::FrameMerkleSet;
 pub use storage::FrameStorage;
 
 use crate::error::StorageError;
+use crate::metadata::frame_types::FrameMetadata;
 use crate::types::{FrameID, NodeID};
 use std::path::Path;
 
@@ -19,7 +20,6 @@ pub fn open_storage(path: &Path) -> Result<FrameStorage, StorageError> {
     storage::FrameStorage::new(path)
 }
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Basis for a context frame
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,7 +36,7 @@ pub struct Frame {
     pub basis: Basis,
     pub content: Vec<u8>,                  // Blob
     pub frame_type: String,                // Frame type identifier
-    pub metadata: HashMap<String, String>, // Non-hashed
+    pub metadata: FrameMetadata, // Non-hashed
     pub timestamp: std::time::SystemTime,
 }
 
@@ -50,10 +50,10 @@ impl Frame {
         content: Vec<u8>,
         frame_type: String,
         agent_id: String,
-        metadata: HashMap<String, String>,
+        metadata: impl Into<FrameMetadata>,
     ) -> Result<Self, crate::error::StorageError> {
         // Ensure agent_id is in metadata (Phase 2A: agent identity preserved in all frames)
-        let mut metadata = metadata;
+        let mut metadata: FrameMetadata = metadata.into();
         metadata.insert("agent_id".to_string(), agent_id.clone());
 
         // Compute FrameID with agent_id included in hash
@@ -98,6 +98,11 @@ impl Frame {
     /// Returns the metadata value for the given key, if present.
     pub fn metadata_value(&self, key: &str) -> Option<&str> {
         self.metadata.get(key).map(|s| s.as_str())
+    }
+
+    /// Check if this frame is marked as deleted.
+    pub fn is_deleted(&self) -> bool {
+        self.metadata_value("deleted") == Some("true")
     }
 
     /// Check if frame matches the specified type

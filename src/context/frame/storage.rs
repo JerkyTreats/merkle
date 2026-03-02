@@ -64,7 +64,7 @@ impl FrameStorage {
     pub fn store(&self, frame: &Frame) -> Result<(), StorageError> {
         // Verify FrameID matches computed hash (corruption detection)
         // Extract agent_id from metadata (it should always be present per Phase 2A)
-        let agent_id = frame.metadata.get("agent_id").ok_or_else(|| {
+        let agent_id = frame.agent_id().ok_or_else(|| {
             StorageError::InvalidPath("Frame missing agent_id in metadata".to_string())
         })?;
 

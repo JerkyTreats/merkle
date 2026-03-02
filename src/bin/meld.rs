@@ -70,6 +70,11 @@ fn build_logging_config(cli: &Cli) -> LoggingConfig {
     }
     if cli.verbose {
         config.level = "debug".to_string();
+        // Make verbose mode observable in terminal output without losing file logs.
+        // An explicit --log-output value still takes precedence below.
+        if config.output == "file" {
+            config.output = "file+stderr".to_string();
+        }
     }
     if let Some(ref level) = cli.log_level {
         config.level = level.clone();
@@ -123,8 +128,43 @@ mod tests {
 
     #[test]
     fn test_build_logging_config_verbose() {
-        let cli = Cli::try_parse_from(&["meld", "--verbose", "status"]).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let ws = temp.path().to_string_lossy();
+        let cli = Cli::try_parse_from(&[
+            "meld",
+            "--workspace",
+            ws.as_ref(),
+            "--verbose",
+            "status",
+        ])
+        .unwrap();
         let config = build_logging_config(&cli);
         assert_eq!(config.level, "debug", "verbose should set level to debug");
+        assert_eq!(
+            config.output, "file+stderr",
+            "verbose should mirror logs to stderr when default output is file"
+        );
+    }
+
+    #[test]
+    fn test_build_logging_config_verbose_respects_explicit_output_override() {
+        let temp = tempfile::tempdir().unwrap();
+        let ws = temp.path().to_string_lossy();
+        let cli = Cli::try_parse_from(&[
+            "meld",
+            "--workspace",
+            ws.as_ref(),
+            "--verbose",
+            "--log-output",
+            "stderr",
+            "status",
+        ])
+        .unwrap();
+        let config = build_logging_config(&cli);
+        assert_eq!(config.level, "debug");
+        assert_eq!(
+            config.output, "stderr",
+            "explicit --log-output should win over verbose defaults"
+        );
     }
 }

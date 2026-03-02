@@ -54,6 +54,15 @@ pub enum ApiError {
     #[error("Invalid frame: {0}")]
     InvalidFrame(String),
 
+    #[error("Frame metadata policy violation: {0}")]
+    FrameMetadataPolicyViolation(String),
+
+    #[error("Agent '{agent_id}' missing required prompt contract field '{field}'")]
+    MissingPromptContractField {
+        agent_id: String,
+        field: &'static str,
+    },
+
     #[error("Provider error: {0}")]
     ProviderError(String),
 
@@ -94,6 +103,15 @@ impl Clone for ApiError {
             ApiError::FrameNotFound(frame_id) => ApiError::FrameNotFound(*frame_id),
             ApiError::Unauthorized(message) => ApiError::Unauthorized(message.clone()),
             ApiError::InvalidFrame(message) => ApiError::InvalidFrame(message.clone()),
+            ApiError::FrameMetadataPolicyViolation(message) => {
+                ApiError::FrameMetadataPolicyViolation(message.clone())
+            }
+            ApiError::MissingPromptContractField { agent_id, field } => {
+                ApiError::MissingPromptContractField {
+                    agent_id: agent_id.clone(),
+                    field,
+                }
+            }
             ApiError::ProviderError(message) => ApiError::ProviderError(message.clone()),
             ApiError::ProviderNotConfigured(message) => {
                 ApiError::ProviderNotConfigured(message.clone())

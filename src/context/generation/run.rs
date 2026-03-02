@@ -2,6 +2,7 @@
 //! CLI and other callers use this only; no plan/queue/executor orchestration in adapters.
 
 use crate::api::ContextApi;
+use crate::agent::profile::prompt_contract::PromptContract;
 use crate::context::generation::plan::{
     FailurePolicy, GenerationItem, GenerationNodeType, GenerationPlan, PlanPriority,
 };
@@ -386,12 +387,7 @@ pub fn run_generate(
         .ok_or_else(|| ApiError::NodeNotFound(node_id))?;
     let node_path = node_record.path.to_string_lossy().to_string();
 
-    if !agent.metadata.contains_key("system_prompt") {
-        return Err(ApiError::ConfigError(format!(
-            "Agent '{}' is missing system_prompt. Use `meld agent validate {}` to check agent configuration.",
-            agent_id, agent_id
-        )));
-    }
+    PromptContract::from_agent(&agent)?;
 
     let is_directory_target = matches!(node_record.node_type, NodeType::Directory);
     let recursive = is_directory_target && !request.no_recursive;

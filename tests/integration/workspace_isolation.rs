@@ -74,7 +74,7 @@ fn test_workspace_isolation_data_isolation() {
             children: vec![],
             parent: None,
             frame_set_root: None,
-            metadata: std::collections::HashMap::new(),
+            metadata: Default::default(),
             tombstoned_at: None,
         };
 

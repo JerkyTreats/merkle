@@ -1,6 +1,7 @@
 //! Agent configuration schema owned by the agent domain.
 
 use crate::agent::identity::AgentRole;
+use crate::agent::profile::metadata_types::AgentMetadata;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -29,7 +30,7 @@ pub struct AgentConfig {
 
     /// Agent-specific metadata
     #[serde(default)]
-    pub metadata: HashMap<String, String>,
+    pub metadata: AgentMetadata,
 }
 
 impl AgentConfig {

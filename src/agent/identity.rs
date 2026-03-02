@@ -3,8 +3,8 @@
 //! Runtime identity types used by registry, profile, and CLI.
 
 use crate::error::ApiError;
+use crate::agent::profile::metadata_types::AgentMetadata;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Agent role defining what operations an agent can perform
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,7 +36,7 @@ pub struct AgentIdentity {
     pub capabilities: Vec<Capability>,
     /// Metadata for agent (e.g., system prompts, custom settings)
     #[serde(default)]
-    pub metadata: HashMap<String, String>,
+    pub metadata: AgentMetadata,
 }
 
 impl AgentIdentity {
@@ -51,7 +51,7 @@ impl AgentIdentity {
             agent_id,
             role,
             capabilities,
-            metadata: HashMap::new(),
+            metadata: AgentMetadata::new(),
         }
     }
 

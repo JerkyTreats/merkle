@@ -49,7 +49,7 @@ fn create_test_writer_agent(agent_id: &str) {
         role: AgentRole::Writer,
         system_prompt: Some("You are a test writer.".to_string()),
         system_prompt_path: None,
-        metadata,
+        metadata: metadata.into(),
     };
 
     let toml = toml::to_string_pretty(&agent_config).unwrap();

@@ -1,45 +1,19 @@
 //! Persistence layer for NodeRecord Store
 
 use crate::error::StorageError;
-use crate::store::{NodeRecord, NodeRecordStore, NodeType};
+use crate::store::{NodeRecord, NodeRecordStore};
 use crate::types::NodeID;
 use bincode;
-use serde::{Deserialize, Serialize};
 use sled;
 use std::path::Path;
 use tracing::warn;
 
-/// Legacy NodeRecord without tombstoned_at for backward-compatible deserialization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct NodeRecordLegacy {
-    node_id: NodeID,
-    path: std::path::PathBuf,
-    node_type: NodeType,
-    children: Vec<NodeID>,
-    parent: Option<NodeID>,
-    frame_set_root: Option<crate::types::Hash>,
-    metadata: std::collections::HashMap<String, String>,
-}
-
 fn deserialize_node_record(bytes: &[u8]) -> Result<NodeRecord, StorageError> {
-    if let Ok(record) = bincode::deserialize::<NodeRecord>(bytes) {
-        return Ok(record);
-    }
-    let legacy: NodeRecordLegacy = bincode::deserialize(bytes).map_err(|e| {
+    bincode::deserialize(bytes).map_err(|e| {
         StorageError::IoError(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!("Failed to deserialize node record: {}", e),
         ))
-    })?;
-    Ok(NodeRecord {
-        node_id: legacy.node_id,
-        path: legacy.path,
-        node_type: legacy.node_type,
-        children: legacy.children,
-        parent: legacy.parent,
-        frame_set_root: legacy.frame_set_root,
-        metadata: legacy.metadata,
-        tombstoned_at: None,
     })
 }
 
@@ -369,7 +343,6 @@ impl SledNodeRecordStore {
 mod tests {
     use super::*;
     use crate::store::NodeType;
-    use std::collections::HashMap;
     use tempfile::TempDir;
 
     #[test]
@@ -388,7 +361,7 @@ mod tests {
             children: vec![],
             parent: None,
             frame_set_root: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
             tombstoned_at: None,
         };
 
@@ -429,7 +402,7 @@ mod tests {
             children: vec![],
             parent: None,
             frame_set_root: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
             tombstoned_at: None,
         };
 
@@ -453,7 +426,7 @@ mod tests {
                 children: vec![],
                 parent: None,
                 frame_set_root: None,
-                metadata: HashMap::new(),
+                metadata: Default::default(),
                 tombstoned_at: None,
             },
             NodeRecord {
@@ -466,7 +439,7 @@ mod tests {
                 children: vec![],
                 parent: None,
                 frame_set_root: None,
-                metadata: HashMap::new(),
+                metadata: Default::default(),
                 tombstoned_at: None,
             },
         ];
@@ -502,7 +475,7 @@ mod tests {
             children: vec![],
             parent: None,
             frame_set_root: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
             tombstoned_at: None,
         };
 
@@ -519,7 +492,7 @@ mod tests {
             children: vec![],
             parent: None,
             frame_set_root: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
             tombstoned_at: None,
         };
 
@@ -550,7 +523,7 @@ mod tests {
             children: vec![],
             parent: None,
             frame_set_root: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
             tombstoned_at: None,
         };
         store.put(&record).unwrap();
@@ -583,7 +556,7 @@ mod tests {
             children: vec![],
             parent: None,
             frame_set_root: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
             tombstoned_at: None,
         };
         store.put(&record).unwrap();
@@ -614,7 +587,7 @@ mod tests {
             children: vec![],
             parent: None,
             frame_set_root: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
             tombstoned_at: None,
         };
         store.put(&record).unwrap();
@@ -639,7 +612,7 @@ mod tests {
             children: vec![],
             parent: None,
             frame_set_root: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
             tombstoned_at: None,
         };
         let r2 = NodeRecord {
@@ -652,7 +625,7 @@ mod tests {
             children: vec![],
             parent: None,
             frame_set_root: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
             tombstoned_at: None,
         };
         store.put(&r1).unwrap();
@@ -679,7 +652,7 @@ mod tests {
             children: vec![],
             parent: None,
             frame_set_root: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
             tombstoned_at: None,
         };
         store.put(&valid).unwrap();
@@ -707,7 +680,7 @@ mod tests {
             children: vec![],
             parent: None,
             frame_set_root: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
             tombstoned_at: None,
         };
         let tombstoned = NodeRecord {
@@ -720,7 +693,7 @@ mod tests {
             children: vec![],
             parent: None,
             frame_set_root: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
             tombstoned_at: Some(1),
         };
         store.put(&active).unwrap();
@@ -746,7 +719,7 @@ mod tests {
             children: vec![],
             parent: None,
             frame_set_root: None,
-            metadata: HashMap::new(),
+            metadata: Default::default(),
             tombstoned_at: None,
         };
         store.put(&valid).unwrap();

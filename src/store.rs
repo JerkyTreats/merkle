@@ -3,16 +3,17 @@
 //! Provides fast lookup storage for node metadata and relationships.
 //! Acts as an index into the filesystem Merkle tree.
 
+pub mod node_metadata;
 pub mod persistence;
 
 pub use persistence::SledNodeRecordStore;
 
 use crate::error::StorageError;
+use crate::store::node_metadata::NodeMetadata;
 use crate::tree::node::MerkleNode;
 use crate::tree::Tree;
 use crate::types::{Hash, NodeID};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Node type enumeration
@@ -31,7 +32,7 @@ pub struct NodeRecord {
     pub children: Vec<NodeID>,
     pub parent: Option<NodeID>,
     pub frame_set_root: Option<Hash>,
-    pub metadata: HashMap<String, String>,
+    pub metadata: NodeMetadata,
     /// Timestamp when this node was tombstoned (Unix seconds), or None if active.
     pub tombstoned_at: Option<u64>,
 }
@@ -89,28 +90,21 @@ impl NodeRecord {
         tree: &Tree,
     ) -> Result<Self, StorageError> {
         match node {
-            MerkleNode::File(file) => {
-                Ok(NodeRecord {
-                    node_id,
-                    path: file.path.clone(),
-                    node_type: NodeType::File {
-                        size: file.size,
-                        content_hash: file.content_hash,
-                    },
-                    children: vec![], // Files have no children
-                    parent: tree.find_parent(&node_id),
-                    frame_set_root: None,
-                    metadata: file
-                        .metadata
-                        .iter()
-                        .map(|(k, v)| (k.clone(), v.clone()))
-                        .collect(),
-                    tombstoned_at: None,
-                })
-            }
+            MerkleNode::File(file) => Ok(NodeRecord {
+                node_id,
+                path: file.path.clone(),
+                node_type: NodeType::File {
+                    size: file.size,
+                    content_hash: file.content_hash,
+                },
+                children: vec![],
+                parent: tree.find_parent(&node_id),
+                frame_set_root: None,
+                metadata: file.metadata.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                tombstoned_at: None,
+            }),
             MerkleNode::Directory(dir) => {
-                let children: Vec<NodeID> =
-                    dir.children.iter().map(|(_, node_id)| *node_id).collect();
+                let children: Vec<NodeID> = dir.children.iter().map(|(_, node_id)| *node_id).collect();
 
                 Ok(NodeRecord {
                     node_id,
@@ -119,11 +113,7 @@ impl NodeRecord {
                     children,
                     parent: tree.find_parent(&node_id),
                     frame_set_root: None,
-                    metadata: dir
-                        .metadata
-                        .iter()
-                        .map(|(k, v)| (k.clone(), v.clone()))
-                        .collect(),
+                    metadata: dir.metadata.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
                     tombstoned_at: None,
                 })
             }
